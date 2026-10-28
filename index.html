@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Global POG</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 로그인 -->
+<div id="login" class="login hidden">
+  <form id="login-form" class="login-card">
+    <div class="login-brand">ARTBOX <b>Global POG</b></div>
+    <input id="login-email" type="email" placeholder="이메일" autocomplete="username" required>
+    <input id="login-pw" type="password" placeholder="비밀번호" autocomplete="current-password" required>
+    <button class="btn primary w100" type="submit">로그인</button>
+    <div id="login-err" class="err"></div>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+  <header class="topbar">
+    <div class="brand">ARTBOX <b>Global POG</b></div>
+    <nav id="nav">
+      <button data-view="drawing">1. 도면 번역</button>
+      <button data-view="pog-make">2.1 POG 제작</button>
+      <button data-view="pog-trans">2.2 POG 번역</button>
+      <button data-view="pog-online">2.3 온라인 POG</button>
+      <button data-view="glossary">3. 용어 사전</button>
+      <button data-view="finder">4. 제품 찾기</button>
+    </nav>
+    <div class="me"><span id="me-email"></span><button id="logout" class="link">로그아웃</button></div>
+  </header>
+
+  <!-- 1. 도면 번역 -->
+  <section class="view" id="v-drawing">
+    <div class="soon">
+      <h2>1. 도면 번역</h2>
+      <p>VMD실 도면(SVG)을 올리면 한글 매대명을 뽑아 영문과 연결하고, 한글/영문 도면을 함께 저장하는 화면이에요.</p>
+      <p class="mut">다음 버전에서 추가돼요. VMD실에서 SVG 샘플(글자를 윤곽선으로 바꾸지 않은 것)을 받으면 바로 붙일게요.</p>
+    </div>
+  </section>
+
+  <!-- 2.1 POG 제작 -->
+  <section class="view" id="v-pog-make">
+    <div class="split">
+      <aside class="side-list">
+        <button class="btn primary w100" id="btn-import">+ 새 POG 가져오기</button>
+        <input id="pog-search" class="search" placeholder="매장·지점 검색">
+        <div id="pog-list" class="plist"></div>
+      </aside>
+      <main class="editor">
+        <div class="empty-state" id="editor-empty">왼쪽에서 POG를 선택하거나 새로 가져오세요.</div>
+        <div id="editor-body" class="hidden">
+          <div class="toolbar">
+            <div class="tb-title" id="ed-title"></div>
+            <label class="tb-field">지점명 <input id="ed-branch" placeholder="예: Keruen City점"></label>
+            <label class="tb-field">담당자 <select id="ed-manager"></select></label>
+            <span class="badge" id="ed-status"></span>
+            <span class="saving" id="ed-saving"></span>
+            <div class="tb-right">
+              <button class="btn" id="ed-pdf">PDF 저장</button>
+              <button class="btn primary" id="ed-final">최종 POG 내보내기</button>
+              <button class="btn ghost danger" id="ed-delete">삭제</button>
+            </div>
+          </div>
+          <div class="pages" id="ed-pages"></div>
+        </div>
+      </main>
+    </div>
+  </section>
+
+  <!-- 2.2 POG 번역 -->
+  <section class="view" id="v-pog-trans">
+    <div class="soon">
+      <h2>2.2 POG 번역 파일 제작</h2>
+      <p>최종 POG를 골라 '영어로 변환'을 누르면 용어 사전과 도면 매대명으로 자동 치환하고, 빈 항목만 수기로 채우는 화면이에요.</p>
+      <p class="mut">다음 버전에서 추가돼요. 지금 용어 사전에 단어를 미리 쌓아두면 그대로 쓰여요.</p>
+    </div>
+  </section>
+
+  <!-- 2.3 온라인 POG -->
+  <section class="view" id="v-pog-online">
+    <div class="split">
+      <aside class="side-list">
+        <div class="side-title">최종 POG</div>
+        <input id="on-search" class="search" placeholder="매장·지점 검색">
+        <div id="on-list" class="plist"></div>
+      </aside>
+      <main class="editor">
+        <div class="empty-state" id="viewer-empty">최종 POG를 선택하세요. 제품을 누르면 정보가 떠요.</div>
+        <div id="viewer-body" class="hidden">
+          <div class="toolbar">
+            <div class="tb-title" id="vw-title"></div>
+            <div class="tb-right"><button class="btn" id="vw-pdf">PDF 저장</button></div>
+          </div>
+          <div class="pages" id="vw-pages"></div>
+        </div>
+      </main>
+    </div>
+  </section>
+
+  <!-- 3. 용어 사전 -->
+  <section class="view" id="v-glossary">
+    <div class="gl-wrap">
+      <h2>3. 용어 사전</h2>
+      <p class="mut">여기 등록한 단어는 POG 입력칸의 선택지로 쓰이고, 영문 변환 때 자동 치환에 쓰여요. 칸을 고치면 바로 저장돼요.</p>
+      <div class="gl-tabs" id="gl-tabs"></div>
+      <form id="gl-add" class="gl-add">
+        <input name="ko" placeholder="한국어" required>
+        <input name="en" placeholder="English">
+        <button class="btn primary">추가</button>
+      </form>
+      <table class="gl-table">
+        <thead><tr><th>한국어</th><th>English</th><th></th></tr></thead>
+        <tbody id="gl-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 4. 제품 찾기 -->
+  <section class="view" id="v-finder">
+    <div class="soon">
+      <h2>4. 제품 찾기</h2>
+      <p>카메라로 바코드를 찍으면 제품 정보와 함께 해당 매장의 POG 위치, 도면 위치를 보여주는 화면이에요. 도면과 POG가 모두 있는 매장만 선택할 수 있어요.</p>
+      <p class="mut">다음 버전에서 추가돼요. POG 데이터에 이미 제품코드와 위치가 저장되고 있어서, 제품 DB(바코드↔제품코드)만 연결하면 돼요.</p>
+    </div>
+  </section>
+</div>
+
+<datalist id="dl-fixtureType"></datalist>
+<div id="modal-root"></div>
+<div id="toast"></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
