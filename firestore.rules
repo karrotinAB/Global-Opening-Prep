@@ -1,9 +1,46 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 로그인한 사람만 읽고 쓸 수 있음
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+    // 계정 레벨: roles/{이메일} 문서의 level = admin | editor | finder
+    // 문서가 없는 계정은 finder (제품 찾기만, 읽기 전용)
+    function signedIn() { return request.auth != null && request.auth.token.email != null; }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function level() {
+      let p = /databases/$(database)/documents/roles/$(myEmail());
+      return exists(p) ? get(p).data.level : 'finder';
     }
+    function isAdmin() { return signedIn() && level() == 'admin'; }
+    function isEditor() { return signedIn() && level() in ['admin', 'editor']; }
+
+    // 레벨 목록: 내 것은 읽을 수 있고, 관리자만 전체 읽기·수정
+    match /roles/{email} {
+      allow read: if signedIn() && (email == myEmail() || isAdmin());
+      allow write: if isAdmin()
+                   && (request.resource == null || request.resource.data.level in ['admin', 'editor', 'finder']);
+    }
+
+    // POG: 로그인하면 읽기(제품 찾기에 필요), 수정은 편집 이상만
+    match /pogs/{pogId} {
+      allow read: if signedIn();
+      allow write: if isEditor();
+      match /fixtures/{fxId} {
+        allow read: if signedIn();
+        allow write: if isEditor();
+      }
+    }
+
+    // 도면 (다음 버전): POG와 같은 규칙
+    match /drawings/{drawingId} {
+      allow read: if signedIn();
+      allow write: if isEditor();
+      match /{sub=**} {
+        allow read: if signedIn();
+        allow write: if isEditor();
+      }
+    }
+
+    // 용어 사전·담당자 목록: 편집 이상만
+    match /glossary/{id} { allow read, write: if isEditor(); }
+    match /managers/{id} { allow read, write: if isEditor(); }
   }
 }

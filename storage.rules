@@ -1,10 +1,16 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // 로그인한 사람만, 파일 하나당 10MB까지
+    // 읽기: 로그인한 사람 / 올리기·지우기: 편집 레벨 이상만, 파일 하나당 10MB까지
+    // (레벨은 Firestore의 roles/{이메일} 문서에서 읽음)
+    function isEditor() {
+      return request.auth != null && request.auth.token.email != null
+        && firestore.exists(/databases/(default)/documents/roles/$(request.auth.token.email.lower()))
+        && firestore.get(/databases/(default)/documents/roles/$(request.auth.token.email.lower())).data.level in ['admin', 'editor'];
+    }
     match /{allPaths=**} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null
+      allow write: if isEditor()
                    && (request.resource == null || request.resource.size < 10 * 1024 * 1024);
     }
   }

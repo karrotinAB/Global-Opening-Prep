@@ -24,17 +24,67 @@
 
 <div id="app" class="hidden">
   <header class="topbar">
-    <div class="brand">ARTBOX <b>Global POG</b></div>
+    <button class="brand link-brand" data-go="home" title="처음 화면">ARTBOX <b>Global POG</b></button>
     <nav id="nav">
-      <button data-view="drawing">1. 도면 번역</button>
-      <button data-view="pog-make">2.1 POG 제작</button>
-      <button data-view="pog-trans">2.2 POG 번역</button>
-      <button data-view="pog-online">2.3 온라인 POG</button>
-      <button data-view="glossary">3. 용어 사전</button>
+      <button data-view="home" data-need="editor">홈</button>
+      <button data-view="drawing" data-need="editor">1. 도면</button>
+      <button data-view="pog-home" data-group="pog-" data-need="editor">2. POG</button>
+      <button data-view="glossary" data-need="editor">3. 용어 사전</button>
       <button data-view="finder">4. 제품 찾기</button>
+      <span class="subnav" id="subnav" data-need="editor">
+        <button data-view="pog-make">POG 만들기</button>
+        <button data-view="pog-trans">POG 번역</button>
+        <button data-view="pog-online">온라인 POG</button>
+      </span>
     </nav>
-    <div class="me"><span id="me-email"></span><button id="logout" class="link">로그아웃</button></div>
+    <div class="me"><span id="me-email"></span><span id="me-level" class="lvl"></span><button class="link" data-view="accounts" data-need="admin" id="btn-accounts">계정 관리</button><button id="logout" class="link">로그아웃</button></div>
   </header>
+
+  <!-- 처음 화면 -->
+  <section class="view" id="v-home">
+    <div class="home">
+      <div class="tiles">
+        <button class="tile" data-go="drawing">
+          <svg viewBox="0 0 48 48"><rect x="7" y="9" width="34" height="30" rx="2"/><path d="M7 22h12M27 9v12M27 29v10"/><rect class="a" x="12" y="27" width="9" height="6"/><rect class="a" x="31" y="14" width="6" height="4"/></svg>
+          <span>도면</span>
+        </button>
+        <button class="tile" data-go="pog-home">
+          <svg viewBox="0 0 48 48"><rect x="9" y="7" width="30" height="34" rx="1"/><path d="M9 19h30M9 31h30"/><rect class="a" x="13" y="12" width="5" height="7"/><rect class="a" x="21" y="10" width="5" height="9"/><rect class="a" x="13" y="24" width="6" height="7"/><rect class="a" x="23" y="25" width="5" height="6"/><rect class="a" x="31" y="23" width="4" height="8"/></svg>
+          <span>POG</span>
+        </button>
+        <button class="tile" data-go="glossary">
+          <svg viewBox="0 0 48 48"><path d="M10 9h22a4 4 0 0 1 4 4v26H14a4 4 0 0 1-4-4z"/><path d="M10 35a4 4 0 0 1 4-4h22"/><path class="a" d="M17 16h12M17 22h8"/></svg>
+          <span>용어 사전</span>
+        </button>
+        <button class="tile" data-go="finder">
+          <svg viewBox="0 0 48 48"><path d="M8 15V9h6M34 9h6v6M40 33v6h-6M14 39H8v-6"/><path d="M15 16v16M19 16v16M24 16v16M28 16v16M33 16v16"/><path class="a" d="M10 24h28"/></svg>
+          <span>제품 찾기</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. POG 선택 -->
+  <section class="view" id="v-pog-home">
+    <div class="home">
+      <div class="home-title">POG</div>
+      <div class="tiles three">
+        <button class="tile" data-go="pog-make">
+          <svg viewBox="0 0 48 48"><path d="M13 8h16l7 7v25H13z"/><path d="M29 8v7h7"/><path class="a" d="M19 33l2-6 9-9 4 4-9 9z"/></svg>
+          <span>POG 만들기</span><small>POG팀</small>
+        </button>
+        <button class="tile" data-go="pog-trans">
+          <svg viewBox="0 0 48 48"><rect x="6" y="8" width="20" height="15" rx="3"/><path d="M11 23v5l5-5M11 15h10"/><rect class="a" x="22" y="21" width="20" height="15" rx="3"/><path class="a" d="M37 36v5l-5-5M27 28h10"/></svg>
+          <span>POG 번역</span><small>글로벌사업부</small>
+        </button>
+        <button class="tile" data-go="pog-online">
+          <svg viewBox="0 0 48 48"><rect x="6" y="9" width="36" height="24" rx="2"/><path d="M18 40h12M24 33v7"/><path class="a" d="M14 27v-7h5v7M22 27V17h5v10M30 27v-5h5v5"/></svg>
+          <span>온라인 POG</span><small>최종본 보기</small>
+        </button>
+      </div>
+      <button class="link back" data-go="home">← 처음 화면으로</button>
+    </div>
+  </section>
 
   <!-- 1. 도면 번역 -->
   <section class="view" id="v-drawing">
@@ -108,15 +158,22 @@
   <section class="view" id="v-glossary">
     <div class="gl-wrap">
       <h2>3. 용어 사전</h2>
-      <p class="mut">여기 등록한 단어는 POG 입력칸의 선택지로 쓰이고, 영문 변환 때 자동 치환에 쓰여요. 칸을 고치면 바로 저장돼요.</p>
+      <p class="mut">여기 등록한 단어는 POG 입력칸의 선택지로 쓰이고, 영문 변환 때 자동 치환에 쓰여요. 검색해서 찾은 단어도 칸을 고치면 바로 저장돼요.</p>
+      <div class="gl-search">
+        <input id="gl-q" class="search" placeholder="저장된 단어 검색 (한국어·영어, 전체 분류에서 찾아요)" autocomplete="off">
+        <button class="btn ghost small hidden" id="gl-q-clear" type="button">지우기</button>
+      </div>
       <div class="gl-tabs" id="gl-tabs"></div>
       <form id="gl-add" class="gl-add">
-        <input name="ko" placeholder="한국어" required>
-        <input name="en" placeholder="English">
+        <select name="cat" id="gl-add-cat"></select>
+        <input name="ko" placeholder="한국어" required autocomplete="off">
+        <input name="en" placeholder="English" autocomplete="off">
         <button class="btn primary">추가</button>
       </form>
+      <div id="gl-hint" class="gl-hint"></div>
+      <div id="gl-info" class="gl-info"></div>
       <table class="gl-table">
-        <thead><tr><th>한국어</th><th>English</th><th></th></tr></thead>
+        <thead id="gl-head"></thead>
         <tbody id="gl-body"></tbody>
       </table>
     </div>
@@ -128,6 +185,28 @@
       <h2>4. 제품 찾기</h2>
       <p>카메라로 바코드를 찍으면 제품 정보와 함께 해당 매장의 POG 위치, 도면 위치를 보여주는 화면이에요. 도면과 POG가 모두 있는 매장만 선택할 수 있어요.</p>
       <p class="mut">다음 버전에서 추가돼요. POG 데이터에 이미 제품코드와 위치가 저장되고 있어서, 제품 DB(바코드↔제품코드)만 연결하면 돼요.</p>
+    </div>
+  </section>
+  <!-- 계정 관리 (관리자만) -->
+  <section class="view" id="v-accounts">
+    <div class="gl-wrap">
+      <h2>계정 관리</h2>
+      <p class="mut">계정(이메일·비밀번호)은 Firebase 콘솔에서 만들고, 여기서는 계정마다 레벨만 정해요.<br>
+        레벨을 정하지 않은 계정은 <b>제품 찾기만</b>으로 동작해요.</p>
+      <ul class="lv-help">
+        <li><b>관리자</b> · 모든 메뉴 + 계정 관리</li>
+        <li><b>편집</b> · 모든 메뉴 (POG 만들기·번역, 도면, 용어 사전)</li>
+        <li><b>제품 찾기만</b> · 4. 제품 찾기만 보이고 아무것도 수정할 수 없어요</li>
+      </ul>
+      <form id="acc-add" class="gl-add">
+        <input name="email" type="email" placeholder="이메일 (Firebase에 만든 계정)" required autocomplete="off">
+        <select name="level" id="acc-add-level"></select>
+        <button class="btn primary">추가</button>
+      </form>
+      <table class="gl-table">
+        <thead><tr><th>이메일</th><th>레벨</th><th></th></tr></thead>
+        <tbody id="acc-body"></tbody>
+      </table>
     </div>
   </section>
 </div>

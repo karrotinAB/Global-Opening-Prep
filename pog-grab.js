@@ -54,30 +54,43 @@
     return { items, props };
   }
 
-  /* 숨은 창으로 매대 보기 화면을 열어 다 그려질 때까지 기다린 뒤 읽기 */
-  function loadFrame(url) {
+  /* 숨은 창으로 매대 보기 화면을 열어 다 그려질 때까지 기다린 뒤 읽기.
+     expected = 목록 화면의 ITEM 수. 제품이 하나씩 불려오므로 그 수에 닿을 때까지 기다린다. */
+  function loadFrame(url, expected, timeoutMs) {
     return new Promise(resolve => {
       const f = document.createElement('iframe');
       f.style.cssText = 'position:fixed;left:-30000px;top:0;width:1800px;height:1400px;border:0;visibility:hidden';
       let done = false;
-      const finish = d => { if (done) return; done = true; f.remove(); resolve(d); };
+      const read = () => { try { return scrapeDoc(f.contentDocument); } catch (e) { return { items: [], props: [], error: String(e) }; } };
+      const finish = d => { if (done) return; done = true; clearTimeout(timer); f.remove(); resolve(d); };
+      const timer = setTimeout(() => {
+        const d = read();
+        const got = d.items.length;
+        finish({ ...d, error: expected && got < expected ? `시간 초과 (${got}/${expected})` : (got || d.props.length ? '' : '시간 초과') });
+      }, timeoutMs);
       f.onload = async () => {
         let last = -1, stable = 0;
-        for (let i = 0; i < 48; i++) {
-          await sleep(250);
-          let n = 0;
-          try { n = f.contentDocument.querySelectorAll('div[id^="obj"],div[id^="prop"]').length; } catch (e) { }
+        while (!done) {
+          await sleep(300);
+          let n = 0, items = 0;
+          try {
+            items = f.contentDocument.querySelectorAll('div[id^="obj"]').length;
+            n = items + f.contentDocument.querySelectorAll('div[id^="prop"]').length;
+          } catch (e) { }
           if (n === last) stable++; else stable = 0;
           last = n;
-          if ((n > 0 && stable >= 4) || (n === 0 && stable >= 12)) break;
+          if (expected && items >= expected && stable >= 3) break;      // 목록 수만큼 다 왔음
+          if (!expected && n > 0 && stable >= 10) break;              // 기대 수를 모르면 3초간 변화 없을 때
+          if (n === 0 && stable >= 40) break;                          // 12초 동안 아무것도 없음
+          if (expected && items > 0 && items < expected && stable >= 50) break; // 15초간 멈춤 → 있는 만큼
         }
-        try { finish(scrapeDoc(f.contentDocument)); } catch (e) { finish({ items: [], props: [], error: String(e) }); }
+        finish(read());
       };
-      setTimeout(() => finish({ items: [], props: [], error: '시간 초과' }), 25000);
       f.src = url;
       document.body.appendChild(f);
     });
   }
+  const isShort = t => !t.data || t.data.error || (t.itemCount && t.data.items.length < t.itemCount);
 
   /* ---------- 매대 목록 표 읽기 ---------- */
   const num = v => { const m = String(v ?? '').match(/-?\d+/); return m ? Number(m[0]) : null; };
@@ -160,23 +173,27 @@
     const enc = encodeURIComponent;
     const mdUrl = t => t.url || new URL(`md.aspx?iv_saup_gubn=${enc(store.saup)}&iv_store_code=${enc(store.code)}&iv_store_name=${enc(store.name)}&iv_teamname=${enc(t.teamName)}&iv_mdname=${enc(t.mdName)}&iv_mdidx=${t.mdidx}`, location.href).href;
 
-    let doneN = 0;
-    const todo = targets.filter(t => !t.data);
     const total = targets.length;
-    const tick = () => { $msg.textContent = `매대 읽는 중… ${doneN} / ${total}`; $bar.style.width = (doneN / total * 100) + '%'; };
-    doneN = total - todo.length; tick();
-    // 3개씩 동시에
-    let qi = 0;
-    await Promise.all([0, 1, 2].map(async () => {
-      while (qi < todo.length) {
-        const t = todo[qi++];
-        t.data = await loadFrame(mdUrl(t));
-        doneN++; tick();
-      }
-    }));
+    const tick = (n, label) => { $msg.textContent = `${label} ${n} / ${total}`; $bar.style.width = (n / total * 100) + '%'; };
+    // 여러 매대를 동시에 열기 (n개씩)
+    async function runAll(list, conc, timeoutMs, label) {
+      let qi = 0, doneN = total - list.length; tick(doneN, label);
+      await Promise.all(Array.from({ length: conc }, async () => {
+        while (qi < list.length) {
+          const t = list[qi++];
+          const d = await loadFrame(mdUrl(t), t.itemCount, timeoutMs);
+          if (!t.data || d.items.length >= t.data.items.length) t.data = d; // 더 많이 읽은 쪽을 남김
+          doneN++; tick(doneN, label);
+        }
+      }));
+    }
+    await runAll(targets.filter(t => !t.data), 3, 60000, '매대 읽는 중…');
+    // 실패하거나 덜 읽힌 매대는 하나씩 천천히 다시
+    const retry = targets.filter(isShort);
+    if (retry.length) { $msg.textContent = `다시 읽는 중… (${retry.length}개)`; await runAll(retry, 1, 120000, `다시 읽는 중 (${retry.length}개)…`); }
 
     const countKind = (props, re) => props.filter(p => re.test(p.kind)).length;
-    const fixtures = targets.map(t => {
+    const build = () => targets.map(t => {
       const d = t.data || { items: [], props: [] };
       return {
         mdidx: t.mdidx, teamName: t.teamName, mdName: t.mdName,
@@ -186,21 +203,31 @@
         items: d.items, props: d.props, error: d.error || '',
       };
     });
-
-    const json = JSON.stringify({ source: 'pog.artbox.kr', ver: 1, storeCode: store.code, storeName: store.name, grabbedAt: new Date().toISOString(), fixtures });
-    const warnN = fixtures.filter(f => f.error || (f.itemCount !== null && f.itemCount !== f.items.length)).length;
-    $msg.innerHTML = `<b>${esc(store.name)} (${esc(store.code)})</b> · 매대 ${fixtures.length}개 완료` + (warnN ? ` · <span class="w">확인 필요 ${warnN}개</span>` : '');
-    $bar.style.width = '100%';
-    $out.innerHTML = `<table><tr><th>매대명</th><th>제품</th><th>선반</th><th>파이프</th><th></th></tr>${fixtures.map(f => {
-      const mis = f.itemCount !== null && f.itemCount !== f.items.length;
-      return `<tr><td>${esc(f.mdName)}</td><td>${f.items.length}${mis ? ` <span class="w">(목록 ${f.itemCount})</span>` : ''}</td><td>${f.shelfCount ?? ''}</td><td>${f.pipeCount ?? ''}</td><td class="w">${esc(f.error)}</td></tr>`;
-    }).join('')}</table><textarea readonly></textarea>`;
-    const ta = $out.querySelector('textarea'); ta.value = json;
-    setActs(['복사하기', 'p', async e => {
-      try { await navigator.clipboard.writeText(json); }
-      catch { ta.select(); document.execCommand('copy'); }
-      e.target.textContent = '복사됨 ✓ 이제 POG 사이트에 붙여넣으세요';
-    }], ['닫기', 'g', close]);
+    const show = () => {
+      const fixtures = build();
+      const json = JSON.stringify({ source: 'pog.artbox.kr', ver: 1, storeCode: store.code, storeName: store.name, grabbedAt: new Date().toISOString(), fixtures });
+      const warn = targets.filter(isShort);
+      $msg.innerHTML = `<b>${esc(store.name)} (${esc(store.code)})</b> · 매대 ${fixtures.length}개 완료` + (warn.length ? ` · <span class="w">확인 필요 ${warn.length}개</span>` : '');
+      $bar.style.width = '100%';
+      $out.innerHTML = `<table><tr><th>매대명</th><th>제품</th><th>선반</th><th>파이프</th><th></th></tr>${fixtures.map(f => {
+        const mis = f.itemCount !== null && f.itemCount !== f.items.length;
+        return `<tr><td>${esc(f.mdName)}</td><td>${f.items.length}${mis ? ` <span class="w">(목록 ${f.itemCount})</span>` : ''}</td><td>${f.shelfCount ?? ''}</td><td>${f.pipeCount ?? ''}</td><td class="w">${esc(f.error)}</td></tr>`;
+      }).join('')}</table><textarea readonly></textarea>`;
+      const ta = $out.querySelector('textarea'); ta.value = json;
+      const acts = [['복사하기', 'p', async e => {
+        try { await navigator.clipboard.writeText(json); }
+        catch { ta.select(); document.execCommand('copy'); }
+        e.target.textContent = '복사됨 ✓ 이제 Global POG에 붙여넣으세요';
+      }]];
+      if (warn.length) acts.push([`확인 필요 ${warn.length}개 다시 읽기`, 'g', async () => {
+        setActs(); $out.innerHTML = '';
+        await runAll(warn, 1, 180000, `다시 읽는 중 (${warn.length}개)…`);
+        show();
+      }]);
+      acts.push(['닫기', 'g', close]);
+      setActs(...acts);
+    };
+    show();
   } catch (err) {
     $msg.innerHTML = `<span class="w">${esc(err.message || err)}</span>`;
     setActs(['닫기', 'g', close]);
