@@ -48,6 +48,7 @@
       price: Number(el.dataset.amtk || 0),
       group: el.dataset.groupname || '',
       img: bgUrl(el),
+      z: parseInt(win.getComputedStyle(el).zIndex, 10) || 0, // 겹칠 때 앞뒤 (POG 사이트와 같게)
       x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight,
     }));
     const props = [...doc.querySelectorAll('div[id^="prop"]')].filter(el => /^prop\d+$/.test(el.id)).map(el => ({
@@ -58,7 +59,24 @@
       color: win.getComputedStyle(el).backgroundColor,
       x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight,
     }));
-    return { items, props };
+    // 배경판: 제품·집기와 같은 판 위에 있는 색 있는 div (예: 매대 옆 회색 판, 칸 사이 기둥)
+    const panels = [];
+    const first = doc.querySelector('div[id^="obj"]') || doc.querySelector('div[id^="prop"]');
+    const box = first && first.offsetParent;
+    if (box) {
+      const br = box.getBoundingClientRect();
+      for (const el of box.querySelectorAll('div')) {
+        if (/^(obj|prop)\d+$/.test(el.id) || el.closest('div[id^="obj"], div[id^="prop"]') || el.querySelector('div[id^="obj"], div[id^="prop"]')) continue;
+        const cs = win.getComputedStyle(el), c = cs.backgroundColor;
+        if (!c || /rgba\(0, 0, 0, 0\)|transparent|rgb\(255, 255, 255\)/.test(c) || cs.display === 'none') continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 4 || r.height < 40 || r.width > br.width * 0.95) continue;
+        panels.push({ id: el.id || '', cls: (el.className || '').toString().split(' ')[0], color: c,
+          x: Math.round(r.left - br.left - box.clientLeft), y: Math.round(r.top - br.top - box.clientTop), w: Math.round(r.width), h: Math.round(r.height) });
+        if (panels.length >= 200) break;
+      }
+    }
+    return { items, props, panels };
   }
 
   /* 숨은 창으로 매대 보기 화면을 열어 다 그려질 때까지 기다린 뒤 읽기.
@@ -208,7 +226,7 @@
         shelfCount: t.shelfCount ?? countKind(d.props, /선반/),
         pipeCount: t.pipeCount ?? countKind(d.props, /파이프/),
         itemCount: t.itemCount ?? d.items.length,
-        items: d.items, props: d.props, error: d.error || '',
+        items: d.items, props: d.props, panels: d.panels || [], error: d.error || '',
       };
     });
     const show = () => {

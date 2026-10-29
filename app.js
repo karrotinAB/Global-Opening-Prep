@@ -204,10 +204,16 @@ const savePog = (pogId, f, v) => queueWrite(`${pogId}|${f}`, () =>
   updateDoc(doc(db, 'pogs', pogId), { [f]: v, updatedAt: serverTimestamp() }));
 
 /* ---------- 매대 그리기 ---------- */
+// 겹친 제품의 앞뒤: POG 사이트 값(it.z), POG 만들기에서 '맨 앞으로/맨 뒤로' 한 값(fx.itemZ)이 우선
+const itemZ = (fx, it) => 1000 + (fx.itemZ?.[it.id] ?? it.z ?? 0);
+function applyItemZ(block, fx) {
+  const byId = new Map((fx.items || []).map(it => [String(it.id), it]));
+  block.querySelectorAll('.page .cv-item').forEach(el => { const it = byId.get(el.dataset.id); if (it) el.style.zIndex = itemZ(fx, it); });
+}
 function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
-  const items = fx.items || [], props = fx.props || [];
+  const items = fx.items || [], props = fx.props || [], panels = fx.panels || [];
   const wrap = h('div', { class: 'cv', style: `width:${W}px;height:${H}px` });
-  const objs = [...props, ...items];
+  const objs = [...panels, ...props, ...items];
   if (!objs.length) { wrap.append(h('div', { class: 'cv-empty' }, '매대 데이터 없음')); return wrap; }
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const o of objs) {
@@ -217,14 +223,24 @@ function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
   const pad = 8, bw = x1 - x0 + pad * 2, bh = y1 - y0 + pad * 2;
   const sc = Math.min(W / bw, H / bh);
   const inner = h('div', { class: 'cv-in', style: `width:${bw}px;height:${bh}px;left:${(W - bw * sc) / 2}px;transform:scale(${sc})` });
+  // 매대 뒤 회색 바탕: 선반·파이프·배경판의 가로 범위 × 전체 높이
+  const frame = [...props, ...panels.filter(p => p.w >= 40)];
+  if (frame.length) {
+    const fx0 = Math.min(...frame.map(o => o.x)), fx1 = Math.max(...frame.map(o => o.x + o.w));
+    inner.append(h('div', { class: 'cv-back', style: `left:${fx0 - x0 + pad}px;top:${pad}px;width:${fx1 - fx0}px;height:${y1 - y0}px` }));
+  }
+  for (const p of panels) {
+    const color = p.color && !/rgba\(0, 0, 0, 0\)|transparent/.test(p.color) ? p.color : '#cfcfcf';
+    inner.append(h('div', { class: 'cv-panel', style: `left:${p.x - x0 + pad}px;top:${p.y - y0 + pad}px;width:${p.w}px;height:${p.h}px;background:${color}` }));
+  }
   for (const p of props) {
     const color = p.color && !/rgba\(0, 0, 0, 0\)|transparent/.test(p.color) ? p.color : '#7d7d7d';
     inner.append(h('div', { class: 'cv-prop', title: p.kind || '',
       style: `left:${p.x - x0 + pad}px;top:${p.y - y0 + pad}px;width:${p.w}px;height:${Math.max(p.h || 0, 4)}px;background:${color}` }));
   }
   for (const it of items) {
-    const el = h('div', { class: 'cv-item' + (onItem ? ' click' : ''), 'data-code': it.code, title: `[${it.code}] ${it.name}`,
-      style: `left:${it.x - x0 + pad}px;top:${it.y - y0 + pad}px;width:${it.w}px;height:${it.h}px` },
+    const el = h('div', { class: 'cv-item' + (onItem ? ' click' : ''), 'data-code': it.code, 'data-id': it.id, title: `[${it.code}] ${it.name}`,
+      style: `left:${it.x - x0 + pad}px;top:${it.y - y0 + pad}px;width:${it.w}px;height:${it.h}px;z-index:${itemZ(fx, it)}` },
       it.img ? h('img', { src: it.img, alt: '', referrerpolicy: 'no-referrer', loading: lazy ? 'lazy' : null }) : h('span', {}, it.name));
     if (onItem) el.onclick = () => onItem(it, fx);
     inner.append(el);
@@ -375,7 +391,10 @@ function finishBlock(fx, pog, page, extra, editable) {
   block.append(page, extra);
   if (editable) page.addEventListener('pointerdown', e => {
     setEdActive(fx.id);
-    if (!e.target.closest('.nt, .nh')) selectNote(block, null);
+    if (e.target.closest('.nt, .nh')) return;
+    selectNote(block, null);
+    const item = e.target.closest('.cv-item');
+    selectItem(block, item ? item.dataset.id : null);
   });
   renderNotes(block);
   return block;
@@ -617,6 +636,7 @@ function syncPage(block, fx, pog) {
   $('.pf-branch', block).textContent = footStore(pog);
   $('.pe-name', block).textContent = displayName(fx);
   const memo = $('.pe-memo', block); if (memo) memo.textContent = fx.memo || '';
+  if (!pendingKey(`${fx.id}|itemZ`)) applyItemZ(block, fx);
   renderPhotos(block, pog.id, fx);
   const typing = !!block._bar && block._bar.querySelector('.nb-text') === document.activeElement;
   if (!block._dragging && !typing && !pendingKey(`${fx.id}|notes`) && JSON.stringify(fx.notes || []) !== JSON.stringify(block._notes)) {
@@ -753,6 +773,22 @@ function renderEditorPages() {
   renderSidePanel();
 }
 
+// 제품 선택 (앞뒤 순서 바꾸기용)
+function selectItem(block, id) {
+  if ((block._selItem || null) === (id || null)) return;
+  block._selItem = id || null;
+  block.querySelectorAll('.cv-item.isel').forEach(el => el.classList.remove('isel'));
+  if (id) block.querySelector(`.page .cv-item[data-id="${CSS.escape(id)}"]`)?.classList.add('isel');
+  renderSidePanel();
+}
+function moveItemZ(pogId, fx, id, dir) {
+  const zs = (fx.items || []).map(it => fx.itemZ?.[it.id] ?? it.z ?? 0);
+  const map = { ...(fx.itemZ || {}), [id]: dir > 0 ? Math.max(...zs) + 1 : Math.min(...zs) - 1 };
+  fx.itemZ = map; // 바로 보이게
+  const block = state.pageEls.get(fx.id); if (block) applyItemZ(block, fx);
+  saveFx(pogId, fx.id, 'itemZ', map);
+}
+
 /* ---------- 오른쪽 편집 패널: 지금 보고 있는 페이지의 메모 도구·메모·사진·페이지 버튼 ---------- */
 function setEdActive(id) {
   if (state.edActive === id) return;
@@ -780,6 +816,12 @@ function renderSidePanel() {
       h('span', { class: 'mut' }, free ? '추가 페이지' : `POG 원본: ${origName(fx)} · 제품 ${(fx.items || []).length}개`)));
     if (out) nodes.push(h('div', { class: 'se-warn' }, `매대 밖이라 뺀 제품 ${out}개`,
       ed ? btn('되살리기', () => restoreOutside(pog.id, fx), 'ghost') : null));
+    const selIt = block._selItem && (fx.items || []).find(it => String(it.id) === block._selItem);
+    if (ed && selIt) nodes.push(sec('선택한 제품', h('div', { class: 'se-item' }, selIt.img ? h('img', { src: selIt.img, alt: '', referrerpolicy: 'no-referrer' }) : null,
+      h('div', {}, h('b', {}, selIt.name), h('div', { class: 'mut' }, selIt.code))),
+      h('div', { class: 'se-btns' }, btn('맨 앞으로', () => moveItemZ(pog.id, fx, selIt.id, 1)), btn('맨 뒤로', () => moveItemZ(pog.id, fx, selIt.id, -1)),
+        btn('선택 해제', () => selectItem(block, null), 'ghost')),
+      h('p', { class: 'se-help' }, '겹친 제품 중 어느 것이 앞에 보일지만 바꿔요. 위치는 그대로예요.')));
     if (ed && block._bar) nodes.push(sec('메모 넣기', block._bar));
     if (!free) {
       const ta = h('textarea', { class: 'se-memo', rows: 4, placeholder: ed ? '이 매대에 대한 메모 (선택)' : '', disabled: !ed });
@@ -905,39 +947,48 @@ function openImport() {
   };
 }
 /* POG 사이트의 매대 한 줄에 칸(매대)이 좌우로 여러 개 있으면 칸마다 나눈다.
-   선반(집기)의 가로 범위가 겹치는 것끼리 한 칸으로 묶고, 제품은 가운데 위치가 속한 칸에 넣는다.
-   expected = 목록의 '매대수' (모르면 null). 1이면 나누지 않음. */
-function splitBays(items, props, expected) {
-  if (expected === 1) return [{ items, props }];
-  const ranges = src => {
-    const iv = src.filter(o => o.w > 0).map(o => [o.x, o.x + o.w]).sort((a, b) => a[0] - b[0]);
-    const out = [];
-    for (const [a, b] of iv) { const last = out[out.length - 1]; if (last && a <= last[1] + 6) last[1] = Math.max(last[1], b); else out.push([a, b]); }
-    return out;
-  };
-  let bays = ranges(props);
+   칸 기준: 선반·파이프와 넓은 배경판(panels, 예: 옆의 회색 판). 가로 범위가 **반 이상 겹치는 것끼리** 한 칸.
+   맞닿기만 한 것은 다른 칸이다 (예전엔 맞닿아도 합쳐서, 칸 3개가 붙어 있는 매대가 한 페이지로 뭉쳤음).
+   여러 칸에 걸친 긴 집기는 칸을 정하는 데 쓰지 않고, 가운데 위치로 한 칸에 넣는다.
+   expected = 목록의 '매대수' (집기로 못 나눌 때만 제품 사이 빈 곳으로 나누는 데 씀) */
+function clusterX(objs) {
+  if (!objs.length) return [];
+  const ws = objs.map(o => o.w).sort((a, b) => a - b), med = ws[Math.floor(ws.length / 2)];
+  const iv = objs.filter(o => o.w <= med * 1.6).map(o => [o.x, o.x + o.w]).sort((a, b) => a[0] - b[0]);
+  const out = [];
+  for (const [a, b] of iv) {
+    const last = out[out.length - 1];
+    if (last && Math.min(last[1], b) - Math.max(last[0], a) > 0.5 * Math.min(b - a, last[1] - last[0])) { last[1] = Math.max(last[1], b); continue; }
+    out.push([a, b]);
+  }
+  return out;
+}
+function splitBays(items, props, expected, panels = []) {
+  const base = [...props, ...panels.filter(p => p.w >= 40)].filter(o => o.w > 0);
+  let bays = clusterX(base);
   // 집기로 못 나누면 제품 위치로 (칸 사이가 40px 이상 비어 있을 때만)
   if (bays.length < 2 && expected > 1 && items.length) {
-    const r = ranges(items), merged = [];
-    for (const x of r) { const last = merged[merged.length - 1]; if (last && x[0] - last[1] < 40) last[1] = Math.max(last[1], x[1]); else merged.push([...x]); }
+    const iv = items.filter(o => o.w > 0).map(o => [o.x, o.x + o.w]).sort((a, b) => a[0] - b[0]), merged = [];
+    for (const x of iv) { const last = merged[merged.length - 1]; if (last && x[0] - last[1] < 40) last[1] = Math.max(last[1], x[1]); else merged.push([...x]); }
     if (merged.length > 1) bays = merged;
   }
-  if (bays.length < 2) return [{ items, props }];
+  if (bays.length < 2) return [{ items, props, panels }];
   const at = o => {
     const cx = o.x + (o.w || 0) / 2;
     let best = 0, bd = Infinity;
     bays.forEach(([a, b], i) => { const d = cx < a ? a - cx : cx > b ? cx - b : 0; if (d < bd) { bd = d; best = i; } });
     return best;
   };
-  let groups = bays.map(() => ({ items: [], props: [] }));
+  let groups = bays.map(() => ({ items: [], props: [], panels: [] }));
   items.forEach(o => groups[at(o)].items.push(o));
   props.forEach(o => groups[at(o)].props.push(o));
+  panels.forEach(o => groups[at(o)].panels.push(o));
   // 제품이 하나도 없는 좁은 조각(옆에 붙은 작은 집기 등)은 옆 칸에 합침
   const maxW = Math.max(...bays.map(([a, b]) => b - a));
   for (let i = groups.length - 1; i >= 0 && groups.length > 1; i--) {
     if (groups[i].items.length || bays[i][1] - bays[i][0] >= maxW * 0.4) continue;
     const j = i > 0 ? i - 1 : 1;
-    groups[j].props.push(...groups[i].props);
+    groups[j].props.push(...groups[i].props); groups[j].panels.push(...groups[i].panels);
     groups.splice(i, 1); bays.splice(i, 1);
   }
   return groups;
@@ -947,9 +998,9 @@ function splitBays(items, props, expected) {
    매대 전체(모든 선반·파이프)의 가로 범위에서 **완전히 벗어난** 제품만 밖으로 본다.
    위아래는 보지 않는다: 파이프에 거는 제품은 집기보다 한참 아래로 내려오고, 쌓아 진열하면 위로 올라감.
    (처음엔 아래쪽도 봤는데, 실제 거는화일 매대에서 24개 중 14개를 잘못 뺐음)
-   집기가 없거나 전부 밖으로 판정되면 그대로 둔다. */
-function splitOutside(items, props) {
-  const ps = props.filter(p => p.w > 0);
+   배경판(panels, 예: 옆의 회색 판)도 매대로 본다. 집기가 없거나 전부 밖으로 판정되면 그대로 둔다. */
+function splitOutside(items, props, panels = []) {
+  const ps = [...props, ...panels.filter(p => p.w >= 40)].filter(p => p.w > 0); // 회색 배경판 위 제품은 매대 안
   if (!ps.length || !items.length) return { inside: items, outside: [] };
   const left = Math.min(...ps.map(p => p.x)) - 10, right = Math.max(...ps.map(p => p.x + p.w)) + 10;
   const out = o => o.x + (o.w || 0) < left || o.x > right;
@@ -970,9 +1021,10 @@ async function doImport(text, { dropOutside = true } = {}) {
     const pages = [];
     let splitN = 0, outN = 0;
     for (const [i, f] of data.fixtures.entries()) {
-      const { inside, outside } = dropOutside ? splitOutside(f.items || [], f.props || []) : { inside: f.items || [], outside: [] };
+      const panels = f.panels || [];
+      const { inside, outside } = dropOutside ? splitOutside(f.items || [], f.props || [], panels) : { inside: f.items || [], outside: [] };
       outN += outside.length;
-      const bays = splitBays(inside, f.props || [], f.bayCount ?? null);
+      const bays = splitBays(inside, f.props || [], f.bayCount ?? null, panels);
       if (bays.length > 1) splitN++;
       const shelf = f.shelfCount ?? 0, pipe = f.pipeCount ?? 0;
       const kinds = (f.props || []).some(p => /선반|파이프/.test(p.kind || ''));
@@ -987,7 +1039,7 @@ async function doImport(text, { dropOutside = true } = {}) {
           teamName: f.teamName || '', mdName: f.mdName || '',
           shelfCount: sh, pipeCount: pi,
           itemCount: bays.length > 1 ? bay.items.length : (f.itemCount ?? bay.items.length),
-          items: bay.items, props: bay.props,
+          items: bay.items, props: bay.props, panels: bay.panels || [],
           outsideItems: k === 0 ? outside : [], // 뺀 제품은 첫 칸에 보관 (화면엔 안 그림)
           shelfPipe: [sh ? `선반 ${sh}` : '', pi ? `파이프 ${pi}` : ''].filter(Boolean).join(' / '),
         });
