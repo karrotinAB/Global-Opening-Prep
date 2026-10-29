@@ -71,9 +71,11 @@ function h(tag, attrs = {}, ...kids) {
   return el;
 }
 let toastTimer;
-function toast(msg) {
-  const t = $('#toast'); t.textContent = msg; t.classList.add('on');
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 2600);
+function toast(msg, action) { // action = [버튼 글자, 누르면 할 일] (예: 되돌리기)
+  const t = $('#toast'); t.replaceChildren(msg);
+  if (action) t.append(h('button', { class: 'toast-act', onclick: () => { t.classList.remove('on'); action[1](); } }, action[0]));
+  t.classList.add('on'); t.classList.toggle('act', !!action);
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), action ? 7000 : 2600);
 }
 function modal(content, { wide = false } = {}) {
   const root = $('#modal-root');
@@ -404,13 +406,24 @@ async function mergeNext(pogId, host, kid) {
   ids.forEach(id => b.update(doc(db, 'pogs', pogId, 'fixtures', id), { mergedInto: host.id }));
   if ((kid.merged || []).length) b.update(doc(db, 'pogs', pogId, 'fixtures', kid.id), { merged: [] });
   await b.commit();
-  toast(`'${displayName(kid)}'을(를) 이 페이지에 붙였어요`);
+  toast(`'${displayName(kid)}'을(를) 이 페이지에 붙였어요`, ['↶ 되돌리기', () => undoMerge(pogId, host.id, ids, kid)]);
+}
+// 붙이기 되돌리기: 방금 붙인 매대(그 매대에 붙어 있던 것까지)를 원래대로
+async function undoMerge(pogId, hostId, ids, kid) {
+  const host = state.fixtures.get(hostId); if (!host) return;
+  const b = writeBatch(db);
+  b.update(doc(db, 'pogs', pogId, 'fixtures', hostId), { merged: (host.merged || []).filter(x => !ids.includes(x)), updatedAt: serverTimestamp() });
+  b.update(doc(db, 'pogs', pogId, 'fixtures', kid.id), { mergedInto: '', merged: kid.merged || [] });
+  (kid.merged || []).forEach(id => b.update(doc(db, 'pogs', pogId, 'fixtures', id), { mergedInto: kid.id }));
+  await b.commit();
+  toast('붙이기를 되돌렸어요');
 }
 async function unmerge(pogId, host, kidId) {
   const b = writeBatch(db);
   b.update(doc(db, 'pogs', pogId, 'fixtures', host.id), { merged: (host.merged || []).filter(x => x !== kidId), updatedAt: serverTimestamp() });
   b.update(doc(db, 'pogs', pogId, 'fixtures', kidId), { mergedInto: '' });
   await b.commit();
+  toast('떼어냈어요. 다시 따로 한 페이지가 돼요');
 }
 
 const slideEntries = (cover, pog, fixtures, blockOf) => [
@@ -779,7 +792,7 @@ function syncPage(block, fx, pog) {
     if (el.tagName === 'SELECT') fillHookSelect(el, v);
     else if (el !== document.activeElement && el.value !== String(v)) el.value = v;
   });
-  $('.pf-mgr', block).textContent = pog.manager || '';
+  $('.pf-mgr', block).textContent = fx.manager || pog.manager || ''; // 페이지마다 다른 담당자를 정할 수 있음 (비우면 POG 담당자)
   $('.pf-branch', block).textContent = footStore(pog);
   if (!pendingKey(`${fx.id}|itemZ`)) applyItemZ(block, fx);
   const spBox = block.querySelector('.page .sp-list'), spNow = spRows(fx);
@@ -962,12 +975,19 @@ function renderSidePanel() {
       h('div', { class: 'se-btns' }, btn('맨 앞으로', () => moveItemZ(pog.id, view, selIt.id, 1)), btn('맨 뒤로', () => moveItemZ(pog.id, view, selIt.id, -1)),
         btn('선택 해제', () => selectItem(block, null), 'ghost')),
       h('p', { class: 'se-help' }, '겹친 제품 중 어느 것이 앞에 보일지만 바꿔요. 위치는 그대로예요.')));
+    if (ed) {
+      const names = [...new Set([...state.managers.map(m => m.name), fx.manager].filter(Boolean))];
+      const ms = h('select', { class: 'nb-sel' }, h('option', { value: '' }, `POG 담당자 따름${pog.manager ? ` (${pog.manager})` : ''}`), ...names.map(n => h('option', { value: n }, n)));
+      ms.value = fx.manager || '';
+      ms.onchange = () => { saveFx(pog.id, fx.id, 'manager', ms.value); fx.manager = ms.value; const el = $('.pf-mgr', block); if (el) el.textContent = ms.value || pog.manager || ''; };
+      nodes.push(sec('이 페이지 POG 담당자', ms, h('p', { class: 'se-help' }, '이 페이지만 담당자가 다르면 고르세요. 목록에 없는 이름은 위쪽 담당자 칸에서 먼저 추가하면 돼요.')));
+    }
     if (ed && block._bar) nodes.push(sec('메모 넣기', block._bar));
     if (ed && !free) {
       const list = [...state.edComposed.values()], i = list.findIndex(f => f.id === id), next = list.slice(i + 1).find(f => f.kind !== 'free');
       const kids = (fx.merged || []).map(k => state.fixtures.get(k)).filter(Boolean);
       nodes.push(sec('매대 붙이기', h('p', { class: 'se-help' }, '얇은 매대 두 개를 한 페이지에 나란히 넣어요. 붙인 매대 페이지는 따로 안 나와요.'),
-        ...kids.map(k => h('div', { class: 'se-kid' }, h('span', {}, '붙인 매대: ', h('b', {}, displayName(k))), btn('떼어내기', () => unmerge(pog.id, fx, k.id), 'ghost'))),
+        ...kids.map(k => h('div', { class: 'se-kid' }, h('span', {}, '붙인 매대: ', h('b', {}, displayName(k))), btn('↶ 붙이기 취소', () => unmerge(pog.id, fx, k.id), 'ghost'))),
         next ? h('div', { class: 'se-btns' }, btn(`⇣ 다음 매대 '${displayName(next)}' 붙이기`, () => mergeNext(pog.id, fx, state.fixtures.get(next.id)))) : null));
     }
     if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' },

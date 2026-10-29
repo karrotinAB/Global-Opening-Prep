@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261031d">
+<link rel="stylesheet" href="style.css?v=20261031e">
 </head>
 <body>
 
@@ -27,12 +27,12 @@
     <button class="brand link-brand" data-go="home" title="처음 화면">ARTBOX <b>Global POG</b></button>
     <nav id="nav">
       <button data-view="home">홈</button>
-      <button data-view="stores">매장 등록</button>
-      <button data-view="barcodes">바코드 등록</button>
       <button data-view="drawing" data-group="dw-">1. 도면</button>
       <button data-view="pog-home" data-group="pog-">2. POG</button>
       <button data-view="glossary">3. 용어 사전</button>
       <button data-view="finder">4. 제품 찾기</button>
+      <button data-view="stores" class="nav-sub">매장 등록</button>
+      <button data-view="barcodes" class="nav-sub">바코드 등록</button>
       <span class="subnav" id="subnav-dw">
         <button data-view="dw-up">도면 업로드</button>
         <button data-view="dw-tr">도면 번역</button>
@@ -51,14 +51,6 @@
   <section class="view" id="v-home">
     <div class="home">
       <div class="tiles five">
-        <button class="tile" data-go="stores">
-          <svg viewBox="0 0 48 48"><path d="M8 20 12 9h24l4 11"/><path d="M10 20v19h28V20"/><path d="M8 20c0 3 2.5 5 5.3 5S18.7 23 18.7 20c0 3 2.4 5 5.3 5s5.3-2 5.3-5c0 3 2.4 5 5.3 5S40 23 40 20"/><path class="a" d="M20 39V30h8v9"/></svg>
-          <span>매장 등록</span>
-        </button>
-        <button class="tile" data-go="barcodes">
-          <svg viewBox="0 0 48 48"><rect x="7" y="11" width="34" height="26" rx="2"/><path d="M13 17v14M17 17v14M22 17v14M26 17v14M31 17v14M35 17v14"/><path class="a" d="M24 41v-6M20 38l4 4 4-4"/></svg>
-          <span>바코드 등록</span>
-        </button>
         <button class="tile" data-go="drawing">
           <svg viewBox="0 0 48 48"><rect x="7" y="9" width="34" height="30" rx="2"/><path d="M7 22h12M27 9v12M27 29v10"/><rect class="a" x="12" y="27" width="9" height="6"/><rect class="a" x="31" y="14" width="6" height="4"/></svg>
           <span>도면</span>
@@ -67,13 +59,21 @@
           <svg viewBox="0 0 48 48"><rect x="9" y="7" width="30" height="34" rx="1"/><path d="M9 19h30M9 31h30"/><rect class="a" x="13" y="12" width="5" height="7"/><rect class="a" x="21" y="10" width="5" height="9"/><rect class="a" x="13" y="24" width="6" height="7"/><rect class="a" x="23" y="25" width="5" height="6"/><rect class="a" x="31" y="23" width="4" height="8"/></svg>
           <span>POG</span>
         </button>
-        <button class="tile" data-go="glossary">
-          <svg viewBox="0 0 48 48"><path d="M10 9h22a4 4 0 0 1 4 4v26H14a4 4 0 0 1-4-4z"/><path d="M10 35a4 4 0 0 1 4-4h22"/><path class="a" d="M17 16h12M17 22h8"/></svg>
-          <span>용어 사전</span>
-        </button>
         <button class="tile" data-go="finder">
           <svg viewBox="0 0 48 48"><path d="M8 15V9h6M34 9h6v6M40 33v6h-6M14 39H8v-6"/><path d="M15 16v16M19 16v16M24 16v16M28 16v16M33 16v16"/><path class="a" d="M10 24h28"/></svg>
           <span>제품 찾기</span>
+        </button>
+        <button class="tile sub" data-go="stores">
+          <svg viewBox="0 0 48 48"><path d="M8 20 12 9h24l4 11"/><path d="M10 20v19h28V20"/><path d="M8 20c0 3 2.5 5 5.3 5S18.7 23 18.7 20c0 3 2.4 5 5.3 5s5.3-2 5.3-5c0 3 2.4 5 5.3 5S40 23 40 20"/><path class="a" d="M20 39V30h8v9"/></svg>
+          <span>매장 등록</span>
+        </button>
+        <button class="tile sub" data-go="glossary">
+          <svg viewBox="0 0 48 48"><path d="M10 9h22a4 4 0 0 1 4 4v26H14a4 4 0 0 1-4-4z"/><path d="M10 35a4 4 0 0 1 4-4h22"/><path class="a" d="M17 16h12M17 22h8"/></svg>
+          <span>용어 사전</span>
+        </button>
+        <button class="tile sub" data-go="barcodes">
+          <svg viewBox="0 0 48 48"><rect x="7" y="11" width="34" height="26" rx="2"/><path d="M13 17v14M17 17v14M22 17v14M26 17v14M31 17v14M35 17v14"/><path class="a" d="M24 41v-6M20 38l4 4 4-4"/></svg>
+          <span>바코드 등록</span>
         </button>
       </div>
     </div>
@@ -379,6 +379,6 @@
 <div id="toast"></div>
 
 <!-- 파일을 고치면 ?v= 숫자도 바꿀 것 (브라우저가 예전 파일을 쓰지 않도록) -->
-<script type="module" src="app.js?v=20261031d"></script>
+<script type="module" src="app.js?v=20261031e"></script>
 </body>
 </html>
