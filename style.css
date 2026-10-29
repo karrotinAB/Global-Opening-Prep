@@ -490,3 +490,9 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .pf-mgr-sel { font: inherit; font-weight: 700; font-size: 13px; border: 1px dashed #d4d4d4; background: #fffdf6; border-radius: 3px; padding: 1px 4px; max-width: 170px; }
 .page-block:has(.pf-mgr-sel) .pf-mgr { display: none; }
 @media print { .page-block:has(.pf-mgr-sel) .pf-mgr { display: inline; } }
+
+/* 표지 패널: 이 POG에서 쓸 고리 */
+.hk-list { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+.hk-item { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 2px 0; cursor: pointer; }
+.hk-item small { margin-left: auto; font-size: 11px; }
+.hk-q { width: 100%; margin-bottom: 6px; }
