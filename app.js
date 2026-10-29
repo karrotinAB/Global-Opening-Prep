@@ -2018,7 +2018,9 @@ $('#tr-publish').onclick = async () => {
 const storeName = st => st ? `${st.partner || ''} ${st.branch || ''}`.trim() : '';
 const storeForPog = pog => pog && (state.stores.find(x => x.id === pog.storeId) || state.stores.find(x => String(x.code).trim() === String(pog.storeCode || '').trim()));
 // 도면 문서에 매장 정보 (바이어는 매장 목록을 못 읽어서 이름도 같이 둠)
-const dwStoreInfo = st => ({ storeCode: st?.code || '', storeName: storeName(st), storePrefix: codePrefix(st?.code) });
+const dwStoreInfo = st => ({ storeCode: st?.code || '', storeName: storeName(st), partner: st?.partner || '', branch: st?.branch || '', storePrefix: codePrefix(st?.code) });
+// 제품 찾기 매장 이름: '업체 (매장명)' (사용자)
+const partnerBranch = (partner, branch) => partner && branch ? `${partner} (${branch})` : partner || branch || '';
 // 예전 문서에 storePrefix가 없으면 채움 (쓸 권한이 있는 사람 화면에서 한 번씩)
 let prefixTimer = null;
 function fillPrefixes() {
@@ -2028,7 +2030,7 @@ function fillPrefixes() {
     if (canEdit('drawing')) for (const d of state.dwMap.values()) {
       const st = state.stores.find(x => x.id === d.id); if (!st) continue;
       const info = dwStoreInfo(st);
-      if (d.storePrefix !== info.storePrefix || d.storeName !== info.storeName || d.storeCode !== info.storeCode) setDoc(doc(db, 'drawings', d.id), info, { merge: true }).catch(() => { });
+      if (d.storePrefix !== info.storePrefix || d.storeName !== info.storeName || d.storeCode !== info.storeCode || d.partner !== info.partner || d.branch !== info.branch) setDoc(doc(db, 'drawings', d.id), info, { merge: true }).catch(() => { });
     }
   }, 1500);
 }
@@ -2053,8 +2055,9 @@ function renderStores() {
     body.append(h('tr', {}, h('td', {}, inp('code')), h('td', {}, inp('partner')), h('td', {}, inp('branch')), h('td', {}, inp('openDate', 'date')),
       h('td', { class: 'st-dw' }, d?.latestNo ? `ver.${d.latestNo}${fin ? ` · ★ver.${fin}` : ''}${d.area ? ` · ${d.area}평` : ''}` : '없음'),
       h('td', { class: 'st-dw' }, pogs.length ? `${pogs.length}개${pogs.some(p => p.status === 'final') ? ' (최종 있음)' : ''}` : '없음'),
-      h('td', { class: 'tc' }, ed && !d?.latestNo ? h('button', { class: 'btn ghost danger small', onclick: async () => {
-        if (confirm(`'${storeName(st)}' 매장을 지울까요?`)) await deleteDoc(doc(db, 'stores', st.id));
+      // 매장 삭제는 관리자만 (규칙도 같음), 도면이 올라간 매장은 지우지 않음
+      h('td', { class: 'tc' }, state.level === 'admin' && !d?.latestNo ? h('button', { class: 'btn ghost danger small', onclick: async () => {
+        if (confirm(`'${storeName(st)}' 매장을 지울까요?`)) try { await deleteDoc(doc(db, 'stores', st.id)); } catch (e) { alert('지우지 못했어요: ' + (e.code || e.message)); }
       } }, '삭제') : null)));
   }
 }
@@ -2832,7 +2835,7 @@ function fdStores() { // 최종 POG가 있는 매장 (매장코드마다 가장 
   return [...m.values()].map(p => {
     const st = state.stores.find(x => String(x.code) === String(p.storeCode));
     const dwd = [...state.dwMap.values()].find(d => String(d.storeCode) === String(p.storeCode) && d.status === 'final');
-    return { pog: p, name: (st && storeName(st)) || dwd?.storeName || p.branchName || p.storeName || p.storeCode, code: p.storeCode, dw: dwd };
+    return { pog: p, name: (st && partnerBranch(st.partner, st.branch)) || (dwd && partnerBranch(dwd.partner, dwd.branch)) || dwd?.storeName || p.branchName || p.storeName || p.storeCode, code: p.storeCode, dw: dwd };
   }).sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
 // 1단계: 매장 카드 목록 (마지막으로 고른 매장은 '최근'). 2단계: 그 매장에서 바코드 찍기
