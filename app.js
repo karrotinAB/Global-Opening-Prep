@@ -21,7 +21,8 @@ const db = getFirestore(fb);
 const st = getStorage(fb);
 
 /* ---------- 공통 ---------- */
-const CATS = ['카테고리', '매대타입', '고리타입', '집기', '헤더문구'];
+// 헤더 매대명은 사전에 두지 않음: 매번 달라서 도면 번역(VMD 도면)에서 가져옴. 팀명은 가져온 POG에서 자동으로 채움
+const CATS = ['카테고리', '매대타입', '고리타입', '집기', '팀명'];
 // 계정 레벨. roles/{이메일} 문서가 없으면 'finder' (제품 찾기만)
 const LEVELS = { admin: '관리자', pog: 'POG팀', vmd: 'VMD팀', global: '글로벌사업부', buyer: '바이어', finder: '제품 찾기만', editor: '편집 (예전 레벨)' };
 const ASSIGNABLE = ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder']; // editor는 예전 레벨: 그대로 동작하지만 새로 고를 수는 없음
@@ -148,7 +149,7 @@ function startListeners() {
   unsubs.push(onSnapshot(pq, s => {
     state.pogs = s.docs.map(d => ({ id: d.id, ...d.data() }))
       .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-    renderPogList(); renderOnlineList();
+    renderPogList(); renderOnlineList(); scheduleTeamSync();
   }, e => toast('POG 목록을 읽지 못했어요: ' + e.code)));
   if (state.level === 'admin') unsubs.push(onSnapshot(collection(db, 'roles'), s => {
     state.roles = s.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -161,7 +162,8 @@ function startListeners() {
   }));
   unsubs.push(onSnapshot(collection(db, 'glossary'), s => {
     state.glossary = s.docs.map(d => ({ id: d.id, ...d.data() }));
-    refreshGlossaryLists(); renderGlossary();
+    glLoaded = true;
+    refreshGlossaryLists(); renderGlossary(); scheduleTeamSync();
   }));
 }
 function stopListeners() { unsubs.forEach(u => u()); unsubs = []; closePog(); closeViewer(); }
@@ -692,6 +694,7 @@ async function doImport(text, { dropOutside = true } = {}) {
     ref = await addDoc(collection(db, 'pogs'), {
       storeCode: data.storeCode || '', storeName: data.storeName || '',
       branchName: '', manager: '', status: 'draft', fixtureCount: pages.length,
+      teams: [...new Set(pages.map(pg => catName(pg.teamName)).filter(Boolean))], // 사전 '팀명' 자동 추가용
       grabbedAt: data.grabbedAt || '', createdAt: serverTimestamp(), createdBy: state.user.email, updatedAt: serverTimestamp(),
     });
     let b = writeBatch(db), n = 0;
@@ -771,6 +774,8 @@ function showItem(it, fx) {
 /* ---------- 3. 용어 사전 ---------- */
 const norm = t => (t || '').toLowerCase().replace(/\s+/g, ''); // 띄어쓰기·대소문자 무시
 const catOrder = c => { const i = CATS.indexOf(c); return i < 0 ? CATS.length : i; };
+const oldCats = () => [...new Set(state.glossary.map(g => g.cat).filter(c => c && !CATS.includes(c)))];
+const catLabel = c => CATS.includes(c) ? c : `${c} (예전)`;
 // 한국어·영어 말고 추가된 언어들 (각 단어의 tr: { 언어이름: 번역 })
 const glLangs = () => [...new Set(state.glossary.flatMap(g => Object.keys(g.tr || {})))].sort((a, b) => a.localeCompare(b));
 function glSearch(q) {
@@ -792,7 +797,35 @@ function refreshGlossaryLists() {
 }
 function setGlCat(c) {
   state.glCat = c;
-  $('#gl-add-cat').value = c;
+  if (CATS.includes(c)) $('#gl-add-cat').value = c;
+}
+
+// 가져온 POG의 팀명을 사전 '팀명'에 자동으로 추가 (사전을 편집할 수 있는 계정에서만)
+// 문서 ID를 팀명으로 정해서 여러 사람이 동시에 열어도 한 번만 생김
+const teamDocId = name => 'team_' + name.replace(/[\/.#$\[\]]/g, '_');
+const teamsChecked = new Set(); // 팀명 목록이 없는 예전 POG는 매대를 한 번만 읽어서 확인
+let teamTimer = null, glLoaded = false;
+const scheduleTeamSync = () => { clearTimeout(teamTimer); teamTimer = setTimeout(syncTeams, 1500); };
+async function syncTeams() {
+  if (!glLoaded || !canEdit('glossary')) return;
+  const names = new Set();
+  for (const p of state.pogs) {
+    if (Array.isArray(p.teams)) p.teams.forEach(t => names.add(t));
+    else if (!teamsChecked.has(p.id)) {
+      teamsChecked.add(p.id);
+      try { (await getDocs(collection(db, 'pogs', p.id, 'fixtures'))).docs.forEach(d => names.add(catName(d.data().teamName))); } catch { }
+    }
+  }
+  const have = new Set(glossaryOf('팀명').map(g => norm(g.ko)));
+  for (const name of names) {
+    if (!name || have.has(norm(name))) continue;
+    have.add(norm(name));
+    const id = teamDocId(name);
+    try {
+      await setDoc(doc(db, 'glossary', id), { cat: '팀명', ko: name, auto: true, createdAt: serverTimestamp(), createdBy: me() }, { merge: true });
+      glLog({ id, cat: '팀명', ko: name }, 'auto', []);
+    } catch { }
+  }
 }
 function renderGlossary() {
   const body = $('#gl-body');
@@ -803,8 +836,9 @@ function renderGlossary() {
 
   const tabs = $('#gl-tabs'); tabs.innerHTML = '';
   tabs.classList.toggle('dim', !!q);
-  CATS.forEach(c => tabs.append(h('button', { class: !q && c === state.glCat ? 'on' : '', onclick: () => { $('#gl-q').value = ''; setGlCat(c); renderGlossary(); } },
-    `${c} `, h('span', { class: 'cnt' }, glossaryOf(c).length))));
+  if (!CATS.includes(state.glCat) && !oldCats().includes(state.glCat)) state.glCat = CATS[0];
+  [...CATS, ...oldCats()].forEach(c => tabs.append(h('button', { class: !q && c === state.glCat ? 'on' : '', onclick: () => { $('#gl-q').value = ''; setGlCat(c); renderGlossary(); } },
+    `${catLabel(c)} `, h('span', { class: 'cnt' }, glossaryOf(c).length))));
 
   // 추가 언어 선택 칸
   const langs = glLangs(), lsel = $('#gl-lang');
@@ -815,7 +849,9 @@ function renderGlossary() {
   const lang = state.glLang;
 
   const rows = q ? glSearch(q) : glossaryOf(state.glCat);
-  $('#gl-info').textContent = q ? `'${q}' 검색 결과 ${rows.length}개 · 전체 분류에서 찾았어요` : '';
+  $('#gl-info').textContent = q ? `'${q}' 검색 결과 ${rows.length}개 · 전체 분류에서 찾았어요`
+    : state.glCat === '팀명' ? '가져온 POG의 팀명이 자동으로 들어와요. 영어(와 다른 언어)만 채우면 돼요.'
+    : !CATS.includes(state.glCat) ? `예전 분류예요. 필요한 단어는 검색해서 분류를 바꾸고, 나머지는 지워주세요.` : '';
   $('#gl-head').innerHTML = '';
   $('#gl-head').append(h('tr', {}, q ? h('th', { class: 'gl-cat-col' }, '분류') : null, h('th', {}, '한국어'), h('th', {}, 'English'), lang ? h('th', {}, lang) : null, h('th', {})));
 
@@ -846,7 +882,7 @@ function renderGlossary() {
     };
     let catCell = null;
     if (q) {
-      const sel = h('select', { class: 'gl-cat-sel', disabled: !ed }, ...CATS.map(c => h('option', { value: c }, c)));
+      const sel = h('select', { class: 'gl-cat-sel', disabled: !ed }, ...[...CATS, ...(CATS.includes(g.cat) ? [] : [g.cat])].map(c => h('option', { value: c }, catLabel(c))));
       sel.value = g.cat;
       sel.addEventListener('change', async () => {
         await updateDoc(doc(db, 'glossary', g.id), { cat: sel.value, updatedAt: serverTimestamp(), updatedBy: me() });
@@ -902,7 +938,7 @@ setGlCat(state.glCat);
 renderGlossary();
 
 /* ---------- 용어 사전 변경 기록 ---------- */
-const ACTION = { add: '추가', edit: '수정', delete: '삭제', import: '엑셀' };
+const ACTION = { add: '추가', edit: '수정', delete: '삭제', import: '엑셀', auto: 'POG에서 자동' };
 const fmtTime = ts => { const d = ts?.toDate?.(); return d ? `${fmtDate(d)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : ''; };
 async function showGlLog(g) {
   const box = h('div', { class: 'log-box' }, h('div', { class: 'mut pad' }, '불러오는 중…'));
