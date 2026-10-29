@@ -382,7 +382,7 @@ function bgPitch(bg) {
   return z && z.w ? { x: z.w, y: z.h } : u ? { url: u } : null;
 }
 function perfOf(f, frameW) {
-  const b = f.board && bgPitch(f.board);
+  const b = f.board && (f.board.holes ? { x: f.board.holes.px, y: f.board.holes.py } : bgPitch(f.board));
   if (b) return { ...b, bg: f.board };
   if (/타공/.test(`${f.mdName || ''} ${f.fixtureType || ''} ${f.headerName || ''}`)) {
     const mm = +((f.mdName || '').match(/_(\d{3,4})(?:\D*)$/) || [])[1]; // 매대명 끝 숫자 = 폭(mm)일 때 25mm 간격으로
@@ -1164,6 +1164,21 @@ function hookPicker(pog, ed) {
       h('button', { class: 'btn small ghost', onclick: () => { picked.clear(); apply(); draw(); } }, '모두 해제'),
       used.size ? h('button', { class: 'btn small ghost', onclick: () => { used.forEach(x => all.includes(x) && picked.add(x)); apply(); draw(); } }, '쓰는 고리 체크') : null) : null);
 }
+// 관리자용: 북마클릿이 이 매대 화면에서 찾은 타공판 단서 (POG 사이트가 타공판을 어떻게 그리는지 확인용)
+function lookInfo(fx) {
+  const L = fx.src?.look, b = fx.board, p = perfOf(fx, 0);
+  const rows = [
+    h('div', {}, '구멍 그리기: ', h('b', {}, p ? `${Math.round(p.x)}×${Math.round(p.y)}px 간격` : '안 그림')),
+    h('div', { class: 'mut' }, '판 정보: ', b ? (b.holes ? `구멍 요소 간격 ${b.holes.px}×${b.holes.py}` : `${b.from || '배경'} · 크기 ${b.size || '-'}`) : '없음'),
+  ];
+  if (!L) rows.push(h('div', { class: 'mut' }, '단서 없음 — 새 북마클릿으로 이 매대를 다시 가져와 주세요.'));
+  else {
+    rows.push(h('div', { class: 'mut' }, `매대 범위 요소 ${L.n}개 · 무늬·그림 ${L.bg.length}개 · 작은 구멍 ${L.holes ? `${L.holes.n}개(${L.holes.size}, 간격 ${L.holes.px}×${L.holes.py})` : '없음'}`));
+    L.bg.slice(0, 8).forEach(x => rows.push(h('div', { class: 'look-row' }, `${x.tag}${x.cls ? '.' + x.cls : ''}${x.ps || ''} ${x.w}×${x.h} · ${x.size || ''} · ${String(x.img || '').slice(0, 70)}`)));
+    if (L.err) rows.push(h('div', { class: 'mut' }, '오류: ' + L.err));
+  }
+  return h('details', { class: 'se-sec look' }, h('summary', {}, '타공판 정보 (확인용 · 관리자만)'), ...rows);
+}
 function renderSidePanel() {
   const box = $('#ed-side'), pog = state.currentPog;
   if (!box || !pog?.status) return;
@@ -1192,6 +1207,7 @@ function renderSidePanel() {
       h('div', { class: 'se-btns' }, btn('맨 앞으로', () => moveItemZ(pog.id, view, selIt.id, 1)), btn('맨 뒤로', () => moveItemZ(pog.id, view, selIt.id, -1)),
         btn('선택 해제', () => selectItem(block, null), 'ghost')),
       h('p', { class: 'se-help' }, '겹친 제품 중 어느 것이 앞에 보일지만 바꿔요. 위치는 그대로예요.')));
+    if (state.level === 'admin' && !free) nodes.push(lookInfo(fx));
     if (ed && block._bar) nodes.push(sec('메모 넣기', block._bar));
     if (ed && !free) {
       const list = [...state.edComposed.values()], i = list.findIndex(f => f.id === id), next = list.slice(i + 1).find(f => f.kind !== 'free');

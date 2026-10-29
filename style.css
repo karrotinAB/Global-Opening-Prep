@@ -543,3 +543,8 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
   .topbar .me #me-email { display: none; }
   #nav { flex: none; }
 }
+
+/* 관리자용 타공판 단서 */
+.look summary { cursor: pointer; font-weight: 700; font-size: 13px; }
+.look > div { font-size: 12px; line-height: 1.5; margin-top: 4px; overflow-wrap: anywhere; }
+.look-row { font-family: monospace; font-size: 11px !important; color: #555; }
