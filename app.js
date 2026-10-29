@@ -341,7 +341,8 @@ function buildPage(fx, pog, { editable, onItem }) {
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
 
   const extra = h('div', { class: 'page-extra' },
-    h('div', { class: 'pe-title' }, h('b', { class: 'pe-name' }), h('span', { class: 'mut' }, ` · POG 원본: ${origName(fx)} · 제품 ${(fx.items || []).length}개`)),
+    h('div', { class: 'pe-title' }, h('b', { class: 'pe-name' }), h('span', { class: 'mut' }, ` · POG 원본: ${origName(fx)} · 제품 ${(fx.items || []).length}개` +
+      ((fx.outsideItems || []).length ? ` · 매대 밖이라 뺀 제품 ${fx.outsideItems.length}개` : ''))),
     field('memo', h('textarea', { rows: 3, placeholder: '메모 (선택)' })),
     h('div', { class: 'photos' }));
   if (editable) {
@@ -587,10 +588,13 @@ function openImport() {
       h('li', {}, '처음 한 번만: 아래 버튼을 브라우저 북마크바로 끌어다 놓으세요. ', link),
       h('li', {}, 'POG 사이트에서 매장의 매대 목록 화면을 열고 북마크를 누르세요. 체크한 매대만 가져오고, 아무것도 체크 안 하면 전체를 가져와요. (매대 보기 화면에서 누르면 그 매대 하나만)'),
       h('li', {}, '다 모이면 뜨는 창에서 \'복사하기\'를 누르고, 아래 칸에 붙여넣으세요.')),
-    ta, h('div', { class: 'modal-act' }, go)));
+    ta,
+    h('label', { class: 'imp-opt' }, h('input', { type: 'checkbox', id: 'imp-drop', checked: true }),
+      ' 매대 밖에 놓인 제품은 빼고 가져오기 ', h('span', { class: 'mut' }, '(선반·파이프 옆이나 아래로 벗어난 제품. 뺀 제품은 따로 보관돼요)')),
+    h('div', { class: 'modal-act' }, go)));
   go.onclick = async () => {
     go.disabled = true; go.textContent = '가져오는 중…';
-    const ok = await doImport(ta.value);
+    const ok = await doImport(ta.value, { dropOutside: $('#imp-drop').checked });
     if (ok) close(); else { go.disabled = false; go.textContent = '가져오기'; }
   };
 }
@@ -633,7 +637,24 @@ function splitBays(items, props, expected) {
   return groups;
 }
 
-async function doImport(text) {
+/* 매대 밖에 놓인 제품 골라내기 (POG 사이트에서 옆에 빼둔 제품 등)
+   - 가로: 제품 가운데가 어느 선반·파이프의 가로 범위(±10px)에도 없으면 밖
+   - 세로: 맨 아래 집기보다 30px 넘게 아래에서 시작하면 밖 (위쪽은 쌓아 진열할 수 있어 보지 않음)
+   집기가 없거나, 다 밖으로 나오면 판단할 수 없으니 그대로 둔다. */
+function splitOutside(items, props) {
+  const ps = props.filter(p => p.w > 0);
+  if (!ps.length || !items.length) return { inside: items, outside: [] };
+  const bottom = Math.max(...ps.map(p => p.y + Math.max(p.h || 0, 4)));
+  const out = o => {
+    const cx = o.x + (o.w || 0) / 2;
+    return !ps.some(p => cx >= p.x - 10 && cx <= p.x + p.w + 10) || o.y > bottom + 30;
+  };
+  const outside = items.filter(out);
+  if (outside.length === items.length) return { inside: items, outside: [] };
+  return { inside: items.filter(o => !out(o)), outside };
+}
+
+async function doImport(text, { dropOutside = true } = {}) {
   let data;
   try { data = JSON.parse(text.trim()); } catch { toast('붙여넣은 내용이 올바르지 않아요'); return false; }
   if (!data || data.source !== 'pog.artbox.kr' || !Array.isArray(data.fixtures) || !data.fixtures.length) {
@@ -643,9 +664,11 @@ async function doImport(text) {
   try {
     // 매대 줄마다 칸을 나눠서 페이지 목록 만들기
     const pages = [];
-    let splitN = 0;
+    let splitN = 0, outN = 0;
     for (const [i, f] of data.fixtures.entries()) {
-      const bays = splitBays(f.items || [], f.props || [], f.bayCount ?? null);
+      const { inside, outside } = dropOutside ? splitOutside(f.items || [], f.props || []) : { inside: f.items || [], outside: [] };
+      outN += outside.length;
+      const bays = splitBays(inside, f.props || [], f.bayCount ?? null);
       if (bays.length > 1) splitN++;
       const shelf = f.shelfCount ?? 0, pipe = f.pipeCount ?? 0;
       const kinds = (f.props || []).some(p => /선반|파이프/.test(p.kind || ''));
@@ -661,6 +684,7 @@ async function doImport(text) {
           shelfCount: sh, pipeCount: pi,
           itemCount: bays.length > 1 ? bay.items.length : (f.itemCount ?? bay.items.length),
           items: bay.items, props: bay.props,
+          outsideItems: k === 0 ? outside : [], // 뺀 제품은 첫 칸에 보관 (화면엔 안 그림)
           shelfPipe: [sh ? `선반 ${sh}` : '', pi ? `파이프 ${pi}` : ''].filter(Boolean).join(' / '),
         });
       });
@@ -680,7 +704,7 @@ async function doImport(text) {
       if (++n >= 400) { await b.commit(); b = writeBatch(db); n = 0; }
     }
     await b.commit();
-    toast(`매대 ${pages.length}개를 가져왔어요` + (splitN ? ` (칸이 여러 개인 매대 ${splitN}개는 칸마다 나눴어요)` : ''));
+    toast(`매대 ${pages.length}개를 가져왔어요` + (splitN ? ` · 칸이 여러 개인 매대 ${splitN}개는 칸마다 나눴어요` : '') + (outN ? ` · 매대 밖 제품 ${outN}개는 뺐어요` : ''));
     openPog(ref.id);
     return true;
   } catch (e) {

@@ -143,6 +143,7 @@ pogs/{pogId}
 pogs/{pogId}/fixtures/{id}      // 매대(칸) 하나 = POG 페이지 하나. id = mdidx, 칸이 여러 개면 mdidx-1, mdidx-2 …
   order, mdidx, teamName, mdName
   bayNo, bayCount               // POG 사이트 한 줄 안에서 몇 번째 칸인지 (1칸이면 1/1)
+  outsideItems                  // 매대 밖이라 뺀 제품 (items와 같은 모양, 화면에 안 그림)
   shelfCount, pipeCount, itemCount
   items: [{ id, code, name, price, group, img, x, y, w, h }]
   props: [{ id, kind, cls, color, x, y, w, h }]
@@ -168,6 +169,12 @@ glossary/{id}    cat, ko, en, tr, createdBy, updatedBy, updatedAt // cat: 카테
 - 선반/파이프 수는 칸마다 집기를 세고, 종류를 모르면 전체를 칸 수로 나눈다 (수정 가능).
 - 헤더 기본 이름은 `스티커_123 (1/2)`처럼 몇 번째 칸인지 붙는다.
 - 이 기능 전에 가져온 POG는 나뉘어 있지 않으므로 다시 가져와야 한다.
+
+### 매대 밖 제품 빼기 (가져올 때, 기본 켜짐)
+- 사용자 요구: POG 사이트에서 매대 옆에 빼둔 제품 등 **매대 밖 제품은 기본으로 가져오지 않는다.**
+- `splitOutside()` (app.js): 가로는 제품 가운데가 어느 선반·파이프의 가로 범위(±10px)에도 없으면 밖이다. 세로는 맨 아래 집기보다 30px 넘게 아래면 밖이다. 위쪽은 쌓아 진열할 수 있어서 보지 않는다. 집기가 없거나 전부 밖으로 판정되면 그대로 둔다.
+- 뺀 제품은 버리지 않고 첫 칸 fixture의 `outsideItems`에 보관한다 (그리지 않음, 나중에 되살리기용). 페이지 아래에 '매대 밖이라 뺀 제품 n개'로 표시한다.
+- 가져오기 창의 체크를 끄면 전부 가져온다.
 
 ### 2.1 POG 제작
 - 왼쪽 POG 목록(검색) + 오른쪽 편집기. POG를 열면 목록은 접히고('☰ 목록'으로 다시 열기), **PPT처럼 왼쪽에 슬라이드 썸네일**이 나온다 (클릭하면 이동, 스크롤하면 현재 페이지 표시). 온라인 POG도 같다.
