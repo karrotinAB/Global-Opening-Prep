@@ -204,7 +204,7 @@ function go(v) {
   $$('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + secOf(v)));
   if (v.startsWith('dw-')) setDwMode({ 'dw-up': 'up', 'dw-tr': 'tr', 'dw-online': 'on' }[v]);
   window.scrollTo(0, 0);
-  if (v === 'barcodes') bcCount();
+  if (v === 'barcodes') bcCount(); else bcReport([], '', 0); // 건너뛴 줄 알림은 이 화면을 나가면 사라짐
 }
 $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
 $$('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
@@ -2625,7 +2625,10 @@ $('#bc-add').addEventListener('submit', async e => {
   if (!bc || !code) return;
   if (bc.includes('/')) { toast('바코드에 / 는 쓸 수 없어요'); return; }
   try {
-    await setDoc(doc(db, 'barcodes', bc), { code, ...(name ? { name } : {}), updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true });
+    const [one, same] = await Promise.all([getDoc(doc(db, 'barcodes', bc)), getDocs(query(collection(db, 'barcodes'), where('code', '==', code), limit(1)))]);
+    if (one.exists()) { alert(`이미 있는 바코드예요 (등록된 제품코드 ${one.data().code}).\n바꾸려면 찾기에서 지우고 다시 추가해주세요.`); return; }
+    if (same.docs.length) { alert(`이미 있는 제품코드예요 (등록된 바코드 ${same.docs[0].id}).\n바꾸려면 찾기에서 지우고 다시 추가해주세요.`); return; }
+    await setDoc(doc(db, 'barcodes', bc), { code, ...(name ? { name } : {}), updatedAt: serverTimestamp(), updatedBy: me() });
     toast('저장했어요'); f.reset(); $('#bc-search').value = bc; bcSearch(); bcCount();
   } catch (err) { toast('저장하지 못했어요: ' + (err.code || err.message)); }
 });
@@ -2662,22 +2665,37 @@ $('#bc-file').addEventListener('change', async e => {
   const col = names => head.findIndex(x => names.includes(x));
   const iCode = col(['제품코드', '상품코드', 'code', 'productcode', 'itemcode']), iBc = col(['바코드', 'barcode']), iName = col(['제품명', '상품명', 'name', 'productname']);
   if (iCode < 0 || iBc < 0) { alert("첫 줄(머리글)에 '제품코드'와 '바코드'가 있어야 해요.\n'빈 양식 받기'로 받은 파일에 붙여넣어 올려주세요."); return; }
-  const map = new Map(), bad = []; let dup = 0;
+  // 이미 있는 바코드·제품코드는 바꾸지 않고 건너뜀 (사용자). 건너뛴 줄은 이 화면에만 한 번 보여줌
+  toast('지금 등록된 바코드를 확인하는 중…');
+  let exBc, exCode;
+  try {
+    const all = await getDocs(collection(db, 'barcodes'));
+    exBc = new Map(all.docs.map(d => [d.id, d.data().code])); exCode = new Map(all.docs.map(d => [String(d.data().code), d.id]));
+  } catch (err) { alert('등록된 바코드를 읽지 못했어요: ' + (err.code || err.message)); return; }
+  const map = new Map(), skip = [], seenBc = new Map(), seenCode = new Map();
   rows.slice(1).forEach((r, i) => {
-    const bc = cellText(r[iBc]), code = cellText(r[iCode], 8), name = iName >= 0 ? String(r[iName] ?? '').trim() : '';
+    const line = i + 2, bc = cellText(r[iBc]), code = cellText(r[iCode], 8), name = iName >= 0 ? String(r[iName] ?? '').trim() : '';
     if (!bc && !code) return;
-    if (!bc || !code || bc.includes('/')) { bad.push(`${i + 2}번째 줄: ${!bc ? '바코드 없음' : !code ? '제품코드 없음' : '바코드에 / 있음'}`); return; }
-    if (map.has(bc)) dup++;
+    const why = !bc ? '바코드 없음' : !code ? '제품코드 없음' : bc.includes('/') ? '바코드에 / 있음'
+      : exBc.has(bc) ? `이미 있는 바코드 (등록된 제품코드 ${exBc.get(bc)})`
+      : exCode.has(code) ? `이미 있는 제품코드 (등록된 바코드 ${exCode.get(code)})`
+      : seenBc.has(bc) ? `파일 안에 같은 바코드가 또 있음 (${seenBc.get(bc)}번째 줄)`
+      : seenCode.has(code) ? `파일 안에 같은 제품코드가 또 있음 (${seenCode.get(code)}번째 줄)` : '';
+    if (why) { skip.push({ line, bc, code, name, why }); return; }
+    seenBc.set(bc, line); seenCode.set(code, line);
     map.set(bc, { code, name });
   });
-  if (!map.size) { alert('올릴 줄이 없어요.' + (bad.length ? '\n' + bad.slice(0, 10).join('\n') : '')); return; }
+  const kinds = {};
+  skip.forEach(x => { const k = x.why.replace(/ \(.*\)$/, ''); kinds[k] = (kinds[k] || 0) + 1; });
+  if (!map.size) { bcReport(skip, file.name, 0); alert('새로 올릴 줄이 없어요. 건너뛴 줄은 화면 아래 목록에서 볼 수 있어요.'); return; }
   const go = h('button', { class: 'btn primary' }, `${map.size.toLocaleString()}개 올리기`);
   const close = modal(h('div', {}, h('h3', {}, '바코드 엑셀 올리기'),
     h('ul', { class: 'steps' },
-      h('li', {}, `올릴 바코드 ${map.size.toLocaleString()}개 (이미 있는 바코드는 새 제품코드로 바뀌어요)`),
-      dup ? h('li', {}, `같은 바코드가 두 번 이상 나온 줄 ${dup}개는 아래 줄 것을 써요`) : null,
-      iName < 0 ? h('li', { class: 'mut' }, '제품명 열이 없어요 (괜찮아요)') : null,
-      bad.length ? h('li', { class: 'warn' }, `건너뛰는 줄 ${bad.length}개`, h('div', { class: 'mut' }, bad.slice(0, 8).join(' / ') + (bad.length > 8 ? ' …' : ''))) : null),
+      h('li', {}, `새로 올릴 바코드 ${map.size.toLocaleString()}개`),
+      skip.length ? h('li', { class: 'warn' }, `건너뛰는 줄 ${skip.length.toLocaleString()}개 (이미 있는 것은 바꾸지 않아요)`,
+        h('div', { class: 'mut' }, Object.entries(kinds).map(([k, n]) => `${k} ${n}`).join(' · '))) : null,
+      iName < 0 ? h('li', { class: 'mut' }, '제품명 열이 없어요 (괜찮아요)') : null),
+    h('p', { class: 'mut' }, '건너뛴 줄은 올린 뒤 이 화면 아래에 목록으로 보여드려요 (다른 화면으로 가면 사라져요).'),
     h('div', { class: 'modal-act' }, go)));
   go.onclick = async () => {
     go.disabled = true;
@@ -2685,13 +2703,36 @@ $('#bc-file').addEventListener('change', async e => {
     try {
       for (let i = 0; i < list.length; i += 400) {
         const b = writeBatch(db);
-        for (const [bc, r] of list.slice(i, i + 400)) b.set(doc(db, 'barcodes', bc), { code: r.code, ...(r.name ? { name: r.name } : {}), updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true });
+        for (const [bc, r] of list.slice(i, i + 400)) b.set(doc(db, 'barcodes', bc), { code: r.code, ...(r.name ? { name: r.name } : {}), updatedAt: serverTimestamp(), updatedBy: me() });
         await b.commit(); done = Math.min(list.length, i + 400); go.textContent = `올리는 중… ${done.toLocaleString()} / ${list.length.toLocaleString()}`;
       }
-      close(); toast(`바코드 ${list.length.toLocaleString()}개를 올렸어요`); bcCount();
+      close(); toast(`바코드 ${list.length.toLocaleString()}개를 올렸어요` + (skip.length ? ` · ${skip.length}개는 건너뜀` : '')); bcCount();
+      bcReport(skip, file.name, list.length);
     } catch (err) { alert(`올리다가 멈췄어요 (${done.toLocaleString()}개까지 저장됨): ${err.code || err.message}`); go.disabled = false; go.textContent = '다시 올리기'; }
   };
 });
+// 건너뛴 줄 알림: 이 화면에만, 한 번만 (다른 화면으로 가거나 닫으면 사라지고 저장하지 않음)
+function bcReport(skip, fileName, okN) {
+  const box = $('#bc-report'); if (!box) return;
+  if (!skip.length) { box.replaceChildren(); box.classList.add('hidden'); return; }
+  const dl = h('button', { class: 'btn small ghost', onclick: async () => {
+    try {
+      const X = await loadXLSX(), ws = X.utils.aoa_to_sheet([['줄', '바코드', '제품코드', '제품명', '건너뛴 이유'], ...skip.map(x => [x.line, x.bc, x.code, x.name, x.why])]);
+      skip.forEach((_, i) => { for (const c of ['B', 'C']) { const k = c + (i + 2); if (ws[k]) ws[k].t = 's'; } });
+      ws['!cols'] = [{ wch: 6 }, { wch: 16 }, { wch: 12 }, { wch: 24 }, { wch: 44 }];
+      const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, '건너뛴 줄'); X.writeFile(wb, `바코드_건너뛴줄_${fmtDate(new Date()).replace(/\./g, '')}.xlsx`);
+    } catch (e) { alert(e.message); }
+  } }, '엑셀로 받기');
+  box.replaceChildren(
+    h('div', { class: 'bc-rep-head' }, h('b', {}, `'${fileName}' 에서 건너뛴 줄 ${skip.length.toLocaleString()}개`), h('span', { class: 'mut' }, ` · 올린 줄 ${okN.toLocaleString()}개`),
+      h('span', { class: 'sp' }), dl, h('button', { class: 'modal-x bc-rep-x', title: '닫기', onclick: () => bcReport([], '', 0) }, '×')),
+    h('p', { class: 'mut' }, '이미 있는 바코드·제품코드는 바꾸지 않았어요. 바꾸려면 아래 찾기에서 지우고 다시 올려주세요. 이 목록은 다른 화면으로 가면 사라져요.'),
+    h('div', { class: 'bc-rep-wrap' }, h('table', { class: 'gl-table' },
+      h('thead', {}, h('tr', {}, h('th', {}, '줄'), h('th', {}, '바코드'), h('th', {}, '제품코드'), h('th', {}, '이유'))),
+      h('tbody', {}, ...skip.slice(0, 500).map(x => h('tr', {}, h('td', {}, x.line), h('td', {}, x.bc), h('td', {}, x.code), h('td', {}, x.why)))))),
+    ...(skip.length > 500 ? [h('p', { class: 'mut' }, `앞의 500개만 보여요. 전부는 '엑셀로 받기'로 보세요.`)] : []));
+  box.classList.remove('hidden');
+}
 
 /* ---------- 3. 용어 사전 ---------- */
 const norm = t => (t || '').toLowerCase().replace(/\s+/g, ''); // 띄어쓰기·대소문자 무시

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261031k">
+<link rel="stylesheet" href="style.css?v=20261031l">
 </head>
 <body>
 
@@ -182,7 +182,7 @@
     <div class="gl-wrap st-wrap">
       <h2>바코드 등록</h2>
       <p class="mut">제품 찾기에서 바코드를 찍으면 여기 목록으로 <b>제품코드</b>를 찾아 POG 위치를 보여줘요.
-        엑셀 머리글은 <b>제품코드 · 바코드</b> 두 개면 돼요 (제품명은 넣어도 되고 안 넣어도 돼요. 이 화면에서만 보여요).</p>
+        엑셀 머리글은 <b>제품코드 · 바코드</b> 두 개면 돼요 (제품명은 넣어도 되고 안 넣어도 돼요. 이 화면에서만 보여요). <b>이미 있는 바코드·제품코드는 바꾸지 않고 건너뛰어요.</b></p>
       <div class="bc-bar">
         <span id="bc-count" class="mut"></span>
         <span class="sp"></span>
@@ -197,6 +197,7 @@
         <input name="name" placeholder="제품명 (선택)" autocomplete="off">
         <button class="btn primary">추가</button>
       </form>
+      <div id="bc-report" class="bc-report hidden"></div>
       <input id="bc-search" class="search bc-search" placeholder="바코드 또는 제품코드로 찾기 (Enter)" autocomplete="off">
       <table class="gl-table">
         <thead><tr><th>바코드</th><th>제품코드</th><th>제품명</th><th></th></tr></thead>
@@ -382,6 +383,6 @@
 <div id="toast"></div>
 
 <!-- 파일을 고치면 ?v= 숫자도 바꿀 것 (브라우저가 예전 파일을 쓰지 않도록) -->
-<script type="module" src="app.js?v=20261031k"></script>
+<script type="module" src="app.js?v=20261031l"></script>
 </body>
 </html>
