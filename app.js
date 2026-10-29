@@ -87,7 +87,7 @@ const fmtDate = ts => {
 };
 // POG 원본 이름. 칸이 여러 개인 매대는 '(1/2)'처럼 몇 번째 칸인지 붙임
 const origName = fx => (fx.mdName || '') + (fx.bayCount > 1 ? ` (${fx.bayNo}/${fx.bayCount})` : '');
-const displayName = fx => fx.headerName || origName(fx);
+const displayName = fx => fx.kind === 'free' ? (fx.headerName || '추가 페이지') : (fx.headerName || origName(fx));
 const glossaryOf = cat => state.glossary.filter(g => g.cat === cat).sort((a, b) => (a.ko || '').localeCompare(b.ko || '', 'ko'));
 
 const state = {
@@ -197,6 +197,7 @@ function queueWrite(key, fn) {
     pending--; setSaving();
   }, 500);
 }
+const pendingKey = key => !!timers[key];
 const saveFx = (pogId, fxId, f, v) => queueWrite(`${fxId}|${f}`, () =>
   updateDoc(doc(db, 'pogs', pogId, 'fixtures', fxId), { [f]: v, updatedAt: serverTimestamp(), updatedBy: state.user.email }));
 const savePog = (pogId, f, v) => queueWrite(`${pogId}|${f}`, () =>
@@ -246,7 +247,10 @@ function buildCover(pog, { editable }) {
     h('div', { class: 'cover-body' }, title, h('div', { class: 'cover-pog' }, 'POG')),
     h('div', { class: 'pf1' }, 'POG 담당자 ', h('span', { class: 'pf-mgr' })),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
-  return h('div', { class: 'page-block cover-block', 'data-id': '__cover' }, page);
+  const block = h('div', { class: 'page-block cover-block', 'data-id': '__cover' }, page);
+  if (editable) block.append(h('div', { class: 'page-extra empty' }, h('div', { class: 'pe-act no-print' },
+    h('button', { class: 'btn small ghost', onclick: () => addFreePage(pog.id, (sortedFx()[0]?.order ?? 0) - 1) }, '+ 표지 뒤에 빈 페이지 추가'))));
+  return block;
 }
 function syncCover(block, pog) {
   const t = $('.cover-title', block);
@@ -285,7 +289,7 @@ function makeThumbs(box, scroller) {
       entries.forEach((e, i) => {
         let t = els.get(e.id);
         if (!t) {
-          const body = e.fx ? buildCanvas(e.fx, 116, 150, null, { lazy: true }) : h('div', { class: 'th-cover' });
+          const body = e.fx && e.fx.kind !== 'free' ? buildCanvas(e.fx, 116, 150, null, { lazy: true }) : h('div', { class: 'th-cover' });
           t = h('div', { class: 'thumb', title: e.name },
             h('div', { class: 'th-no' }),
             h('div', { class: 'th-page' }, h('div', { class: 'th-head' }, h('span', { class: 'th-name' })), h('div', { class: 'th-body' }, body)));
@@ -296,7 +300,7 @@ function makeThumbs(box, scroller) {
         t.title = e.name;
         $('.th-no', t).textContent = i + 1;
         $('.th-name', t).textContent = e.fx ? e.name : '';
-        if (!e.fx) { const c = $('.th-cover', t); c.innerHTML = ''; c.append(h('b', {}, e.name), h('b', {}, 'POG')); }
+        if (!e.fx || e.fx.kind === 'free') { const c = $('.th-cover', t); c.innerHTML = ''; c.append(h('b', {}, e.name), e.fx ? h('small', {}, '추가 페이지') : h('b', {}, 'POG')); }
         if (box.children[i] !== t) box.insertBefore(t, box.children[i] || null);
       });
       if (!box.querySelector('.thumb.on') && entries[0]) setActive(entries[0].id);
@@ -325,6 +329,7 @@ function buildPage(fx, pog, { editable, onItem }) {
   };
   const box = (label, ...c) => h('div', { class: 'sbox' }, h('div', { class: 'sbox-l' }, label), h('div', { class: 'sbox-c' }, ...c));
 
+  if (fx.kind === 'free') return buildFreePage(fx, pog, { editable, field });
   const page = h('div', { class: 'page' },
     h('div', { class: 'ph' },
       field('headerName', h('input', { class: 'ph-name', placeholder: origName(fx) || '매대명' })),
@@ -350,12 +355,242 @@ function buildPage(fx, pog, { editable, onItem }) {
   if (editable) {
     const up = h('input', { type: 'file', accept: 'image/*', multiple: true, class: 'hidden' });
     up.onchange = async () => { await uploadPhotos(pid, fx.id, [...up.files]); up.value = ''; };
-    extra.append(h('button', { class: 'btn small no-print', onclick: () => up.click() }, '+ 사진 첨부'), up);
+    extra.append(h('div', { class: 'pe-act no-print' },
+      h('button', { class: 'btn small', onclick: () => up.click() }, '+ 사진 첨부'), up,
+      h('button', { class: 'btn small ghost', onclick: () => addFreePage(pog.id, fx.order) }, '+ 이 뒤에 빈 페이지 추가')));
   }
-  const block = h('div', { class: 'page-block', 'data-id': fx.id }, page, extra);
+  return finishBlock(fx, pog, page, extra, editable);
+}
+// 페이지 블록 마무리: 메모 층(네모·글상자·화살표·사진)과 편집 막대를 붙임
+function finishBlock(fx, pog, page, extra, editable) {
+  const block = h('div', { class: 'page-block', 'data-id': fx.id });
   block._editable = editable;
+  block._pog = pog.id; block._fx = fx.id;
+  block._notes = structuredClone(fx.notes || []);
+  block._sel = null;
+  page.append(h('div', { class: 'anno' + (editable ? ' edit' : '') }));
+  if (editable) block.append(buildNoteBar(block));
+  block.append(page, extra);
+  if (editable) page.addEventListener('pointerdown', e => { if (!e.target.closest('.nt, .nh')) selectNote(block, null); });
+  renderNotes(block);
   return block;
 }
+
+/* ---------- 추가 페이지 (POG 없이 사진·글·메모만) ---------- */
+function buildFreePage(fx, pog, { editable, field }) {
+  const page = h('div', { class: 'page free' },
+    h('div', { class: 'ph' }, field('headerName', h('input', { class: 'ph-name', placeholder: '제목 (예: 3단 각고리 참고사진)' }))),
+    h('div', { class: 'pb free-body' }),
+    h('div', { class: 'pf1' }, 'POG 담당자 ', h('span', { class: 'pf-mgr' })),
+    h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
+  const extra = h('div', { class: 'page-extra empty' }, h('div', { class: 'pe-title' }, h('b', { class: 'pe-name' }), h('span', { class: 'mut' }, ' · 추가 페이지')));
+  if (editable) extra.append(h('div', { class: 'pe-act no-print' },
+    h('button', { class: 'btn small ghost', onclick: () => moveFreePage(pog.id, fx.id, -1) }, '▲ 위로'),
+    h('button', { class: 'btn small ghost', onclick: () => moveFreePage(pog.id, fx.id, 1) }, '▼ 아래로'),
+    h('button', { class: 'btn small ghost', onclick: () => addFreePage(pog.id, fx.order) }, '+ 이 뒤에 빈 페이지 추가'),
+    h('button', { class: 'btn small ghost danger', onclick: () => deleteFreePage(pog.id, fx) }, '페이지 삭제')));
+  return finishBlock(fx, pog, page, extra, editable);
+}
+const sortedFx = () => [...state.fixtures.values()].sort((a, b) => a.order - b.order);
+async function addFreePage(pogId, afterOrder) {
+  const list = sortedFx(), next = list.find(f => f.order > afterOrder);
+  const order = next ? (afterOrder + next.order) / 2 : afterOrder + 1; // 사이에 끼워 넣기
+  const id = 'free_' + Date.now().toString(36);
+  try {
+    await setDoc(doc(db, 'pogs', pogId, 'fixtures', id), {
+      kind: 'free', order, headerName: '', notes: [], items: [], props: [], memo: '', photos: [],
+      teamName: '', mdName: '', createdAt: serverTimestamp(), createdBy: me(),
+    });
+    toast('빈 페이지를 추가했어요');
+    setTimeout(() => state.pageEls.get(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
+  } catch (e) { toast('추가 실패: ' + e.message); }
+}
+async function moveFreePage(pogId, fxId, dir) {
+  const list = sortedFx(), i = list.findIndex(f => f.id === fxId), j = i + dir;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  const b = writeBatch(db);
+  b.update(doc(db, 'pogs', pogId, 'fixtures', list[i].id), { order: list[j].order });
+  b.update(doc(db, 'pogs', pogId, 'fixtures', list[j].id), { order: list[i].order });
+  await b.commit();
+}
+async function deleteFreePage(pogId, fx) {
+  if (!confirm(`'${displayName(fx)}' 페이지를 삭제할까요?`)) return;
+  for (const n of fx.notes || []) if (n.path) { try { await deleteObject(sRef(st, n.path)); } catch { } }
+  await deleteDoc(doc(db, 'pogs', pogId, 'fixtures', fx.id));
+}
+
+/* ---------- 메모: 네모 박스 · 글상자 · 화살표 · 사진 ----------
+   fixture.notes = [{ id, t:'box'|'text'|'arrow'|'img', ... }]  좌표는 A4 페이지 안의 px
+   글상자 글자(text)는 2.2 번역에서 id로 언어별 번역을 붙임 */
+const NOTE_COLORS = ['#e60012', '#f7931e', '#ffd400', '#2e9e5b', '#00a0e9', '#7b4fd6', '#222222', '#ffffff'];
+const uid = () => Math.random().toString(36).slice(2, 9);
+const rgba = (hex, a) => { const n = parseInt((hex || '#000000').slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
+const NOTE_NEW = {
+  box: () => ({ t: 'box', x: 120, y: 320, w: 240, h: 120, color: '#e60012', fill: false, alpha: 0.3, bw: 3 }),
+  text: () => ({ t: 'text', x: 150, y: 360, w: 170, h: 30, text: '메모', bg: '#ffd400', color: '#222222', border: '', fs: 14 }),
+  arrow: () => ({ t: 'arrow', x1: 220, y1: 330, x2: 360, y2: 420, color: '#2e9e5b', bw: 3 }),
+};
+const SVGNS = 'http://www.w3.org/2000/svg';
+const svgEl = (tag, attrs = {}) => { const el = document.createElementNS(SVGNS, tag); for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v); return el; };
+let noteSaveBlock = null; // Delete 키로 지울 때 쓰는, 지금 선택된 메모가 있는 페이지
+
+function saveNotes(block) { saveFx(block._pog, block._fx, 'notes', structuredClone(block._notes)); }
+function selectNote(block, id) {
+  if (block._sel === id) return;
+  block._sel = id; noteSaveBlock = id ? block : null;
+  renderNotes(block); renderNoteBar(block);
+}
+function renderNotes(block) {
+  const layer = $('.anno', block); if (!layer) return;
+  layer.innerHTML = '';
+  const ed = block._editable;
+  for (const n of block._notes) {
+    const sel = ed && n.id === block._sel;
+    if (n.t === 'arrow') {
+      const svg = svgEl('svg', { class: 'nt-svg' }), mid = 'm' + uid();
+      const mk = svgEl('marker', { id: mid, viewBox: '0 0 10 10', refX: 7, refY: 5, markerWidth: 4, markerHeight: 4, orient: 'auto-start-reverse' });
+      mk.append(svgEl('path', { d: 'M0,0 L10,5 L0,10 z', fill: n.color }));
+      const defs = svgEl('defs'); defs.append(mk); svg.append(defs);
+      svg.append(svgEl('line', { x1: n.x1, y1: n.y1, x2: n.x2, y2: n.y2, stroke: n.color, 'stroke-width': n.bw || 3, 'marker-end': `url(#${mid})`, 'stroke-linecap': 'round' }));
+      if (ed) {
+        const hit = svgEl('line', { x1: n.x1, y1: n.y1, x2: n.x2, y2: n.y2, class: 'nt nt-hit' + (sel ? ' sel' : ''), 'data-id': n.id });
+        hit.addEventListener('pointerdown', e => startNoteDrag(e, block, n, 'move'));
+        svg.append(hit);
+      }
+      layer.append(svg);
+      if (sel) for (const k of ['1', '2']) {
+        const hd = h('div', { class: 'nh nh-pt', style: `left:${n['x' + k]}px;top:${n['y' + k]}px` });
+        hd.addEventListener('pointerdown', e => startNoteDrag(e, block, n, 'p' + k));
+        layer.append(hd);
+      }
+      continue;
+    }
+    const st = `left:${n.x}px;top:${n.y}px;width:${n.w}px;height:${n.h}px;`;
+    let el;
+    if (n.t === 'box') el = h('div', { class: 'nt nt-box', style: st + `border:${n.bw || 3}px solid ${n.color};background:${n.fill ? rgba(n.color, n.alpha ?? 0.3) : 'transparent'}` });
+    else if (n.t === 'text') el = h('div', { class: 'nt nt-text', style: st + `background:${n.bg || 'transparent'};color:${n.color || '#222'};font-size:${n.fs || 14}px;border:${n.border ? '2px solid ' + n.border : '0'}` }, n.text || '');
+    else if (n.t === 'img') el = h('div', { class: 'nt nt-img', style: st }, h('img', { src: n.url, alt: '', draggable: 'false' }));
+    else continue;
+    el.dataset.id = n.id;
+    if (sel) el.classList.add('sel');
+    if (ed) {
+      el.addEventListener('pointerdown', e => startNoteDrag(e, block, n, 'move'));
+      if (n.t === 'text') el.addEventListener('dblclick', () => $('.nb-text', block)?.focus());
+      if (sel) { const hd = h('div', { class: 'nh nh-se' }); hd.addEventListener('pointerdown', e => startNoteDrag(e, block, n, 'size')); el.append(hd); }
+    }
+    layer.append(el);
+  }
+}
+function startNoteDrag(e, block, n, mode) {
+  e.preventDefault(); e.stopPropagation();
+  selectNote(block, n.id);
+  const sx = e.clientX, sy = e.clientY, o = { ...n };
+  let moved = false;
+  block._dragging = true;
+  const mv = ev => {
+    const dx = ev.clientX - sx, dy = ev.clientY - sy;
+    if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
+    if (mode === 'move' && n.t === 'arrow') { n.x1 = o.x1 + dx; n.y1 = o.y1 + dy; n.x2 = o.x2 + dx; n.y2 = o.y2 + dy; }
+    else if (mode === 'move') { n.x = Math.round(o.x + dx); n.y = Math.round(o.y + dy); }
+    else if (mode === 'size') {
+      n.w = Math.max(16, Math.round(o.w + dx));
+      n.h = n.t === 'img' && ev.shiftKey === false ? Math.max(16, Math.round(n.w * o.h / o.w)) : Math.max(16, Math.round(o.h + dy)); // 사진은 비율 유지
+    }
+    else { n['x' + mode[1]] = o['x' + mode[1]] + dx; n['y' + mode[1]] = o['y' + mode[1]] + dy; }
+    renderNotes(block);
+  };
+  const up = () => {
+    window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up);
+    block._dragging = false;
+    if (moved) saveNotes(block);
+  };
+  window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+}
+function addNote(block, n) {
+  n.id = uid();
+  block._notes.push(n);
+  saveNotes(block); selectNote(block, n.id);
+}
+function removeNote(block, id) {
+  const n = block._notes.find(x => x.id === id); if (!n) return;
+  block._notes = block._notes.filter(x => x.id !== id);
+  if (n.path) deleteObject(sRef(st, n.path)).catch(() => { });
+  block._sel = null; noteSaveBlock = null;
+  saveNotes(block); renderNotes(block); renderNoteBar(block);
+}
+async function addImageNote(block, file) {
+  toast('사진 올리는 중…');
+  try {
+    const blob = await resizeImage(file, 1400);
+    const bmp = await createImageBitmap(blob);
+    const path = `pogs/${block._pog}/${block._fx}/notes/${Date.now()}_${uid()}.jpg`;
+    await uploadBytes(sRef(st, path), blob, { contentType: 'image/jpeg' });
+    const url = await getDownloadURL(sRef(st, path));
+    const w = 240, hh = Math.round(w * bmp.height / bmp.width);
+    addNote(block, { t: 'img', x: 140, y: 300, w, h: hh, url, path });
+  } catch (e) { toast('사진 올리기 실패: ' + e.message); }
+}
+
+// 편집 막대: 추가 버튼 + 선택한 메모의 색·채우기·글 등
+function buildNoteBar(block) {
+  const file = h('input', { type: 'file', accept: 'image/*', class: 'hidden' });
+  file.onchange = () => { if (file.files[0]) addImageNote(block, file.files[0]); file.value = ''; };
+  return h('div', { class: 'nbar no-print' },
+    h('div', { class: 'nb-add' }, h('span', { class: 'mut' }, '메모 추가'),
+      h('button', { class: 'btn small', onclick: () => addNote(block, NOTE_NEW.box()) }, '▭ 네모'),
+      h('button', { class: 'btn small', onclick: () => addNote(block, NOTE_NEW.text()) }, '✎ 글상자'),
+      h('button', { class: 'btn small', onclick: () => addNote(block, NOTE_NEW.arrow()) }, '↗ 화살표'),
+      h('button', { class: 'btn small', onclick: () => file.click() }, '🖼 사진'), file),
+    h('div', { class: 'nb-props' }));
+}
+function swatches(cur, onPick, { none = false } = {}) {
+  return h('span', { class: 'sw-row' },
+    none ? h('button', { class: 'sw sw-none' + (!cur ? ' on' : ''), title: '없음', onclick: () => onPick('') }, '×') : null,
+    ...NOTE_COLORS.map(c => h('button', { class: 'sw' + (cur === c ? ' on' : ''), style: `background:${c}`, title: c, onclick: () => onPick(c) })),
+    h('input', { type: 'color', class: 'sw-pick', value: cur || '#000000', title: '다른 색', onchange: e => onPick(e.target.value) }));
+}
+function renderNoteBar(block) {
+  const box = $('.nb-props', block); if (!box) return;
+  if (box.contains(document.activeElement) && document.activeElement.tagName === 'TEXTAREA') return; // 글 쓰는 중
+  box.innerHTML = '';
+  const n = block._notes.find(x => x.id === block._sel);
+  if (!n) { box.append(h('span', { class: 'mut' }, '메모를 누르면 색·채우기를 바꿀 수 있어요. 끌어서 옮기고, 모서리로 크기를 바꿔요.')); return; }
+  const set = (patch) => { Object.assign(n, patch); saveNotes(block); renderNotes(block); renderNoteBar(block); };
+  const lab = t => h('span', { class: 'nb-l' }, t);
+  const sel = (v, opts, on) => { const s = h('select', { class: 'nb-sel' }, ...opts.map(([k, t]) => h('option', { value: k }, t))); s.value = String(v); s.onchange = () => on(s.value); return s; };
+  if (n.t === 'box') box.append(
+    lab('색'), swatches(n.color, c => set({ color: c || n.color })),
+    h('label', { class: 'nb-chk' }, h('input', { type: 'checkbox', checked: !!n.fill, onchange: e => set({ fill: e.target.checked }) }), ' 채우기'),
+    n.fill ? sel(n.alpha ?? 0.3, [['0.25', '연하게'], ['0.5', '중간'], ['1', '진하게']], v => set({ alpha: Number(v) })) : null,
+    lab('굵기'), sel(n.bw || 3, [['1', '1'], ['2', '2'], ['3', '3'], ['5', '5']], v => set({ bw: Number(v) })));
+  if (n.t === 'text') {
+    const ta = h('textarea', { class: 'nb-text', rows: 2 });
+    ta.value = n.text || '';
+    ta.addEventListener('input', () => {
+      n.text = ta.value; renderNotes(block);
+      const el = block.querySelector(`.nt-text[data-id="${n.id}"]`); // 글이 넘치면 상자를 아래로 늘림
+      if (el && el.scrollHeight > el.clientHeight + 1) { n.h = el.scrollHeight + 4; renderNotes(block); }
+      saveNotes(block);
+    });
+    box.append(ta,
+      lab('배경'), swatches(n.bg, c => set({ bg: c }), { none: true }),
+      lab('글자'), swatches(n.color, c => set({ color: c || '#222222' })),
+      lab('테두리'), swatches(n.border, c => set({ border: c }), { none: true }),
+      lab('크기'), sel(n.fs || 14, [['10', '10'], ['12', '12'], ['14', '14'], ['18', '18'], ['24', '24'], ['32', '32']], v => set({ fs: Number(v) })));
+  }
+  if (n.t === 'arrow') box.append(lab('색'), swatches(n.color, c => set({ color: c || n.color })),
+    lab('굵기'), sel(n.bw || 3, [['2', '2'], ['3', '3'], ['5', '5'], ['8', '8']], v => set({ bw: Number(v) })));
+  if (n.t === 'img') box.append(h('span', { class: 'mut' }, '모서리를 끌면 비율을 유지하며 크기가 바뀌어요.'));
+  box.append(h('span', { class: 'nb-sp' }),
+    n.t !== 'img' ? h('button', { class: 'btn small ghost', onclick: () => { const c = structuredClone(n); delete c.id; if (c.t === 'arrow') { c.x1 += 20; c.y1 += 20; c.x2 += 20; c.y2 += 20; } else { c.x += 20; c.y += 20; } addNote(block, c); } }, '복제') : null,
+    h('button', { class: 'btn small ghost danger', onclick: () => removeNote(block, n.id) }, '삭제'));
+}
+document.addEventListener('keydown', e => {
+  const b = noteSaveBlock; if (!b || !b._sel || !b.isConnected) return;
+  if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName)) return;
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeNote(b, b._sel); }
+  if (e.key === 'Escape') selectNote(b, null);
+});
 
 function fillHookSelect(sel, v) {
   if (sel === document.activeElement) return;
@@ -380,12 +615,18 @@ function syncPage(block, fx, pog) {
   $('.pf-branch', block).textContent = pog.branchName || '';
   $('.pe-name', block).textContent = displayName(fx);
   renderPhotos(block, pog.id, fx);
+  const typing = block.querySelector('.nb-text') === document.activeElement;
+  if (!block._dragging && !typing && !pendingKey(`${fx.id}|notes`) && JSON.stringify(fx.notes || []) !== JSON.stringify(block._notes)) {
+    block._notes = structuredClone(fx.notes || []);
+    if (!block._notes.some(n => n.id === block._sel)) block._sel = null;
+    renderNotes(block); renderNoteBar(block);
+  }
   const empty = !(fx.memo || '').trim() && !(fx.photos || []).length;
   $('.page-extra', block).classList.toggle('empty', empty);
 }
 
 function renderPhotos(block, pogId, fx) {
-  const box = $('.photos', block); box.innerHTML = '';
+  const box = $('.photos', block); if (!box) return; box.innerHTML = '';
   for (const p of fx.photos || []) {
     const fig = h('figure', {}, h('a', { href: p.url, target: '_blank' }, h('img', { src: p.url, alt: '' })));
     if (block._editable) fig.append(h('button', { class: 'ph-del no-print', title: '삭제', onclick: () => removePhoto(pogId, fx.id, p) }, '×'));
@@ -544,7 +785,7 @@ $('#ed-final').onclick = async () => {
   const miss = [];
   if (!p.branchName) miss.push('지점명');
   if (!p.manager) miss.push('담당자');
-  const noName = [...state.fixtures.values()].filter(f => !f.headerName).length;
+  const noName = [...state.fixtures.values()].filter(f => f.kind !== 'free' && !f.headerName).length;
   if (noName) miss.push(`매대명 미입력 ${noName}개 (POG 원본 이름으로 표시돼요)`);
   const msg = (miss.length ? '확인 필요: ' + miss.join(', ') + '\n\n' : '') + '최종 POG로 내보낼까요? 내보내면 수정이 잠기고 온라인 POG와 번역 화면에서 쓸 수 있어요.';
   if (!confirm(msg)) return;
@@ -555,7 +796,7 @@ $('#ed-delete').onclick = async () => {
   const p = state.currentPog; if (!p) return;
   if (!confirm(`'${p.branchName || p.storeName}' POG를 삭제할까요? 되돌릴 수 없어요.`)) return;
   const fxs = await getDocs(collection(db, 'pogs', p.id, 'fixtures'));
-  for (const d of fxs.docs) for (const ph of d.data().photos || []) { try { await deleteObject(sRef(st, ph.path)); } catch { } }
+  for (const d of fxs.docs) for (const ph of [...(d.data().photos || []), ...(d.data().notes || []).filter(n => n.path)]) { try { await deleteObject(sRef(st, ph.path)); } catch { } }
   let b = writeBatch(db), n = 0;
   for (const d of fxs.docs) { b.delete(d.ref); if (++n >= 400) { await b.commit(); b = writeBatch(db); n = 0; } }
   await b.commit();
