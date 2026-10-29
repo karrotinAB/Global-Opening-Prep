@@ -2,7 +2,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, where, limit,
-  writeBatch, serverTimestamp, arrayUnion, arrayRemove, getDocs, getDoc, getCountFromServer, FieldPath
+  writeBatch, serverTimestamp, arrayUnion, arrayRemove, deleteField, getDocs, getDoc, getCountFromServer, FieldPath
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
@@ -204,7 +204,7 @@ function go(v) {
   $$('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + secOf(v)));
   if (v.startsWith('dw-')) setDwMode({ 'dw-up': 'up', 'dw-tr': 'tr', 'dw-online': 'on' }[v]);
   window.scrollTo(0, 0);
-  if (v === 'barcodes') bcCount();
+  if (v === 'barcodes') bcCount(); else bcReport([], '', 0); // 건너뛴 줄 알림은 이 화면을 나가면 사라짐
 }
 $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
 $$('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
@@ -215,20 +215,97 @@ const timers = {}; let pending = 0;
 function setSaving() {
   for (const el of [$('#ed-saving'), $('#tr-saving'), $('#dw-saving')]) if (el) el.textContent = pending > 0 ? '저장 중…' : '저장됨';
 }
+const queued = {}; // 기다리는 저장 (되돌리기 전에 먼저 저장해 둠)
 function queueWrite(key, fn) {
   if (!timers[key]) { pending++; setSaving(); }
   clearTimeout(timers[key]);
-  timers[key] = setTimeout(async () => {
-    delete timers[key];
-    try { await fn(); } catch (e) { toast('저장 실패: ' + e.message); }
-    pending--; setSaving();
-  }, 500);
+  queued[key] = fn;
+  timers[key] = setTimeout(() => runQueued(key), 500);
 }
+async function runQueued(key) {
+  const fn = queued[key]; clearTimeout(timers[key]); delete timers[key]; delete queued[key];
+  if (!fn) return;
+  try { await fn(); } catch (e) { toast('저장 실패: ' + e.message); }
+  pending--; setSaving();
+}
+const flushWrites = () => Promise.all(Object.keys(queued).map(runQueued));
 const pendingKey = key => !!timers[key];
-const saveFx = (pogId, fxId, f, v) => queueWrite(`${fxId}|${f}`, () =>
-  updateDoc(doc(db, 'pogs', pogId, 'fixtures', fxId), { [f]: v, updatedAt: serverTimestamp(), updatedBy: state.user.email }));
-const savePog = (pogId, f, v) => queueWrite(`${pogId}|${f}`, () =>
-  updateDoc(doc(db, 'pogs', pogId), { [f]: v, updatedAt: serverTimestamp() }));
+// gk = 되돌리기 묶음 이름 (여러 칸을 한 번에 바꿀 때 같은 이름이면 한 번에 되돌림)
+const saveFx = (pogId, fxId, f, v, gk) => { track(pogId, fxId, [f], gk || `${fxId}|${f}`); queueWrite(`${fxId}|${f}`, () =>
+  updateDoc(doc(db, 'pogs', pogId, 'fixtures', fxId), { [f]: v, updatedAt: serverTimestamp(), updatedBy: state.user.email })); };
+const savePog = (pogId, f, v) => { track(pogId, '__pog', [f], `__pog|${f}`); queueWrite(`${pogId}|${f}`, () =>
+  updateDoc(doc(db, 'pogs', pogId), { [f]: v, updatedAt: serverTimestamp() })); };
+
+/* ---------- 되돌리기 (POG 만들기: Ctrl+Z 되돌리기, Ctrl+Y 다시 하기, 툴바 ↶ ↷) ----------
+   바꾸기 직전 값(state.fxRaw = 서버에서 받은 그대로)을 한 단계씩 기억. 같은 칸을 1.5초 안에 계속 고치면 한 단계.
+   what = 바꾼 칸 이름들 | '*'(페이지 삭제: 문서 통째로) | 'new'(새로 만든 페이지). 되돌릴 때는 그 칸만 예전 값으로 씀 */
+const undo = { steps: [], redo: [], pogId: null };
+let undoBusy = false;
+function track(pogId, docKey, what, gk) {
+  if (undoBusy || !state.edEditable || state.currentPog?.id !== pogId) return;
+  if (undo.pogId !== pogId) { undo.steps = []; undo.redo = []; undo.pogId = pogId; }
+  const now = Date.now();
+  let st = undo.steps.at(-1);
+  if (!st || !gk || st.key !== gk || now - st.t > 1500) {
+    st = { key: gk || now + Math.random(), t: now, ops: new Map() };
+    undo.steps.push(st); if (undo.steps.length > 100) undo.steps.shift();
+  }
+  st.t = now; undo.redo = [];
+  const raw = docKey === '__pog' ? state.pogRaw : state.fxRaw.get(docKey);
+  let op = st.ops.get(docKey);
+  if (!op) { op = what === 'new' ? { whole: true, before: null } : what === '*' ? { whole: true, before: raw || null } : { whole: false, before: {}, fields: new Set() }; st.ops.set(docKey, op); }
+  if (!op.whole) for (const f of what) if (!op.fields.has(f)) { op.fields.add(f); op.before[f] = raw && f in raw ? structuredClone(raw[f]) : undefined; }
+  updateUndoBtns();
+}
+const undoGroup = () => 'g' + Date.now() + Math.random();
+async function applyStep(st) { // 이 단계 전 상태로 되돌리고, 반대로 갈 단계(지금 상태)를 돌려줌
+  const pogId = undo.pogId, rev = { key: undoGroup(), t: 0, ops: new Map() }, b = writeBatch(db);
+  for (const [k, op] of st.ops) {
+    const ref = k === '__pog' ? doc(db, 'pogs', pogId) : doc(db, 'pogs', pogId, 'fixtures', k);
+    const cur = k === '__pog' ? state.pogRaw : state.fxRaw.get(k);
+    if (op.whole) {
+      rev.ops.set(k, { whole: true, before: cur || null });
+      if (op.before) b.set(ref, op.before); else if (cur) b.delete(ref);
+    } else {
+      const patch = {}, rb = {};
+      for (const f of op.fields) { rb[f] = cur && f in cur ? structuredClone(cur[f]) : undefined; patch[f] = op.before[f] === undefined ? deleteField() : op.before[f]; }
+      rev.ops.set(k, { whole: false, before: rb, fields: new Set(op.fields) });
+      if (cur) b.update(ref, patch);
+    }
+  }
+  await b.commit();
+  return rev;
+}
+async function doUndo(redo = false) {
+  if (undoBusy || !state.edEditable || undo.pogId !== state.currentPog?.id) return;
+  const from = redo ? undo.redo : undo.steps, to = redo ? undo.steps : undo.redo;
+  undoBusy = true;
+  try {
+    await flushWrites(); // 아직 안 보낸 저장을 먼저 보내고
+    const st = from.pop();
+    if (!st) { toast(redo ? '다시 할 것이 없어요' : '되돌릴 것이 없어요'); return; }
+    to.push(await applyStep(st));
+    toast(redo ? '다시 했어요 (Ctrl+Y)' : '되돌렸어요 (Ctrl+Z)');
+  } catch (e) { alert('되돌리지 못했어요: ' + (e.code || e.message)); }
+  finally { undoBusy = false; updateUndoBtns(); }
+}
+function updateUndoBtns() {
+  const ok = undo.pogId === state.currentPog?.id && state.edEditable;
+  const u = $('#ed-undo'), r = $('#ed-redo'); if (!u) return;
+  u.disabled = !ok || !undo.steps.length; r.disabled = !ok || !undo.redo.length;
+}
+$('#ed-undo').onclick = () => doUndo(false);
+$('#ed-redo').onclick = () => doUndo(true);
+const clearUndo = () => { undo.steps = []; undo.redo = []; undo.pogId = state.currentPog?.id || null; updateUndoBtns(); };
+document.addEventListener('keydown', e => {
+  if (state.view !== 'pog-make' || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const k = e.key.toLowerCase(); if (k !== 'z' && k !== 'y') return;
+  const a = document.activeElement;
+  if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return; // 글 쓰는 중이면 그 칸의 되돌리기
+  if ($('#modal-root')?.children.length) return;
+  e.preventDefault();
+  doUndo(k === 'y' || e.shiftKey);
+});
 
 /* ---------- 매대 그리기 ---------- */
 // 겹친 제품의 앞뒤: POG 사이트 값(it.z), POG 만들기에서 '맨 앞으로/맨 뒤로' 한 값(fx.itemZ)이 우선
@@ -466,7 +543,8 @@ function composeFx(list) {
   });
 }
 async function mergeNext(pogId, host, kid) {
-  const b = writeBatch(db), ids = [kid.id, ...(kid.merged || [])];
+  const b = writeBatch(db), ids = [kid.id, ...(kid.merged || [])], g = undoGroup();
+  track(pogId, host.id, ['merged'], g); ids.forEach(id => track(pogId, id, ['mergedInto', 'merged'], g));
   b.update(doc(db, 'pogs', pogId, 'fixtures', host.id), { merged: [...(host.merged || []), ...ids], updatedAt: serverTimestamp() });
   ids.forEach(id => b.update(doc(db, 'pogs', pogId, 'fixtures', id), { mergedInto: host.id }));
   if ((kid.merged || []).length) b.update(doc(db, 'pogs', pogId, 'fixtures', kid.id), { merged: [] });
@@ -476,7 +554,8 @@ async function mergeNext(pogId, host, kid) {
 // 붙이기 되돌리기: 방금 붙인 매대(그 매대에 붙어 있던 것까지)를 원래대로
 async function undoMerge(pogId, hostId, ids, kid) {
   const host = state.fixtures.get(hostId); if (!host) return;
-  const b = writeBatch(db);
+  const b = writeBatch(db), g = undoGroup();
+  track(pogId, hostId, ['merged'], g); [kid.id, ...(kid.merged || [])].forEach(id => track(pogId, id, ['mergedInto', 'merged'], g));
   b.update(doc(db, 'pogs', pogId, 'fixtures', hostId), { merged: (host.merged || []).filter(x => !ids.includes(x)), updatedAt: serverTimestamp() });
   b.update(doc(db, 'pogs', pogId, 'fixtures', kid.id), { mergedInto: '', merged: kid.merged || [] });
   (kid.merged || []).forEach(id => b.update(doc(db, 'pogs', pogId, 'fixtures', id), { mergedInto: kid.id }));
@@ -484,7 +563,8 @@ async function undoMerge(pogId, hostId, ids, kid) {
   toast('붙이기를 되돌렸어요');
 }
 async function unmerge(pogId, host, kidId) {
-  const b = writeBatch(db);
+  const b = writeBatch(db), g = undoGroup();
+  track(pogId, host.id, ['merged'], g); track(pogId, kidId, ['mergedInto'], g);
   b.update(doc(db, 'pogs', pogId, 'fixtures', host.id), { merged: (host.merged || []).filter(x => x !== kidId), updatedAt: serverTimestamp() });
   b.update(doc(db, 'pogs', pogId, 'fixtures', kidId), { mergedInto: '' });
   await b.commit();
@@ -565,7 +645,7 @@ const spText = rows => rows.filter(r => (r.name || '').trim()).map(r => `${r.nam
 function renderSp(block) {
   const box = block.querySelector('.page .sp-list'); if (!box) return;
   const ed = block._editable, list = block._sp;
-  const save = () => { saveFx(block._pog, block._fx, 'sp', structuredClone(list)); saveFx(block._pog, block._fx, 'shelfPipe', spText(list)); };
+  const save = () => { const g = `${block._fx}|sp`; saveFx(block._pog, block._fx, 'sp', structuredClone(list), g); saveFx(block._pog, block._fx, 'shelfPipe', spText(list), g); };
   const opts = cur => [...new Set([...SP_DEFAULT, ...glossaryOf('선반/파이프').map(g => g.ko), ...(cur ? [cur] : [])])];
   box.replaceChildren(...list.map(x => {
     const sel = h('select', { class: 'f sp-sel', disabled: !ed }, h('option', { value: '' }, ''), ...opts(x.name).map(o => h('option', { value: o }, o)));
@@ -633,6 +713,7 @@ async function addFreePage(pogId, afterOrder) {
   const list = sortedFx(), next = list.find(f => f.order > afterOrder);
   const order = next ? (afterOrder + next.order) / 2 : afterOrder + 1; // 사이에 끼워 넣기
   const id = 'free_' + Date.now().toString(36);
+  track(pogId, id, 'new');
   try {
     await setDoc(doc(db, 'pogs', pogId, 'fixtures', id), {
       kind: 'free', order, headerName: '', notes: [], items: [], props: [], memo: '', photos: [],
@@ -644,7 +725,8 @@ async function addFreePage(pogId, afterOrder) {
 }
 // 페이지 순서 바꾸기 (화면에 보이는 페이지 기준. 붙인 매대는 붙은 페이지를 따라감). 바뀐 순서대로 order를 1, 2, 3… 다시 매김
 async function reorderPages(pogId, ids) {
-  const changed = ids.map((id, i) => [id, i + 1]).filter(([id, o]) => state.fixtures.get(id)?.order !== o);
+  const changed = ids.map((id, i) => [id, i + 1]).filter(([id, o]) => state.fixtures.get(id)?.order !== o), g = undoGroup();
+  changed.forEach(([id]) => track(pogId, id, ['order'], g));
   try {
     for (let i = 0; i < changed.length; i += 400) {
       const b = writeBatch(db);
@@ -673,13 +755,13 @@ async function deletePage(pogId, fx) {
     : `'${displayName(fx)}' 페이지를 삭제할까요?\n입력한 매대명·고리·이외집기·메모도 함께 지워져요.${kids.length ? `\n붙여 둔 매대 ${kids.length}개는 떼어져서 따로 페이지로 남아요.` : ''}\n(나중에 POG 사이트에서 다시 가져오면 이 매대가 맨 뒤에 다시 생길 수 있어요)`;
   if (!confirm(msg)) return;
   try {
-    const b = writeBatch(db);
+    const b = writeBatch(db), g = undoGroup();
+    kids.forEach(id => track(pogId, id, ['mergedInto'], g)); track(pogId, fx.id, '*', g); track(pogId, '__pog', ['fixtureCount'], g);
     kids.forEach(id => b.update(doc(db, 'pogs', pogId, 'fixtures', id), { mergedInto: '' }));
     b.delete(doc(db, 'pogs', pogId, 'fixtures', fx.id));
     if (fx.kind !== 'free') b.update(doc(db, 'pogs', pogId), { fixtureCount: Math.max(0, (state.currentPog?.fixtureCount || 1) - 1), updatedAt: serverTimestamp() });
     await b.commit();
-    for (const n of fx.notes || []) if (n.path) { try { await deleteObject(sRef(st, n.path)); } catch { } }
-    toast('페이지를 삭제했어요');
+    toast('페이지를 삭제했어요 · Ctrl+Z로 되돌릴 수 있어요'); // 메모 사진 파일은 되돌릴 수 있게 남겨 둠
   } catch (e) { alert('삭제하지 못했어요: ' + (e.code || e.message)); }
 }
 
@@ -957,7 +1039,7 @@ function renderPogList() {
 function closePog() {
   state.unsubPog?.(); state.unsubFx?.();
   state.unsubPog = state.unsubFx = null;
-  state.currentPog = null; state.fixtures = new Map(); state.pageEls = new Map(); state.lockKey = null; state.coverEl = null; state.edActive = null;
+  state.currentPog = null; state.fixtures = new Map(); state.fxRaw = new Map(); state.pogRaw = null; clearUndo(); state.pageEls = new Map(); state.lockKey = null; state.coverEl = null; state.edActive = null;
   $('#ed-side')?.replaceChildren();
   edThumbs.clear();
   $('#editor-body')?.classList.add('hidden'); $('#editor-empty')?.classList.remove('hidden');
@@ -972,11 +1054,12 @@ function openPog(id) {
   renderPogList();
   state.unsubPog = onSnapshot(doc(db, 'pogs', id), d => {
     if (!d.exists()) { closePog(); renderPogList(); return; }
-    state.currentPog = { id: d.id, ...d.data() };
-    applyPogDoc();
+    state.currentPog = { id: d.id, ...d.data() }; state.pogRaw = d.data();
+    applyPogDoc(); updateUndoBtns();
   });
   state.unsubFx = onSnapshot(query(collection(db, 'pogs', id, 'fixtures'), orderBy('order')), s => {
     const ids = new Set();
+    state.fxRaw = new Map(s.docs.map(d => [d.id, d.data()])); // 되돌리기용 서버 원본
     s.docs.forEach(d => { ids.add(d.id); state.fixtures.set(d.id, { id: d.id, ...d.data() }); });
     [...state.fixtures.keys()].forEach(k => { if (!ids.has(k)) state.fixtures.delete(k); });
     renderEditorPages();
@@ -1131,6 +1214,7 @@ async function restoreOutside(pogId, fx) {
   const out = fx.outsideItems || [];
   if (!out.length || !confirm(`매대 밖이라 뺀 제품 ${out.length}개를 이 페이지에 되살릴까요?`)) return;
   const items = [...(fx.items || []), ...out];
+  track(pogId, fx.id, ['items', 'outsideItems', 'itemCount']);
   await updateDoc(doc(db, 'pogs', pogId, 'fixtures', fx.id), { items, outsideItems: [], itemCount: items.length, updatedAt: serverTimestamp(), updatedBy: me() });
   toast(`${out.length}개를 되살렸어요`);
 }
@@ -1179,6 +1263,7 @@ $('#ed-manager').addEventListener('change', async e => {
     v = await addManager();
     if (!v) { e.target.value = p.manager || ''; return; }
   }
+  track(p.id, '__pog', ['manager']);
   p.manager = v;
   await updateDoc(doc(db, 'pogs', p.id), { manager: v, updatedAt: serverTimestamp() });
 });
@@ -1485,6 +1570,7 @@ function showRegrabPreview(pog, plan) {
   };
 }
 async function applyRegrab(pog, plan) {
+  await flushWrites(); clearUndo();
   const all = sortedFx(), ids = new Set(all.map(x => x.id));
   const freeId = id => { let v = id; while (ids.has(v)) v = `${id}_${Date.now().toString(36)}`; ids.add(v); return v; };
   const blank = { headerName: '', fixtureType: '', hookType: '', hookCount: '', otherFixtures: '', memo: '', photos: [], notes: [] };
@@ -2418,7 +2504,7 @@ async function openHeaderPicker(pog, fx) {
     h('p', { class: 'mut' }, '매대를 누르면 헤더에 들어가요. 초록 = 다른 페이지에서 이미 고른 매대. 넣은 뒤에 뒤에 숫자(1, 2…)를 붙여도 돼요.'),
     drawingView(v, 'ko', { used, selId: fx.drawingRef?.vId === v.id ? fx.drawingRef.gid : null, onPick: g => {
       const ref = { storeId: st0.id, vId: v.id, vNo: v.no, gid: g.id, ko: g.ko };
-      saveFx(pog.id, fx.id, 'headerName', g.ko); saveFx(pog.id, fx.id, 'drawingRef', ref);
+      const ug = undoGroup(); saveFx(pog.id, fx.id, 'headerName', g.ko, ug); saveFx(pog.id, fx.id, 'drawingRef', ref, ug);
       const blk = state.pageEls.get(fx.id), inp = blk?.querySelector('[data-f="headerName"]'); if (inp) inp.value = g.ko;
       fx.drawingRef = ref; fx.headerName = g.ko;
       close(); toast(`헤더에 '${g.ko}'를 넣었어요`);
@@ -2539,7 +2625,10 @@ $('#bc-add').addEventListener('submit', async e => {
   if (!bc || !code) return;
   if (bc.includes('/')) { toast('바코드에 / 는 쓸 수 없어요'); return; }
   try {
-    await setDoc(doc(db, 'barcodes', bc), { code, ...(name ? { name } : {}), updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true });
+    const [one, same] = await Promise.all([getDoc(doc(db, 'barcodes', bc)), getDocs(query(collection(db, 'barcodes'), where('code', '==', code), limit(1)))]);
+    if (one.exists()) { alert(`이미 있는 바코드예요 (등록된 제품코드 ${one.data().code}).\n바꾸려면 찾기에서 지우고 다시 추가해주세요.`); return; }
+    if (same.docs.length) { alert(`이미 있는 제품코드예요 (등록된 바코드 ${same.docs[0].id}).\n바꾸려면 찾기에서 지우고 다시 추가해주세요.`); return; }
+    await setDoc(doc(db, 'barcodes', bc), { code, ...(name ? { name } : {}), updatedAt: serverTimestamp(), updatedBy: me() });
     toast('저장했어요'); f.reset(); $('#bc-search').value = bc; bcSearch(); bcCount();
   } catch (err) { toast('저장하지 못했어요: ' + (err.code || err.message)); }
 });
@@ -2576,22 +2665,37 @@ $('#bc-file').addEventListener('change', async e => {
   const col = names => head.findIndex(x => names.includes(x));
   const iCode = col(['제품코드', '상품코드', 'code', 'productcode', 'itemcode']), iBc = col(['바코드', 'barcode']), iName = col(['제품명', '상품명', 'name', 'productname']);
   if (iCode < 0 || iBc < 0) { alert("첫 줄(머리글)에 '제품코드'와 '바코드'가 있어야 해요.\n'빈 양식 받기'로 받은 파일에 붙여넣어 올려주세요."); return; }
-  const map = new Map(), bad = []; let dup = 0;
+  // 이미 있는 바코드·제품코드는 바꾸지 않고 건너뜀 (사용자). 건너뛴 줄은 이 화면에만 한 번 보여줌
+  toast('지금 등록된 바코드를 확인하는 중…');
+  let exBc, exCode;
+  try {
+    const all = await getDocs(collection(db, 'barcodes'));
+    exBc = new Map(all.docs.map(d => [d.id, d.data().code])); exCode = new Map(all.docs.map(d => [String(d.data().code), d.id]));
+  } catch (err) { alert('등록된 바코드를 읽지 못했어요: ' + (err.code || err.message)); return; }
+  const map = new Map(), skip = [], seenBc = new Map(), seenCode = new Map();
   rows.slice(1).forEach((r, i) => {
-    const bc = cellText(r[iBc]), code = cellText(r[iCode], 8), name = iName >= 0 ? String(r[iName] ?? '').trim() : '';
+    const line = i + 2, bc = cellText(r[iBc]), code = cellText(r[iCode], 8), name = iName >= 0 ? String(r[iName] ?? '').trim() : '';
     if (!bc && !code) return;
-    if (!bc || !code || bc.includes('/')) { bad.push(`${i + 2}번째 줄: ${!bc ? '바코드 없음' : !code ? '제품코드 없음' : '바코드에 / 있음'}`); return; }
-    if (map.has(bc)) dup++;
+    const why = !bc ? '바코드 없음' : !code ? '제품코드 없음' : bc.includes('/') ? '바코드에 / 있음'
+      : exBc.has(bc) ? `이미 있는 바코드 (등록된 제품코드 ${exBc.get(bc)})`
+      : exCode.has(code) ? `이미 있는 제품코드 (등록된 바코드 ${exCode.get(code)})`
+      : seenBc.has(bc) ? `파일 안에 같은 바코드가 또 있음 (${seenBc.get(bc)}번째 줄)`
+      : seenCode.has(code) ? `파일 안에 같은 제품코드가 또 있음 (${seenCode.get(code)}번째 줄)` : '';
+    if (why) { skip.push({ line, bc, code, name, why }); return; }
+    seenBc.set(bc, line); seenCode.set(code, line);
     map.set(bc, { code, name });
   });
-  if (!map.size) { alert('올릴 줄이 없어요.' + (bad.length ? '\n' + bad.slice(0, 10).join('\n') : '')); return; }
+  const kinds = {};
+  skip.forEach(x => { const k = x.why.replace(/ \(.*\)$/, ''); kinds[k] = (kinds[k] || 0) + 1; });
+  if (!map.size) { bcReport(skip, file.name, 0); alert('새로 올릴 줄이 없어요. 건너뛴 줄은 화면 아래 목록에서 볼 수 있어요.'); return; }
   const go = h('button', { class: 'btn primary' }, `${map.size.toLocaleString()}개 올리기`);
   const close = modal(h('div', {}, h('h3', {}, '바코드 엑셀 올리기'),
     h('ul', { class: 'steps' },
-      h('li', {}, `올릴 바코드 ${map.size.toLocaleString()}개 (이미 있는 바코드는 새 제품코드로 바뀌어요)`),
-      dup ? h('li', {}, `같은 바코드가 두 번 이상 나온 줄 ${dup}개는 아래 줄 것을 써요`) : null,
-      iName < 0 ? h('li', { class: 'mut' }, '제품명 열이 없어요 (괜찮아요)') : null,
-      bad.length ? h('li', { class: 'warn' }, `건너뛰는 줄 ${bad.length}개`, h('div', { class: 'mut' }, bad.slice(0, 8).join(' / ') + (bad.length > 8 ? ' …' : ''))) : null),
+      h('li', {}, `새로 올릴 바코드 ${map.size.toLocaleString()}개`),
+      skip.length ? h('li', { class: 'warn' }, `건너뛰는 줄 ${skip.length.toLocaleString()}개 (이미 있는 것은 바꾸지 않아요)`,
+        h('div', { class: 'mut' }, Object.entries(kinds).map(([k, n]) => `${k} ${n}`).join(' · '))) : null,
+      iName < 0 ? h('li', { class: 'mut' }, '제품명 열이 없어요 (괜찮아요)') : null),
+    h('p', { class: 'mut' }, '건너뛴 줄은 올린 뒤 이 화면 아래에 목록으로 보여드려요 (다른 화면으로 가면 사라져요).'),
     h('div', { class: 'modal-act' }, go)));
   go.onclick = async () => {
     go.disabled = true;
@@ -2599,13 +2703,36 @@ $('#bc-file').addEventListener('change', async e => {
     try {
       for (let i = 0; i < list.length; i += 400) {
         const b = writeBatch(db);
-        for (const [bc, r] of list.slice(i, i + 400)) b.set(doc(db, 'barcodes', bc), { code: r.code, ...(r.name ? { name: r.name } : {}), updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true });
+        for (const [bc, r] of list.slice(i, i + 400)) b.set(doc(db, 'barcodes', bc), { code: r.code, ...(r.name ? { name: r.name } : {}), updatedAt: serverTimestamp(), updatedBy: me() });
         await b.commit(); done = Math.min(list.length, i + 400); go.textContent = `올리는 중… ${done.toLocaleString()} / ${list.length.toLocaleString()}`;
       }
-      close(); toast(`바코드 ${list.length.toLocaleString()}개를 올렸어요`); bcCount();
+      close(); toast(`바코드 ${list.length.toLocaleString()}개를 올렸어요` + (skip.length ? ` · ${skip.length}개는 건너뜀` : '')); bcCount();
+      bcReport(skip, file.name, list.length);
     } catch (err) { alert(`올리다가 멈췄어요 (${done.toLocaleString()}개까지 저장됨): ${err.code || err.message}`); go.disabled = false; go.textContent = '다시 올리기'; }
   };
 });
+// 건너뛴 줄 알림: 이 화면에만, 한 번만 (다른 화면으로 가거나 닫으면 사라지고 저장하지 않음)
+function bcReport(skip, fileName, okN) {
+  const box = $('#bc-report'); if (!box) return;
+  if (!skip.length) { box.replaceChildren(); box.classList.add('hidden'); return; }
+  const dl = h('button', { class: 'btn small ghost', onclick: async () => {
+    try {
+      const X = await loadXLSX(), ws = X.utils.aoa_to_sheet([['줄', '바코드', '제품코드', '제품명', '건너뛴 이유'], ...skip.map(x => [x.line, x.bc, x.code, x.name, x.why])]);
+      skip.forEach((_, i) => { for (const c of ['B', 'C']) { const k = c + (i + 2); if (ws[k]) ws[k].t = 's'; } });
+      ws['!cols'] = [{ wch: 6 }, { wch: 16 }, { wch: 12 }, { wch: 24 }, { wch: 44 }];
+      const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, '건너뛴 줄'); X.writeFile(wb, `바코드_건너뛴줄_${fmtDate(new Date()).replace(/\./g, '')}.xlsx`);
+    } catch (e) { alert(e.message); }
+  } }, '엑셀로 받기');
+  box.replaceChildren(
+    h('div', { class: 'bc-rep-head' }, h('b', {}, `'${fileName}' 에서 건너뛴 줄 ${skip.length.toLocaleString()}개`), h('span', { class: 'mut' }, ` · 올린 줄 ${okN.toLocaleString()}개`),
+      h('span', { class: 'sp' }), dl, h('button', { class: 'modal-x bc-rep-x', title: '닫기', onclick: () => bcReport([], '', 0) }, '×')),
+    h('p', { class: 'mut' }, '이미 있는 바코드·제품코드는 바꾸지 않았어요. 바꾸려면 아래 찾기에서 지우고 다시 올려주세요. 이 목록은 다른 화면으로 가면 사라져요.'),
+    h('div', { class: 'bc-rep-wrap' }, h('table', { class: 'gl-table' },
+      h('thead', {}, h('tr', {}, h('th', {}, '줄'), h('th', {}, '바코드'), h('th', {}, '제품코드'), h('th', {}, '이유'))),
+      h('tbody', {}, ...skip.slice(0, 500).map(x => h('tr', {}, h('td', {}, x.line), h('td', {}, x.bc), h('td', {}, x.code), h('td', {}, x.why)))))),
+    ...(skip.length > 500 ? [h('p', { class: 'mut' }, `앞의 500개만 보여요. 전부는 '엑셀로 받기'로 보세요.`)] : []));
+  box.classList.remove('hidden');
+}
 
 /* ---------- 3. 용어 사전 ---------- */
 const norm = t => (t || '').toLowerCase().replace(/\s+/g, ''); // 띄어쓰기·대소문자 무시

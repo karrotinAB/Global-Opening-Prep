@@ -496,3 +496,10 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .hk-item { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 2px 0; cursor: pointer; }
 .hk-item small { margin-left: auto; font-size: 11px; }
 .hk-q { width: 100%; margin-bottom: 6px; }
+
+/* 바코드: 건너뛴 줄 알림 (한 번만) */
+.bc-report { border: 1px solid #f1c27d; background: #fff8ee; border-radius: 8px; padding: 12px 14px; margin: 10px 0; }
+.bc-rep-head { display: flex; align-items: center; gap: 6px; }
+.bc-rep-head .sp { flex: 1; }
+.bc-rep-x { position: static; }
+.bc-rep-wrap { max-height: 300px; overflow: auto; background: #fff; border-radius: 6px; }
