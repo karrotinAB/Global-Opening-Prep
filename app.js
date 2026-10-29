@@ -269,8 +269,8 @@ function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
     inner.append(h('div', { class: 'cv-back', style: `left:${fx0 - x0 + pad}px;top:${pad}px;width:${fx1 - fx0}px;height:${y1 - y0}px` }));
   }
   for (const p of panels) {
-    const color = p.color && !/rgba\(0, 0, 0, 0\)|transparent/.test(p.color) ? p.color : '#cfcfcf';
-    inner.append(h('div', { class: 'cv-panel', style: `left:${p.x - x0 + pad}px;top:${p.y - y0 + pad}px;width:${p.w}px;height:${p.h}px;background:${color}` }));
+    // 배경판은 POG 사이트 색과 상관없이 연한 회색 (진하게 칠하면 선반·파이프와 구분이 안 됨 · 사용자)
+    inner.append(h('div', { class: 'cv-panel', style: `left:${p.x - x0 + pad}px;top:${p.y - y0 + pad}px;width:${p.w}px;height:${p.h}px` }));
   }
   for (const p of props) {
     const color = p.color && !/rgba\(0, 0, 0, 0\)|transparent/.test(p.color) ? p.color : '#7d7d7d';
@@ -580,10 +580,21 @@ async function moveFreePage(pogId, fxId, dir) {
   b.update(doc(db, 'pogs', pogId, 'fixtures', list[j].id), { order: list[i].order });
   await b.commit();
 }
-async function deleteFreePage(pogId, fx) {
-  if (!confirm(`'${displayName(fx)}' 페이지를 삭제할까요?`)) return;
-  for (const n of fx.notes || []) if (n.path) { try { await deleteObject(sRef(st, n.path)); } catch { } }
-  await deleteDoc(doc(db, 'pogs', pogId, 'fixtures', fx.id));
+// 페이지 삭제 (매대 페이지·추가 페이지 모두). 붙여 둔 매대가 있으면 떼어서 따로 페이지로 남김
+async function deletePage(pogId, fx) {
+  const kids = (fx.merged || []).filter(id => state.fixtures.get(id)?.mergedInto === fx.id);
+  const msg = fx.kind === 'free' ? `'${displayName(fx)}' 페이지를 삭제할까요?`
+    : `'${displayName(fx)}' 페이지를 삭제할까요?\n입력한 매대명·고리·이외집기·메모도 함께 지워져요.${kids.length ? `\n붙여 둔 매대 ${kids.length}개는 떼어져서 따로 페이지로 남아요.` : ''}\n(나중에 POG 사이트에서 다시 가져오면 이 매대가 맨 뒤에 다시 생길 수 있어요)`;
+  if (!confirm(msg)) return;
+  try {
+    const b = writeBatch(db);
+    kids.forEach(id => b.update(doc(db, 'pogs', pogId, 'fixtures', id), { mergedInto: '' }));
+    b.delete(doc(db, 'pogs', pogId, 'fixtures', fx.id));
+    if (fx.kind !== 'free') b.update(doc(db, 'pogs', pogId), { fixtureCount: Math.max(0, (state.currentPog?.fixtureCount || 1) - 1), updatedAt: serverTimestamp() });
+    await b.commit();
+    for (const n of fx.notes || []) if (n.path) { try { await deleteObject(sRef(st, n.path)); } catch { } }
+    toast('페이지를 삭제했어요');
+  } catch (e) { alert('삭제하지 못했어요: ' + (e.code || e.message)); }
 }
 
 /* ---------- 메모: 네모 박스 · 글상자 · 화살표 · 사진 ----------
@@ -995,7 +1006,7 @@ function renderSidePanel() {
       free ? btn('▼ 아래로', () => moveFreePage(pog.id, fx.id, 1), 'ghost') : null,
       free ? null : btn('↻ 이 매대만 다시 가져오기', () => openRegrab(fx), 'ghost'),
       btn('+ 이 뒤에 빈 페이지 추가', () => addFreePage(pog.id, fx.order), 'ghost'),
-      free ? btn('페이지 삭제', () => deleteFreePage(pog.id, fx), 'ghost danger') : null)));
+      btn('이 페이지 삭제', () => deletePage(pog.id, fx), 'ghost danger'))));
   }
   if (!ed) nodes.push(h('p', { class: 'se-help' }, pog.status === 'final' ? '최종 POG라 잠겨 있어요.' : '보기 전용이에요.'));
   box.replaceChildren(...nodes);
