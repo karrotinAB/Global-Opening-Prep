@@ -236,6 +236,8 @@ function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
 /* ---------- 표지 (매장명 + POG) ---------- */
 // 제목을 따로 안 적으면 지점명에서 끝의 '점'을 뺀 이름 (Keruen City점 → Keruen City)
 const autoCoverTitle = pog => (pog.branchName || pog.storeName || '').trim().replace(/\s*점$/, '');
+// 페이지 왼쪽 아래 매장명: 지점명, 없으면 POG 사이트의 매장명
+const footStore = pog => pog.branchName || pog.storeName || '';
 const coverTitle = pog => pog.coverTitle || autoCoverTitle(pog);
 function buildCover(pog, { editable }) {
   const title = h('input', { class: 'f cover-title' });
@@ -257,7 +259,7 @@ function syncCover(block, pog) {
   t.placeholder = autoCoverTitle(pog) || '매장명';
   if (t !== document.activeElement && t.value !== (pog.coverTitle || '')) t.value = pog.coverTitle || '';
   $('.pf-mgr', block).textContent = pog.manager || '';
-  $('.pf-branch', block).textContent = pog.branchName || '';
+  $('.pf-branch', block).textContent = footStore(pog);
 }
 
 /* ---------- 슬라이드 목록 (PPT처럼 왼쪽 썸네일) ---------- */
@@ -612,7 +614,7 @@ function syncPage(block, fx, pog) {
     else if (el !== document.activeElement && el.value !== String(v)) el.value = v;
   });
   $('.pf-mgr', block).textContent = pog.manager || '';
-  $('.pf-branch', block).textContent = pog.branchName || '';
+  $('.pf-branch', block).textContent = footStore(pog);
   $('.pe-name', block).textContent = displayName(fx);
   renderPhotos(block, pog.id, fx);
   const typing = block.querySelector('.nb-text') === document.activeElement;
@@ -751,7 +753,7 @@ function renderEditorPages() {
 $('#ed-branch').addEventListener('input', e => {
   const p = state.currentPog; if (!p) return;
   p.branchName = e.target.value; savePog(p.id, 'branchName', e.target.value);
-  state.pageEls.forEach(el => $('.pf-branch', el).textContent = e.target.value);
+  state.pageEls.forEach(el => $('.pf-branch', el).textContent = footStore(p));
   if (state.coverEl) syncCover(state.coverEl, p);
 });
 function refreshManagerSelect() {
