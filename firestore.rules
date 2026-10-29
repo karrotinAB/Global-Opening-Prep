@@ -14,39 +14,43 @@ service cloud.firestore {
     function hasLevel(levels) { return signedIn() && level() in levels; }
     // 내부 직원: 초안까지 모두 볼 수 있음. 바이어·매장 계정은 최종본만
     function staff() { return hasLevel(['admin', 'pog', 'vmd', 'global', 'editor']); }
+    // 바이어: roles 문서의 prefix(매장코드 앞 4자리)와 storePrefix가 같은 최종본만
+    function myPrefix() { return get(/databases/$(database)/documents/roles/$(myEmail())).data.get('prefix', '#'); }
+    function seeFinal(d) { return signedIn() && d.status == 'final' && (level() != 'buyer' || d.get('storePrefix', '') == myPrefix()); }
 
     match /roles/{email} {
       allow read: if signedIn() && (email == myEmail() || hasLevel(['admin']));
       allow write: if hasLevel(['admin'])
-                   && (request.resource == null || request.resource.data.level in ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder']);
+                   && (request.resource == null || (request.resource.data.level in ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder']
+                       && request.resource.data.get('prefix', '').matches('^[0-9A-Za-z]{0,4}$')));
     }
 
     // POG: 만들기는 POG팀, 번역(translations)은 글로벌사업부
-    function pogFinal(pogId) { return get(/databases/$(database)/documents/pogs/$(pogId)).data.status == 'final'; }
+    function pogFinal(pogId) { return seeFinal(get(/databases/$(database)/documents/pogs/$(pogId)).data); }
     match /pogs/{pogId} {
-      allow read: if staff() || (signedIn() && resource.data.status == 'final');
+      allow read: if staff() || seeFinal(resource.data);
       allow write: if hasLevel(['admin', 'pog', 'editor']);
       match /fixtures/{fxId} {
-        allow read: if staff() || (signedIn() && pogFinal(pogId));
+        allow read: if staff() || pogFinal(pogId);
         allow write: if hasLevel(['admin', 'pog', 'editor']);
       }
       match /translations/{rest=**} {
-        allow read: if staff() || (signedIn() && pogFinal(pogId));
+        allow read: if staff() || pogFinal(pogId);
         allow write: if hasLevel(['admin', 'global', 'editor']);
       }
     }
 
     // 도면: 편집은 VMD팀, 번역(translations)은 글로벌사업부
-    function drawingFinal(id) { return get(/databases/$(database)/documents/drawings/$(id)).data.status == 'final'; }
+    function drawingFinal(id) { return seeFinal(get(/databases/$(database)/documents/drawings/$(id)).data); }
     match /drawings/{drawingId} {
-      allow read: if staff() || (signedIn() && resource.data.status == 'final');
+      allow read: if staff() || seeFinal(resource.data);
       allow write: if hasLevel(['admin', 'vmd', 'editor']);
       match /translations/{rest=**} {
-        allow read: if staff() || (signedIn() && drawingFinal(drawingId));
+        allow read: if staff() || drawingFinal(drawingId);
         allow write: if hasLevel(['admin', 'global', 'editor']);
       }
       match /{sub}/{rest=**} {
-        allow read: if staff() || (signedIn() && drawingFinal(drawingId));
+        allow read: if staff() || drawingFinal(drawingId);
         allow write: if sub != 'translations' && hasLevel(['admin', 'vmd', 'editor']);
       }
     }
@@ -64,6 +68,11 @@ service cloud.firestore {
     // 매장 등록: 직원은 보기, 등록·수정은 글로벌사업부
     match /stores/{id} {
       allow read: if staff();
+      allow write: if hasLevel(['admin', 'global', 'editor']);
+    }
+    // 바코드: 문서 ID = 바코드, code = 제품코드, name = 제품명(선택). 제품 찾기에 쓰므로 로그인한 사람 모두 읽음. 올리기는 글로벌사업부
+    match /barcodes/{bc} {
+      allow read: if signedIn();
       allow write: if hasLevel(['admin', 'global', 'editor']);
     }
     // POG 담당자 목록
