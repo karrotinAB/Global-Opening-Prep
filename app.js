@@ -22,7 +22,7 @@ const st = getStorage(fb);
 
 /* ---------- 공통 ---------- */
 // 헤더 매대명은 사전에 두지 않음: 매번 달라서 도면 번역(VMD 도면)에서 가져옴. 팀명은 가져온 POG에서 자동으로 채움
-const CATS = ['카테고리', '매대타입', '고리타입', '집기', '팀명'];
+const CATS = ['카테고리', '매대타입', '고리타입', '선반/파이프', '집기', '팀명'];
 // 계정 레벨. roles/{이메일} 문서가 없으면 'finder' (제품 찾기만)
 const LEVELS = { admin: '관리자', pog: 'POG팀', vmd: 'VMD팀', global: '글로벌사업부', buyer: '바이어', finder: '제품 찾기만', editor: '편집 (예전 레벨)' };
 const ASSIGNABLE = ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder']; // editor는 예전 레벨: 그대로 동작하지만 새로 고를 수는 없음
@@ -46,6 +46,7 @@ function applyAccess() {
   $$('[data-view], [data-go]').forEach(el => el.classList.toggle('hidden', !canSee(el.dataset.view || el.dataset.go)));
   $$('[data-edit]').forEach(el => el.classList.toggle('hidden', !canEdit(el.dataset.edit)));
   $('#subnav').classList.toggle('hidden', !canSee('pog-make'));
+  $$('[data-staff]').forEach(el => el.classList.toggle('hidden', !isStaff()));
 }
 const CANVAS_W = 540, CANVAS_H = 930;
 
@@ -97,7 +98,7 @@ const state = {
   viewer: { unsubPog: null, unsubFx: null, pog: null, fixtures: [] },
 };
 
-let edThumbs, vwThumbs; // 아래 썸네일 함수가 정의된 뒤 만들어짐
+let edThumbs, vwThumbs, trThumbs; // 아래 썸네일 함수가 정의된 뒤 만들어짐
 
 /* ---------- 로그인 ---------- */
 let unsubRole = null;
@@ -210,8 +211,19 @@ function applyItemZ(block, fx) {
   block.querySelectorAll('.page .cv-item').forEach(el => { const it = byId.get(el.dataset.id); if (it) el.style.zIndex = itemZ(fx, it); });
 }
 function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
-  const items = fx.items || [], props = fx.props || [], panels = fx.panels || [];
+  const items = fx.items || [];
   const wrap = h('div', { class: 'cv', style: `width:${W}px;height:${H}px` });
+  // 가로 범위 = 매대(선반·파이프·넓은 판) 폭 + 제품이 삐져나온 만큼만. 여러 칸에 걸친 긴 집기는 이 범위에서 자른다
+  const core = objs => { const ws = objs.map(o => o.w).sort((a, b) => a - b), med = ws[Math.floor(ws.length / 2)]; return objs.filter(o => o.w <= med * 1.6); };
+  const frameAll = [...(fx.props || []), ...(fx.panels || []).filter(p => p.w >= 40)];
+  let wx0 = -Infinity, wx1 = Infinity;
+  if (frameAll.length) {
+    const c = core(frameAll);
+    wx0 = Math.min(...c.map(o => o.x), ...items.map(i => i.x));
+    wx1 = Math.max(...c.map(o => o.x + o.w), ...items.map(i => i.x + i.w));
+  }
+  const clip = o => { const a = Math.max(o.x, wx0), b = Math.min(o.x + o.w, wx1); return b > a ? { ...o, x: a, w: b - a } : null; };
+  const props = (fx.props || []).map(clip).filter(Boolean), panels = (fx.panels || []).map(clip).filter(Boolean);
   const objs = [...panels, ...props, ...items];
   if (!objs.length) { wrap.append(h('div', { class: 'cv-empty' }, '매대 데이터 없음')); return wrap; }
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -222,10 +234,11 @@ function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
   const pad = 8, bw = x1 - x0 + pad * 2, bh = y1 - y0 + pad * 2;
   const sc = Math.min(W / bw, H / bh);
   const inner = h('div', { class: 'cv-in', style: `width:${bw}px;height:${bh}px;left:${(W - bw * sc) / 2}px;transform:scale(${sc})` });
-  // 매대 뒤 회색 바탕: 선반·파이프·배경판의 가로 범위 × 전체 높이
-  const frame = [...props, ...panels.filter(p => p.w >= 40)];
-  if (frame.length) {
-    const fx0 = Math.min(...frame.map(o => o.x)), fx1 = Math.max(...frame.map(o => o.x + o.w));
+  // 매대 뒤 회색 바탕: 선반·파이프·배경판의 가로 범위 × 전체 높이 (붙인 매대는 매대마다 따로)
+  const groups = new Map();
+  for (const o of [...props, ...panels.filter(p => p.w >= 40)]) { const g = o._g || 0; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(o); }
+  for (const frame of groups.values()) {
+    const c = core(frame), fx0 = Math.min(...c.map(o => o.x)), fx1 = Math.max(...c.map(o => o.x + o.w));
     inner.append(h('div', { class: 'cv-back', style: `left:${fx0 - x0 + pad}px;top:${pad}px;width:${fx1 - fx0}px;height:${y1 - y0}px` }));
   }
   for (const p of panels) {
@@ -321,6 +334,7 @@ function makeThumbs(box, scroller, onActive) {
         if (e.fx && e.fx.kind !== 'free' && t._sig !== undefined && t._sig !== sig) $('.th-body', t).replaceChildren(buildCanvas(e.fx, 116, 150, null, { lazy: true }));
         t._sig = sig;
         $('.th-no', t).textContent = i + 1;
+        t.classList.toggle('need', !!e.need); t.dataset.need = e.need || '';
         $('.th-name', t).textContent = e.fx ? e.name : '';
         if (!e.fx || e.fx.kind === 'free') { const c = $('.th-cover', t); c.innerHTML = ''; c.append(h('b', {}, e.name), e.fx ? h('small', {}, '추가 페이지') : h('b', {}, 'POG')); }
         if (box.children[i] !== t) box.insertBefore(t, box.children[i] || null);
@@ -335,12 +349,48 @@ const itemSig = fx => {
   let hh = 0; for (let i = 0; i < str.length; i++) hh = (hh * 31 + str.charCodeAt(i)) | 0;
   return `${(fx.items || []).length}:${(fx.props || []).length}:${hh}`;
 };
+/* 매대 붙이기: 얇은 매대(스페이스월 등) 두 개를 한 페이지에. 붙인 쪽 fixture.merged = [id…], 붙여진 쪽 .mergedInto = id.
+   붙여진 페이지는 따로 안 나오고, 붙인 페이지 그림 오른쪽에 나란히 그린다 (입력칸·번역은 붙인 페이지 것) */
+function combineFx(host, kids) {
+  const ext = f => { const xs = [...(f.props || []), ...(f.panels || []), ...(f.items || [])]; return xs.length ? [Math.min(...xs.map(o => o.x)), Math.max(...xs.map(o => o.x + o.w))] : [0, 0]; };
+  let right = ext(host)[1];
+  const out = { ...host, items: [...(host.items || [])], props: [...(host.props || [])], panels: [...(host.panels || [])], _kids: kids.map(k => k.id) };
+  kids.forEach((k, gi) => {
+    const [l, r] = ext(k), dx = right + 40 - l, sh = o => ({ ...o, x: o.x + dx, _g: gi + 1 });
+    out.items.push(...(k.items || []).map(sh)); out.props.push(...(k.props || []).map(sh)); out.panels.push(...(k.panels || []).map(sh));
+    right = r + dx;
+  });
+  return out;
+}
+function composeFx(list) {
+  const byId = new Map(list.map(f => [f.id, f]));
+  return list.filter(f => !(f.mergedInto && byId.has(f.mergedInto))).map(f => {
+    const kids = (f.merged || []).map(id => byId.get(id)).filter(k => k && k.mergedInto === f.id);
+    return kids.length ? combineFx(f, kids) : f;
+  });
+}
+async function mergeNext(pogId, host, kid) {
+  const b = writeBatch(db), ids = [kid.id, ...(kid.merged || [])];
+  b.update(doc(db, 'pogs', pogId, 'fixtures', host.id), { merged: [...(host.merged || []), ...ids], updatedAt: serverTimestamp() });
+  ids.forEach(id => b.update(doc(db, 'pogs', pogId, 'fixtures', id), { mergedInto: host.id }));
+  if ((kid.merged || []).length) b.update(doc(db, 'pogs', pogId, 'fixtures', kid.id), { merged: [] });
+  await b.commit();
+  toast(`'${displayName(kid)}'을(를) 이 페이지에 붙였어요`);
+}
+async function unmerge(pogId, host, kidId) {
+  const b = writeBatch(db);
+  b.update(doc(db, 'pogs', pogId, 'fixtures', host.id), { merged: (host.merged || []).filter(x => x !== kidId), updatedAt: serverTimestamp() });
+  b.update(doc(db, 'pogs', pogId, 'fixtures', kidId), { mergedInto: '' });
+  await b.commit();
+}
+
 const slideEntries = (cover, pog, fixtures, blockOf) => [
   { id: '__cover', block: cover, name: coverTitle(pog) || '표지' },
   ...fixtures.map(fx => ({ id: fx.id, block: blockOf(fx), name: displayName(fx), fx })),
 ];
 edThumbs = makeThumbs($('#ed-thumbs'), $('#ed-pages'), id => { state.edActive = id; renderSidePanel(); });
 vwThumbs = makeThumbs($('#vw-thumbs'), $('#vw-pages'));
+trThumbs = makeThumbs($('#tr-thumbs'), $('#tr-pages'), id => { tr.active = id; renderTrSide(true); });
 $$('.list-toggle').forEach(b => b.onclick = () => b.closest('.split').classList.toggle('list-off'));
 
 /* ---------- POG 페이지 (A4 한 장 = 매대 하나) ---------- */
@@ -391,9 +441,12 @@ function renderExtras(block) {
     const name = h('input', { class: 'f ex-name', list: 'dl-extras', placeholder: '집기 고르기', disabled: !ed });
     const qty = h('input', { class: 'f ex-qty', type: 'number', min: 0, placeholder: '0', disabled: !ed });
     name.value = x.name || ''; qty.value = x.qty ?? '';
+    if (x.color) name.style.color = x.color;
+    const col = ed ? h('input', { type: 'color', class: 'ex-color no-print', title: '글자 색', value: x.color || '#000000' }) : null;
+    col?.addEventListener('input', () => { x.color = col.value; name.style.color = col.value; save(); });
     name.addEventListener('input', () => { x.name = name.value; save(); });
     qty.addEventListener('input', () => { x.qty = qty.value === '' ? '' : Number(qty.value); save(); });
-    return h('div', { class: 'ex-row' }, name, h('span', { class: 'x' }, '×'), qty,
+    return h('div', { class: 'ex-row' }, col, name, h('span', { class: 'x' }, '×'), qty,
       ed ? h('button', { class: 'ex-del no-print', title: '삭제', onclick: () => { block._extras = list.filter(y => y !== x); save(); renderExtras(block); } }, '×') : null);
   }), ...(ed ? [h('button', { class: 'ex-add no-print', onclick: () => { list.push({ id: uid(), name: '', qty: '' }); save(); renderExtras(block); block.querySelector('.page .ex-row:last-of-type .ex-name')?.focus(); } }, '+ 집기 추가')] : []));
 }
@@ -506,7 +559,8 @@ function renderNotes(block) {
     const st = `left:${n.x}px;top:${n.y}px;width:${n.w}px;height:${n.h}px;`;
     let el;
     if (n.t === 'box') el = h('div', { class: 'nt nt-box', style: st + `border:${n.bw || 3}px solid ${n.color};background:${n.fill ? rgba(n.color, n.alpha ?? 0.3) : 'transparent'}` });
-    else if (n.t === 'text') el = h('div', { class: 'nt nt-text', style: st + `background:${n.bg || 'transparent'};color:${n.color || '#222'};font-size:${n.fs || 14}px;border:${n.border ? '2px solid ' + n.border : '0'}` }, n.text || '');
+    else if (n.t === 'text') el = h('div', { class: 'nt nt-text', style: st + `background:${n.bg || 'transparent'};color:${n.color || '#222'};border:${n.border ? '2px solid ' + n.border : '0'}` },
+      h('div', { class: 'nt-tx', style: `font-size:${n.fs || 14}px` }, n.text || '')); // 글은 안쪽 칸에 (모서리 점이 잘리지 않게)
     else if (n.t === 'img') el = h('div', { class: 'nt nt-img', style: st }, h('img', { src: n.url, alt: '', draggable: 'false' }));
     else continue;
     el.dataset.id = n.id;
@@ -514,10 +568,17 @@ function renderNotes(block) {
     if (ed) {
       el.addEventListener('pointerdown', e => startNoteDrag(e, block, n, 'move'));
       if (n.t === 'text') el.addEventListener('dblclick', () => block._bar?.querySelector('.nb-text')?.focus());
-      if (sel) { const hd = h('div', { class: 'nh nh-se' }); hd.addEventListener('pointerdown', e => startNoteDrag(e, block, n, 'size')); el.append(hd); }
+      if (sel) for (const c of ['nw', 'ne', 'sw', 'se']) { const hd = h('div', { class: 'nh nh-' + c }); hd.addEventListener('pointerdown', e => startNoteDrag(e, block, n, 'r-' + c)); el.append(hd); }
     }
     layer.append(el);
+    if (n.t === 'text') fitText(el.querySelector('.nt-tx'), n.fs || 14);
   }
+}
+// 글상자: 상자 크기는 그대로 두고, 글이 넘치면 글자를 줄여서 맞춤 (화면에 보일 때만 잴 수 있음)
+function fitText(el, fs) {
+  if (!el.isConnected || !el.clientHeight) return;
+  let f = fs;
+  while (f > 7 && (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1)) { f -= 1; el.style.fontSize = f + 'px'; }
 }
 function startNoteDrag(e, block, n, mode) {
   e.preventDefault(); e.stopPropagation();
@@ -531,9 +592,14 @@ function startNoteDrag(e, block, n, mode) {
     if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
     if (mode === 'move' && n.t === 'arrow') { n.x1 = o.x1 + dx; n.y1 = o.y1 + dy; n.x2 = o.x2 + dx; n.y2 = o.y2 + dy; }
     else if (mode === 'move') { n.x = Math.round(o.x + dx); n.y = Math.round(o.y + dy); }
-    else if (mode === 'size') {
-      n.w = Math.max(16, Math.round(o.w + dx));
-      n.h = n.t === 'img' && ev.shiftKey === false ? Math.max(16, Math.round(n.w * o.h / o.w)) : Math.max(16, Math.round(o.h + dy)); // 사진은 비율 유지
+    else if (mode.startsWith('r-')) { // 네 모서리: 반대쪽 모서리는 그대로
+      const c = mode.slice(2), west = c.includes('w'), north = c.includes('n');
+      let w = Math.max(16, Math.round(west ? o.w - dx : o.w + dx));
+      let hh = Math.max(16, Math.round(north ? o.h - dy : o.h + dy));
+      if (n.t === 'img') hh = Math.max(16, Math.round(w * o.h / o.w)); // 사진은 비율 유지
+      n.w = w; n.h = hh;
+      n.x = west ? o.x + o.w - w : o.x;
+      n.y = north ? o.y + o.h - hh : o.y;
     }
     else { n['x' + mode[1]] = o['x' + mode[1]] + dx; n['y' + mode[1]] = o['y' + mode[1]] + dy; }
     renderNotes(block);
@@ -606,9 +672,7 @@ function renderNoteBar(block) {
     const ta = h('textarea', { class: 'nb-text', rows: 2 });
     ta.value = n.text || '';
     ta.addEventListener('input', () => {
-      n.text = ta.value; renderNotes(block);
-      const el = block.querySelector(`.nt-text[data-id="${n.id}"]`); // 글이 넘치면 상자를 아래로 늘림
-      if (el && el.scrollHeight > el.clientHeight + 1) { n.h = el.scrollHeight + 4; renderNotes(block); }
+      n.text = ta.value; renderNotes(block); // 상자 크기는 그대로 (넘치면 글자가 작아짐)
       saveNotes(block);
     });
     box.append(ta,
@@ -620,6 +684,7 @@ function renderNoteBar(block) {
   if (n.t === 'arrow') box.append(lab('색'), swatches(n.color, c => set({ color: c || n.color })),
     lab('굵기'), sel(n.bw || 3, [['2', '2'], ['3', '3'], ['5', '5'], ['8', '8']], v => set({ bw: Number(v) })));
   if (n.t === 'img') box.append(h('span', { class: 'mut' }, '모서리를 끌면 비율을 유지하며 크기가 바뀌어요.'));
+  if (n.t === 'text') box.append(h('span', { class: 'mut nb-tip' }, '네 모서리 점을 끌어 상자 크기를 바꿔요. 글이 넘치면 글자가 자동으로 작아져요.'));
   box.append(h('span', { class: 'nb-sp' }),
     n.t !== 'img' ? h('button', { class: 'btn small ghost', onclick: () => { const c = structuredClone(n); delete c.id; if (c.t === 'arrow') { c.x1 += 20; c.y1 += 20; c.x2 += 20; c.y2 += 20; } else { c.x += 20; c.y += 20; } addNote(block, c); } }, '복제') : null,
     h('button', { class: 'btn small ghost danger', onclick: () => removeNote(block, n.id) }, '삭제'));
@@ -748,8 +813,10 @@ function renderEditorPages() {
   if (!state.coverEl) state.coverEl = buildCover(pog, { editable: state.edEditable });
   syncCover(state.coverEl, pog);
   if (wrap.firstElementChild !== state.coverEl) wrap.prepend(state.coverEl);
-  for (const [id, el] of state.pageEls) if (!state.fixtures.has(id)) { el.remove(); state.pageEls.delete(id); }
-  const order = [...state.fixtures.values()].sort((a, b) => a.order - b.order);
+  const order = composeFx([...state.fixtures.values()].sort((a, b) => a.order - b.order));
+  const shown = new Set(order.map(f => f.id));
+  for (const [id, el] of state.pageEls) if (!shown.has(id)) { el.remove(); state.pageEls.delete(id); }
+  state.edComposed = new Map(order.map(f => [f.id, f]));
   order.forEach((fx, i) => {
     let el = state.pageEls.get(fx.id);
     if (el && el._itemSig !== itemSig(fx)) { el.remove(); el = null; }
@@ -804,13 +871,21 @@ function renderSidePanel() {
       h('span', { class: 'mut' }, free ? '추가 페이지' : `POG 원본: ${origName(fx)} · 제품 ${(fx.items || []).length}개`)));
     if (out) nodes.push(h('div', { class: 'se-warn' }, `매대 밖이라 뺀 제품 ${out}개`,
       ed ? btn('되살리기', () => restoreOutside(pog.id, fx), 'ghost') : null));
-    const selIt = block._selItem && (fx.items || []).find(it => String(it.id) === block._selItem);
+    const view = state.edComposed?.get(id) || fx; // 붙인 매대까지 합친 것
+    const selIt = block._selItem && (view.items || []).find(it => String(it.id) === block._selItem);
     if (ed && selIt) nodes.push(sec('선택한 제품', h('div', { class: 'se-item' }, selIt.img ? h('img', { src: selIt.img, alt: '', referrerpolicy: 'no-referrer' }) : null,
       h('div', {}, h('b', {}, selIt.name), h('div', { class: 'mut' }, selIt.code))),
-      h('div', { class: 'se-btns' }, btn('맨 앞으로', () => moveItemZ(pog.id, fx, selIt.id, 1)), btn('맨 뒤로', () => moveItemZ(pog.id, fx, selIt.id, -1)),
+      h('div', { class: 'se-btns' }, btn('맨 앞으로', () => moveItemZ(pog.id, view, selIt.id, 1)), btn('맨 뒤로', () => moveItemZ(pog.id, view, selIt.id, -1)),
         btn('선택 해제', () => selectItem(block, null), 'ghost')),
       h('p', { class: 'se-help' }, '겹친 제품 중 어느 것이 앞에 보일지만 바꿔요. 위치는 그대로예요.')));
     if (ed && block._bar) nodes.push(sec('메모 넣기', block._bar));
+    if (ed && !free) {
+      const list = [...state.edComposed.values()], i = list.findIndex(f => f.id === id), next = list.slice(i + 1).find(f => f.kind !== 'free');
+      const kids = (fx.merged || []).map(k => state.fixtures.get(k)).filter(Boolean);
+      nodes.push(sec('매대 붙이기', h('p', { class: 'se-help' }, '얇은 매대 두 개를 한 페이지에 나란히 넣어요. 붙인 매대 페이지는 따로 안 나와요.'),
+        ...kids.map(k => h('div', { class: 'se-kid' }, h('span', {}, '붙인 매대: ', h('b', {}, displayName(k))), btn('떼어내기', () => unmerge(pog.id, fx, k.id), 'ghost'))),
+        next ? h('div', { class: 'se-btns' }, btn(`⇣ 다음 매대 '${displayName(next)}' 붙이기`, () => mergeNext(pog.id, fx, state.fixtures.get(next.id)))) : null));
+    }
     if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' },
       free ? btn('▲ 위로', () => moveFreePage(pog.id, fx.id, -1), 'ghost') : null,
       free ? btn('▼ 아래로', () => moveFreePage(pog.id, fx.id, 1), 'ghost') : null,
@@ -860,7 +935,7 @@ $('#ed-final').onclick = async () => {
   }
   const miss = [];
   if (!p.manager) miss.push('담당자');
-  const noName = [...state.fixtures.values()].filter(f => f.kind !== 'free' && !f.headerName).length;
+  const noName = [...state.fixtures.values()].filter(f => f.kind !== 'free' && !f.mergedInto && !f.headerName).length;
   if (noName) miss.push(`매대명 미입력 ${noName}개 (POG 원본 이름으로 표시돼요)`);
   const msg = (miss.length ? '확인 필요: ' + miss.join(', ') + '\n\n' : '') + '최종 POG로 내보낼까요? 내보내면 수정이 잠기고 온라인 POG와 번역 화면에서 쓸 수 있어요.';
   if (!confirm(msg)) return;
@@ -1055,6 +1130,44 @@ async function doImport(text, { dropOutside = true } = {}) {
   }
 }
 
+/* ---------- 고리·집기 수량 엑셀: 페이지마다 넣은 고리타입×갯수, 이외집기×수량을 제품코드와 함께 합계 ---------- */
+async function exportCounts(pog, fixtures) {
+  if (!pog) return;
+  try {
+    const X = await loadXLSX();
+    const pages = composeFx([...fixtures].sort((a, b) => a.order - b.order));
+    const codeOf = (cat, name) => state.glossary.find(g => g.cat === cat && norm(g.ko) === norm(name))?.code || '';
+    const detail = [], sum = new Map();
+    pages.forEach((f, i) => {
+      if (f.kind === 'free') return;
+      const no = i + 2; // 1번은 표지
+      const add = (kind, cat, name, qty) => {
+        name = (name || '').trim(); if (!name) return;
+        const q = Number(qty) || 0, code = codeOf(cat, name);
+        detail.push([no, displayName(f), kind, code, name, q]);
+        const k = kind + '|' + norm(name), r = sum.get(k) || { kind, code, name, qty: 0, pages: [] };
+        r.qty += q; if (!r.pages.includes(no)) r.pages.push(no); sum.set(k, r);
+      };
+      add('고리', '고리타입', f.hookType, f.hookCount);
+      (f.extras || []).forEach(x => add('집기', '집기', x.name, x.qty));
+    });
+    if (!detail.length) { toast('입력된 고리·집기가 없어요'); return; }
+    const total = [...sum.values()].sort((a, b) => a.kind.localeCompare(b.kind, 'ko') || a.name.localeCompare(b.name, 'ko'));
+    const ws1 = X.utils.aoa_to_sheet([['구분', '제품코드', '이름', '합계 수량', '들어간 페이지'],
+      ...total.map(r => [r.kind, r.code || '(사전에 코드 없음)', r.name, r.qty, r.pages.join(', ')])]);
+    ws1['!cols'] = [{ wch: 6 }, { wch: 18 }, { wch: 28 }, { wch: 10 }, { wch: 30 }];
+    const ws2 = X.utils.aoa_to_sheet([['페이지', '매대명', '구분', '제품코드', '이름', '수량'], ...detail]);
+    ws2['!cols'] = [{ wch: 6 }, { wch: 30 }, { wch: 6 }, { wch: 14 }, { wch: 28 }, { wch: 8 }];
+    const wb = X.utils.book_new();
+    X.utils.book_append_sheet(wb, ws1, '합계'); X.utils.book_append_sheet(wb, ws2, '페이지별');
+    X.writeFile(wb, `고리집기수량_${footStore(pog)}_${fmtDate(new Date()).replace(/\./g, '')}.xlsx`.replace(/[\\/:*?"<>|]/g, ''));
+    const noCode = total.filter(r => !r.code).length;
+    toast('엑셀을 저장했어요' + (noCode ? ` · 사전에 제품코드가 없는 것 ${noCode}개` : ''));
+  } catch (e) { toast(e.message); }
+}
+$('#ed-counts').onclick = () => exportCounts(state.currentPog, [...state.fixtures.values()]);
+$('#vw-counts').onclick = () => exportCounts(state.viewer.pog, state.viewer.fixtures);
+
 /* ---------- POG 사이트에서 다시 가져오기 (POG팀이 일부 매대만 고쳤을 때) ----------
    고유번호(mdidx)로 이 POG의 페이지를 찾아 제품·집기 모양만 최신으로 바꾼다.
    매대명·매대 타입·고리·이외집기·메모·사진·메모 상자는 그대로. 선반/파이프 칸은 손대지 않았을 때만 새 값으로.
@@ -1231,7 +1344,7 @@ function trFields(fx) {
       hint: fx.headerName ? '' : 'POG 원본 이름이에요 (매대명을 아직 안 넣음)' },
     { key: 'fixtureType', label: LABELS_KO.type, ko: fx.fixtureType, cats: ['매대타입'], dict: '매대타입' },
     { key: 'hookType', label: '고리타입', ko: fx.hookType, cats: ['고리타입'], dict: '고리타입' },
-    { key: 'shelfPipe', label: LABELS_KO.sp, ko: fx.shelfPipe, cats: ['집기'], addCat: '집기',
+    { key: 'shelfPipe', label: LABELS_KO.sp, ko: fx.shelfPipe, cats: ['선반/파이프', '집기'], addCat: '선반/파이프',
       custom: !!fx.shelfPipe && fx.shelfPipe !== autoShelfPipe(fx.shelfCount, fx.pipeCount) },
     ...(fx.extras || []).filter(x => (x.name || '').trim()).map((x, i) => ({ key: 'x_' + x.id, label: `이외집기 ${i + 1}`, ko: x.name, cats: ['집기'], dict: '집기', qty: x.qty })),
     { key: 'otherFixtures', label: LABELS_KO.other + ' (메모)', ko: fx.otherFixtures, cats: ['집기'], addCat: '집기' },
@@ -1245,7 +1358,14 @@ function trState(r, saved, lang) {
   return { a, custom, need, value: saved || (a.missing.length ? '' : a.text), status: saved ? 'saved' : a.missing.length ? 'missing' : 'auto' };
 }
 
-const tr = { pog: null, fixtures: [], lang: 'English', doc: {}, unsubs: [], dirty: false };
+// 번역 값(o: { key: 글 })으로 매대 글자를 바꾼 사본
+function applyTr(fx, o) {
+  if (!o) return fx;
+  return { ...fx, ...Object.fromEntries(['headerName', 'fixtureType', 'hookType', 'shelfPipe', 'otherFixtures'].filter(k => o[k]).map(k => [k, o[k]])),
+    _cat: o.cat || undefined, notes: (fx.notes || []).map(n => o['n_' + n.id] ? { ...n, text: o['n_' + n.id] } : n),
+    extras: (fx.extras || []).map(x => o['x_' + x.id] ? { ...x, name: o['x_' + x.id] } : x) };
+}
+const tr = { pog: null, fixtures: [], lang: 'English', doc: {}, unsubs: [], dirty: false, active: '__cover', blocks: new Map() };
 $('#tr-search').addEventListener('input', renderTrList);
 function renderTrList() {
   const list = $('#tr-list'); if (!list) return;
@@ -1256,7 +1376,8 @@ function renderTrList() {
   rows.forEach(p => list.append(pogListItem(p, tr.pog?.id === p.id, () => openTr(p.id))));
 }
 function closeTr() {
-  tr.unsubs.forEach(u => u()); tr.unsubs = []; tr.pog = null; tr.fixtures = []; tr.doc = {};
+  tr.unsubs.forEach(u => u()); tr.unsubs = []; tr.pog = null; tr.fixtures = []; tr.doc = {}; tr.active = '__cover'; tr.blocks = new Map();
+  trThumbs?.clear(); $('#tr-pages')?.replaceChildren(); $('#tr-side')?.replaceChildren();
   $('#tr-body')?.classList.add('hidden'); $('#tr-empty')?.classList.remove('hidden');
   $('#v-pog-trans .split')?.classList.remove('list-off');
 }
@@ -1266,7 +1387,7 @@ function openTr(id) {
   tr.pog = { id };
   $('#tr-empty').classList.add('hidden'); $('#tr-body').classList.remove('hidden');
   $('#v-pog-trans .split').classList.add('list-off');
-  $('#tr-cards').innerHTML = '<div class="mut pad">불러오는 중…</div>';
+  $('#tr-pages').replaceChildren(h('div', { class: 'mut pad' }, '불러오는 중…'));
   renderTrList();
   tr.unsubs.push(onSnapshot(doc(db, 'pogs', id), d => { if (!d.exists()) { closeTr(); return; } tr.pog = { id: d.id, ...d.data() }; renderTr(); }));
   tr.unsubs.push(onSnapshot(query(collection(db, 'pogs', id, 'fixtures'), orderBy('order')), s => { tr.fixtures = s.docs.map(d => ({ id: d.id, ...d.data() })); renderTr(); }));
@@ -1285,7 +1406,7 @@ function subTrDoc() {
   });
 }
 $('#tr-lang').addEventListener('change', e => { tr.lang = e.target.value; tr.doc = {}; subTrDoc(); renderTr(); });
-$('#tr-only').addEventListener('change', () => renderTr(true));
+$('#tr-only').addEventListener('change', () => renderTrSide(true));
 $('#tr-view').onclick = () => { const id = tr.pog?.id; if (!id) return; state.viewer.wantLang = tr.lang; go('pog-online'); openViewer(id); };
 function saveTr(fxId, key, v) {
   const pogId = tr.pog.id, lang = tr.lang, k = `tr|${pogId}|${lang}|${fxId}|${key}`;
@@ -1295,7 +1416,7 @@ function saveTr(fxId, key, v) {
 }
 // 한 POG의 번역 줄 전체 (고정 문구 → 표지 → 페이지들)
 function trSections() {
-  const pog = tr.pog, lang = tr.lang, fxs = tr.fixtures;
+  const pog = tr.pog, lang = tr.lang, fxs = composeFx(tr.fixtures);
   const sections = [];
   const labelDefault = k => lang === 'English' ? LABELS_EN[k] : '';
   sections.push({ id: '__labels', title: '페이지 고정 문구', sub: '모든 페이지에 똑같이 들어가는 글자',
@@ -1314,53 +1435,104 @@ function rowState(sec, r) {
   }
   return trState(r, saved, tr.lang);
 }
+// 화면: 왼쪽 썸네일 · 가운데 번역된 페이지 그림(보기 전용) · 오른쪽 지금 페이지의 번역 칸
 function renderTr(force) {
-  const box = $('#tr-cards'), pog = tr.pog;
-  if (!box || !pog?.status) return;
+  const pog = tr.pog, wrap = $('#tr-pages');
+  if (!wrap || !pog?.status) return;
   const langs = trLangs(), lsel = $('#tr-lang');
   if (!langs.includes(tr.lang)) tr.lang = 'English';
   lsel.replaceChildren(...langs.map(l => h('option', { value: l }, l))); lsel.value = tr.lang;
   $('#tr-title').textContent = `${footStore(pog)} · 최종 ${fmtDate(pog.finalizedAt)}`;
   $('#tr-pub').textContent = tr.doc.publishedAt ? `반영: ${fmtTime(tr.doc.publishedAt)}` : '아직 반영 안 함';
-  const a = document.activeElement;
-  if (!force && box.contains(a) && a.tagName === 'INPUT') { tr.dirty = true; return; } // 입력 중이면 다시 그리지 않음
-  tr.dirty = false;
-  const only = $('#tr-only').checked, ed = canEdit('pog-trans'), canGl = canEdit('glossary');
+  // 항목마다 지금 번역(직접 입력 > 사전 자동)과 ! 개수
+  const secs = trSections(), vals = new Map(), needBy = new Map();
   let needN = 0;
-  const cards = [];
-  for (const sec of trSections()) {
+  for (const sec of secs) {
+    const o = {}; let n = 0;
+    for (const r of sec.rows) { const st = rowState(sec, r); if (st.need) n++; const v = st.value || st.a.text; if (v) o[r.key] = v; }
+    vals.set(sec.id, o); needBy.set(sec.id, n); needN += n;
+  }
+  tr.secs = secs; tr.needBy = needBy;
+  const nb = $('#tr-need'); nb.textContent = needN ? `확인 필요 ${needN}` : '모두 번역됨'; nb.className = 'badge tr-need ' + (needN ? 'warn' : 'final');
+  // 페이지 그림: 바뀐 페이지만 다시 그림
+  const L = { ...LABELS_KO, ...(vals.get('__labels') || {}) };
+  const pogV = { ...pog, coverTitle: vals.get('__pog')?.cover || coverTitle(pog), branchName: vals.get('__pog')?.store || footStore(pog) };
+  wrap.querySelector(':scope > .pad')?.remove();
+  const want = [], keep = new Map();
+  const put = (id, sig, make) => {
+    let c = tr.blocks.get(id);
+    if (!c || c.sig !== sig) { c = { sig, el: make() }; c.el.addEventListener('pointerdown', () => setTrActive(id)); }
+    keep.set(id, c); want.push(c.el);
+  };
+  put('__cover', JSON.stringify([L, pogV.coverTitle, pogV.branchName, pog.manager]), () => { const el = buildCover(pogV, { editable: false, L }); syncCover(el, pogV); return el; });
+  const fxSecs = secs.filter(x => x.fx);
+  for (const sec of fxSecs) {
+    const fxT = applyTr(sec.fx, vals.get(sec.id));
+    put(sec.id, JSON.stringify([itemSig(sec.fx), vals.get(sec.id), L, pogV.branchName, pog.manager, sec.fx.notes, sec.fx.extras, sec.fx.itemZ]),
+      () => { const el = buildPage(fxT, pogV, { editable: false, L }); syncPage(el, fxT, pogV); return el; });
+  }
+  tr.blocks.forEach((c, id) => { if (!keep.has(id)) c.el.remove(); });
+  tr.blocks = keep;
+  want.forEach((el, i) => { if (wrap.children[i] !== el) wrap.insertBefore(el, wrap.children[i] || null); });
+  const entries = slideEntries(keep.get('__cover').el, pogV, fxSecs.map(x => applyTr(x.fx, vals.get(x.id))), fx => keep.get(fx.id)?.el)
+    .map(e => ({ ...e, need: e.id === '__cover' ? (needBy.get('__labels') || 0) + (needBy.get('__pog') || 0) : needBy.get(e.id) }));
+  trThumbs.sync(entries);
+  renderTrSide(force);
+}
+function setTrActive(id) {
+  if (tr.active === id) return;
+  tr.active = id; trThumbs.setActive(id); renderTrSide(true);
+}
+// 오른쪽 패널: 지금 페이지의 번역 칸 (표지면 페이지 고정 문구·표지·매장명)
+function renderTrSide(force) {
+  const box = $('#tr-side'); if (!box || !tr.secs) return;
+  const a = document.activeElement;
+  if (!force && box.contains(a) && a.tagName === 'INPUT') { tr.dirty = true; return; } // 입력 중이면 그대로
+  tr.dirty = false;
+  const id = tr.active || '__cover';
+  const secs = id === '__cover' ? tr.secs.filter(x => x.id === '__labels' || x.id === '__pog') : tr.secs.filter(x => x.id === id);
+  const only = $('#tr-only').checked, ed = canEdit('pog-trans'), canGl = canEdit('glossary');
+  const nodes = [];
+  const sec0 = tr.secs.find(x => x.id === id);
+  nodes.push(h('div', { class: 'se-head' }, h('b', {}, id === '__cover' ? '표지 · 페이지 고정 문구' : sec0?.title || ''), h('span', { class: 'mut' }, `${tr.lang}로 번역 · 페이지를 누르면 그 페이지 칸이 나와요`)));
+  // 다음 확인 필요 페이지로
+  const order = ['__cover', ...tr.secs.filter(x => x.fx).map(x => x.id)];
+  const needOf = k => k === '__cover' ? (tr.needBy.get('__labels') || 0) + (tr.needBy.get('__pog') || 0) : (tr.needBy.get(k) || 0);
+  const nextNeed = [...order.slice(order.indexOf(id) + 1), ...order.slice(0, order.indexOf(id))].find(k => needOf(k));
+  if (nextNeed) nodes.push(h('button', { class: 'btn small se-next', onclick: () => { setTrActive(nextNeed); (nextNeed === '__cover' ? tr.blocks.get('__cover') : tr.blocks.get(nextNeed))?.el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
+    `다음 확인 필요 페이지로 → (${needOf(nextNeed)}개)`));
+  let shown = 0;
+  for (const sec of secs) {
     const rows = [];
     for (const r of sec.rows) {
       const st = rowState(sec, r);
-      if (st.need) needN++;
       if (only && !st.need) continue;
       const inp = h('input', { class: 'tr-in' + (st.need ? ' need' : ''), placeholder: st.a.missing.length ? st.a.text : '', disabled: !ed });
       inp.value = st.value;
-      inp.addEventListener('input', () => saveTr(sec.id, r.key, inp.value.trim()));
-      // 사전에 없던 값을 번역했으면 사전에도 넣을지 물어봄
-      if (canGl && r.fixed === undefined) inp.addEventListener('change', () => {
+      inp.addEventListener('input', () => { saveTr(sec.id, r.key, inp.value.trim()); renderTr(); }); // 페이지 그림이 바로 바뀜
+      if (canGl && r.fixed === undefined) inp.addEventListener('change', () => { // 사전에 없던 값을 번역했으면 사전에도 넣을지 물어봄
         const v = inp.value.trim();
         if (v && (st.custom || st.a.missing.length)) askGlossary(sec, r, v);
       });
       const why = st.a.missing.length ? `사전에 없는 말: ${st.a.missing.join(', ')}` : st.custom ? '기존 선택지가 아니라 직접 입력한 값이에요. 번역을 확인해주세요' : '';
       rows.push(h('div', { class: 'tr-row' + (st.need ? ' need' : '') + (!st.need && why ? ' done' : '') },
-        h('div', { class: 'tr-l' }, r.label),
+        h('div', { class: 'tr-top' }, h('span', { class: 'tr-l' }, r.label),
+          st.need ? h('span', { class: 'tr-bang', title: why }, '!') : st.status === 'saved' ? h('span', { class: 'tr-ok', title: '직접 저장한 번역' }, '✓') : h('span', { class: 'tr-auto', title: '사전에서 자동' }, '사전')),
         h('div', { class: 'tr-ko' }, r.ko + (r.qty ? ` × ${r.qty}` : ''), r.hint ? h('div', { class: 'tr-hint' }, r.hint) : null),
-        h('div', { class: 'tr-v' }, inp, why ? h('div', { class: 'tr-why' }, why) : null),
-        h('div', { class: 'tr-s' },
-          st.need ? h('span', { class: 'tr-bang', title: why }, '!') : st.status === 'saved' ? h('span', { class: 'tr-ok', title: '직접 저장한 번역' }, '✓') : h('span', { class: 'tr-auto', title: '사전에서 자동' }, '사전'),
-          st.need && ed && st.custom && !st.a.missing.length ? h('button', { class: 'btn small ghost', onclick: () => saveTr(sec.id, r.key, st.a.text) || renderTr(true) }, '확인') : null,
-          canGl && r.fixed === undefined && (st.custom || st.a.missing.length) ? h('button', { class: 'btn small ghost', onclick: () => askGlossary(sec, r, inp.value.trim()) }, '사전에 추가') : null)));
+        inp, why ? h('div', { class: 'tr-why' }, why) : null,
+        (st.need && ed && st.custom && !st.a.missing.length) || (canGl && r.fixed === undefined && (st.custom || st.a.missing.length)) ? h('div', { class: 'se-btns' },
+          st.need && ed && st.custom && !st.a.missing.length ? h('button', { class: 'btn small ghost', onclick: () => { saveTr(sec.id, r.key, st.a.text); renderTr(true); } }, '이대로 확인') : null,
+          canGl && r.fixed === undefined && (st.custom || st.a.missing.length) ? h('button', { class: 'btn small ghost', onclick: () => askGlossary(sec, r, inp.value.trim()) }, '사전에 추가') : null) : null));
     }
     if (!rows.length) continue;
-    cards.push(h('section', { class: 'tr-card' },
-      h('div', { class: 'tr-head' }, sec.no ? h('span', { class: 'tr-no' }, sec.no) : null, h('b', {}, sec.title), sec.sub ? h('span', { class: 'mut' }, sec.sub) : null),
-      h('div', { class: 'tr-row tr-th' }, h('div', {}, '항목'), h('div', {}, '한국어'), h('div', {}, tr.lang), h('div', {})), ...rows));
+    shown += rows.length;
+    nodes.push(h('section', { class: 'se-sec' }, secs.length > 1 ? h('h4', {}, sec.title) : null, ...rows));
   }
-  const nb = $('#tr-need'); nb.textContent = needN ? `확인 필요 ${needN}` : '모두 번역됨'; nb.className = 'badge tr-need ' + (needN ? 'warn' : 'final');
-  box.replaceChildren(...(cards.length ? cards : [h('div', { class: 'mut pad' }, only ? '확인이 필요한 칸이 없어요.' : '번역할 글자가 없어요.')]));
+  if (!shown) nodes.push(h('p', { class: 'se-help' }, only ? '이 페이지엔 확인이 필요한 칸이 없어요.' : '이 페이지엔 번역할 글자가 없어요.'));
+  if (!ed) nodes.push(h('p', { class: 'se-help' }, '보기 전용이에요. 번역은 글로벌사업부만 고칠 수 있어요.'));
+  box.replaceChildren(...nodes);
 }
-$('#tr-cards').addEventListener('focusout', () => setTimeout(() => { if (tr.dirty) renderTr(); }, 60));
+$('#tr-side').addEventListener('focusout', () => setTimeout(() => { if (tr.dirty) renderTrSide(); }, 60));
 
 // 사전에 추가: 넣기 전에 비슷한 단어를 보여줘서 이미 있는 말을 또 만들지 않게
 function askGlossary(sec, r, value) {
@@ -1474,16 +1646,12 @@ function renderViewer() {
   const out = v.lang !== 'ko' ? v.trs?.[v.lang]?.out : null;
   const L = out ? { ...LABELS_KO, ...(out.__labels || {}) } : LABELS_KO;
   const pogV = out ? { ...v.pog, coverTitle: out.__pog?.cover || coverTitle(v.pog), branchName: out.__pog?.store || footStore(v.pog) } : v.pog;
-  const fxV = fx => {
-    const o = out?.[fx.id]; if (!o) return fx;
-    return { ...fx, ...Object.fromEntries(['headerName', 'fixtureType', 'hookType', 'shelfPipe', 'otherFixtures'].filter(k => o[k]).map(k => [k, o[k]])),
-      _cat: o.cat || undefined, notes: (fx.notes || []).map(n => o['n_' + n.id] ? { ...n, text: o['n_' + n.id] } : n),
-      extras: (fx.extras || []).map(x => o['x_' + x.id] ? { ...x, name: o['x_' + x.id] } : x) };
-  };
+  const fxV = fx => applyTr(fx, out?.[fx.id]);
   const cover = buildCover(pogV, { editable: false, L }); syncCover(cover, pogV); wrap.append(cover);
   const blocks = new Map();
-  v.fixtures.forEach(f => { const fx = fxV(f); const el = buildPage(fx, pogV, { editable: false, onItem: showItem, L }); syncPage(el, fx, pogV); wrap.append(el); blocks.set(fx.id, el); });
-  vwThumbs.sync(slideEntries(cover, v.pog, v.fixtures, fx => blocks.get(fx.id)));
+  const shownFx = composeFx(v.fixtures);
+  shownFx.forEach(f => { const fx = fxV(f); const el = buildPage(fx, pogV, { editable: false, onItem: showItem, L }); syncPage(el, fx, pogV); wrap.append(el); blocks.set(fx.id, el); });
+  vwThumbs.sync(slideEntries(cover, v.pog, shownFx, fx => blocks.get(fx.id)));
 }
 $('#vw-pdf').onclick = () => printPages($('#vw-pages'), state.viewer.pog);
 function showItem(it, fx) {
@@ -1501,6 +1669,7 @@ function showItem(it, fx) {
 
 /* ---------- 3. 용어 사전 ---------- */
 const norm = t => (t || '').toLowerCase().replace(/\s+/g, ''); // 띄어쓰기·대소문자 무시
+const CODE_CATS = ['고리타입', '선반/파이프', '집기']; // 제품코드를 넣는 분류 (고리·집기 수량 엑셀에 쓰임)
 const catOrder = c => { const i = CATS.indexOf(c); return i < 0 ? CATS.length : i; };
 const oldCats = () => [...new Set(state.glossary.map(g => g.cat).filter(c => c && !CATS.includes(c)))];
 const catLabel = c => CATS.includes(c) ? c : `${c} (예전)`;
@@ -1508,14 +1677,14 @@ const catLabel = c => CATS.includes(c) ? c : `${c} (예전)`;
 const glLangs = () => [...new Set(state.glossary.flatMap(g => Object.keys(g.tr || {})))].sort((a, b) => a.localeCompare(b));
 function glSearch(q) {
   const n = norm(q);
-  return state.glossary.filter(g => [g.ko, g.en, ...Object.values(g.tr || {})].some(t => norm(t).includes(n)))
+  return state.glossary.filter(g => [g.ko, g.en, g.code, ...Object.values(g.tr || {})].some(t => norm(t).includes(n)))
     .sort((a, b) => catOrder(a.cat) - catOrder(b.cat) || (a.ko || '').localeCompare(b.ko || '', 'ko'));
 }
 // 편집 기록: glossaryLog에 누가 언제 무엇을 바꿨는지 남김 (화면에는 '변경 기록'·ⓘ로만 작게)
 const me = () => state.user.email.toLowerCase();
 const logEntry = (g, action, changes = []) => ({ gid: g.id, cat: g.cat || '', ko: g.ko || '', action, changes, by: me(), at: serverTimestamp() });
 const glLog = (g, action, changes) => addDoc(collection(db, 'glossaryLog'), logEntry(g, action, changes)).catch(() => { });
-const fieldLabel = f => ({ ko: '한국어', en: 'English', cat: '분류' }[f] || f.replace(/^tr\./, ''));
+const fieldLabel = f => ({ ko: '한국어', en: 'English', cat: '분류', code: '제품코드' }[f] || f.replace(/^tr\./, ''));
 
 let glDirty = false;
 function refreshGlossaryLists() {
@@ -1528,7 +1697,9 @@ function refreshGlossaryLists() {
 function setGlCat(c) {
   state.glCat = c;
   if (CATS.includes(c)) $('#gl-add-cat').value = c;
+  syncAddCode();
 }
+const syncAddCode = () => $('#gl-add').code.classList.toggle('hidden', !CODE_CATS.includes($('#gl-add-cat').value));
 
 // 가져온 POG의 팀명을 사전 '팀명'에 자동으로 추가 (사전을 편집할 수 있는 계정에서만)
 // 문서 ID를 팀명으로 정해서 여러 사람이 동시에 열어도 한 번만 생김
@@ -1582,11 +1753,12 @@ function renderGlossary() {
   $('#gl-info').textContent = q ? `'${q}' 검색 결과 ${rows.length}개 · 전체 분류에서 찾았어요`
     : state.glCat === '팀명' ? '가져온 POG의 팀명이 자동으로 들어와요. 영어(와 다른 언어)만 채우면 돼요.'
     : !CATS.includes(state.glCat) ? `예전 분류예요. 필요한 단어는 검색해서 분류를 바꾸고, 나머지는 지워주세요.` : '';
+  const showCode = q ? rows.some(g => CODE_CATS.includes(g.cat)) : CODE_CATS.includes(state.glCat);
   $('#gl-head').innerHTML = '';
-  $('#gl-head').append(h('tr', {}, q ? h('th', { class: 'gl-cat-col' }, '분류') : null, h('th', {}, '한국어'), h('th', {}, 'English'), lang ? h('th', {}, lang) : null, h('th', {})));
+  $('#gl-head').append(h('tr', {}, showCode ? h('th', { class: 'gl-code-col' }, '제품코드') : null, q ? h('th', { class: 'gl-cat-col' }, '분류') : null, h('th', {}, '한국어'), h('th', {}, 'English'), lang ? h('th', {}, lang) : null, h('th', {})));
 
   body.innerHTML = '';
-  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 3 + (q ? 1 : 0) + (lang ? 1 : 0), class: 'mut pad' },
+  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 3 + (q ? 1 : 0) + (lang ? 1 : 0) + (showCode ? 1 : 0), class: 'mut pad' },
     q ? '저장된 단어가 없어요. 위 칸에서 바로 추가할 수 있어요.' : '등록된 단어가 없어요.')));
   const ed = canEdit('glossary'); // 글사부·관리자만 편집, 나머지는 보기
   rows.forEach(g => {
@@ -1621,7 +1793,8 @@ function renderGlossary() {
       });
       catCell = h('td', {}, sel);
     }
-    body.append(h('tr', {}, catCell, h('td', {}, inp('ko')), h('td', {}, inp('en')), lang ? h('td', {}, trInp()) : null,
+    const codeCell = showCode ? h('td', {}, CODE_CATS.includes(g.cat) ? inp('code') : null) : null;
+    body.append(h('tr', {}, codeCell, catCell, h('td', {}, inp('ko')), h('td', {}, inp('en')), lang ? h('td', {}, trInp()) : null,
       h('td', { class: 'tc' }, ed ? h('span', {},
         h('button', { class: 'gl-i', type: 'button', title: g.updatedBy ? `마지막 수정: ${g.updatedBy} · ${fmtDate(g.updatedAt)}` : '편집 기록 보기', onclick: () => showGlLog(g) }, 'ⓘ'),
         h('button', { class: 'btn ghost danger small', onclick: async () => {
@@ -1644,14 +1817,14 @@ function renderGlHint() {
     h('button', { class: 'link', type: 'button', onclick: () => { $('#gl-q').value = ko; renderGlossary(); } }, '찾아서 수정하기'));
 }
 $('#gl-add-cat').append(...CATS.map(c => h('option', { value: c }, c)));
-$('#gl-add-cat').addEventListener('change', e => { if (!$('#gl-q').value.trim()) { state.glCat = e.target.value; renderGlossary(); } });
+$('#gl-add-cat').addEventListener('change', e => { syncAddCode(); if (!$('#gl-q').value.trim()) { state.glCat = e.target.value; renderGlossary(); } });
 $('#gl-add').ko.addEventListener('input', renderGlHint);
 $('#gl-q').addEventListener('input', renderGlossary);
 $('#gl-q-clear').onclick = () => { $('#gl-q').value = ''; renderGlossary(); $('#gl-q').focus(); };
 $('#gl-body').addEventListener('focusout', () => setTimeout(() => { if (glDirty) renderGlossary(); }, 50));
 $('#gl-add').addEventListener('submit', async e => {
   e.preventDefault();
-  const f = e.target, cat = f.cat.value, ko = f.ko.value.trim(), en = f.en.value.trim();
+  const f = e.target, cat = f.cat.value, ko = f.ko.value.trim(), en = f.en.value.trim(), code = CODE_CATS.includes(cat) ? f.code.value.trim() : '';
   if (!ko) return;
   const same = state.glossary.filter(g => norm(g.ko) === norm(ko));
   if (same.some(g => g.cat === cat)) {
@@ -1659,10 +1832,10 @@ $('#gl-add').addEventListener('submit', async e => {
     $('#gl-q').value = ko; renderGlossary(); return;
   }
   if (same.length && !confirm(`'${same.map(g => g.cat).join(', ')}' 분류에 같은 단어가 있어요. '${cat}'에도 추가할까요?`)) return;
-  const r = await addDoc(collection(db, 'glossary'), { cat, ko, en, createdAt: serverTimestamp(), createdBy: me() });
+  const r = await addDoc(collection(db, 'glossary'), { cat, ko, en, ...(code ? { code } : {}), createdAt: serverTimestamp(), createdBy: me() });
   glLog({ id: r.id, cat, ko }, 'add', [{ f: 'en', from: '', to: en }]);
   toast('추가했어요');
-  f.ko.value = ''; f.en.value = ''; f.ko.focus(); renderGlHint();
+  f.ko.value = ''; f.en.value = ''; f.code.value = ''; f.ko.focus(); renderGlHint();
 });
 setGlCat(state.glCat);
 renderGlossary();
@@ -1706,18 +1879,18 @@ const loadXLSX = () => xlsxP ||= new Promise((ok, no) => {
   sc.onerror = () => { xlsxP = null; no(new Error('엑셀 도구를 불러오지 못했어요. 인터넷 연결을 확인해주세요.')); };
   document.head.append(sc);
 });
-const GL_FIXED = { id: 'ID (지우지 마세요)', cat: '분류', ko: '한국어', en: 'English' };
-const isFixedHead = t => /^id\b/i.test(t) || ['분류', '한국어', 'english', '영어'].includes(t.toLowerCase());
+const GL_FIXED = { id: 'ID (지우지 마세요)', cat: '분류', code: '제품코드', ko: '한국어', en: 'English' };
+const isFixedHead = t => /^id\b/i.test(t) || ['분류', '제품코드', '한국어', 'english', '영어'].includes(t.toLowerCase());
 
 $('#gl-lang').addEventListener('change', e => { state.glLang = e.target.value; renderGlossary(); });
 $('#gl-export').onclick = async () => {
   try {
     const X = await loadXLSX(), langs = glLangs();
     const rows = [...state.glossary].sort((a, b) => catOrder(a.cat) - catOrder(b.cat) || (a.ko || '').localeCompare(b.ko || '', 'ko'));
-    const aoa = [[GL_FIXED.id, GL_FIXED.cat, GL_FIXED.ko, GL_FIXED.en, ...langs],
-      ...rows.map(g => [g.id, g.cat, g.ko || '', g.en || '', ...langs.map(l => g.tr?.[l] || '')])];
+    const aoa = [[GL_FIXED.id, GL_FIXED.cat, GL_FIXED.code, GL_FIXED.ko, GL_FIXED.en, ...langs],
+      ...rows.map(g => [g.id, g.cat, g.code || '', g.ko || '', g.en || '', ...langs.map(l => g.tr?.[l] || '')])];
     const ws = X.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{ wch: 22 }, { wch: 10 }, { wch: 24 }, { wch: 24 }, ...langs.map(() => ({ wch: 24 }))];
+    ws['!cols'] = [{ wch: 22 }, { wch: 10 }, { wch: 12 }, { wch: 24 }, { wch: 24 }, ...langs.map(() => ({ wch: 24 }))];
     const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, '용어사전');
     X.writeFile(wb, `용어사전_${fmtDate(new Date()).replace(/\./g, '')}.xlsx`);
   } catch (e) { toast(e.message); }
@@ -1740,7 +1913,7 @@ function planGlossaryImport(aoa) {
   const col = test => head.findIndex(test);
   const ci = {
     id: col(t => /^id\b/i.test(t)), cat: col(t => t === '분류'), ko: col(t => t === '한국어'),
-    en: col(t => ['english', '영어'].includes(t.toLowerCase())),
+    en: col(t => ['english', '영어'].includes(t.toLowerCase())), code: col(t => t === '제품코드'),
   };
   if (ci.ko < 0) throw new Error("첫 줄에 '한국어' 열이 없어요. 내보낸 엑셀 양식을 그대로 써주세요.");
   const langCols = head.map((t, i) => [t, i]).filter(([t]) => t && !isFixedHead(t));
@@ -1749,7 +1922,7 @@ function planGlossaryImport(aoa) {
   const byId = new Map(state.glossary.map(g => [g.id, g])), seen = new Set();
   aoa.slice(1).forEach((row, ri) => {
     const v = i => (i >= 0 ? String(row[i] ?? '').trim() : '');
-    const line = ri + 2, id = v(ci.id), ko = v(ci.ko), cat = v(ci.cat), en = v(ci.en);
+    const line = ri + 2, id = v(ci.id), ko = v(ci.ko), cat = v(ci.cat), en = v(ci.en), code = v(ci.code);
     if (!id && !ko) return; // 빈 줄
     let g = id ? byId.get(id) : null;
     if (id && !g) { plan.warns.push(`${line}번째 줄: ID '${id}'인 단어가 없어요 (삭제된 단어일 수 있어요)`); return; }
@@ -1763,12 +1936,13 @@ function planGlossaryImport(aoa) {
       const ch = {};
       if (ko && ko !== g.ko) ch.ko = ko;
       if (en && en !== (g.en || '')) ch.en = en;
+      if (code && code !== (g.code || '')) ch.code = code;
       if (cat && cat !== g.cat && CATS.includes(cat)) ch.cat = cat;
       if (Object.keys(ch).length || Object.keys(tr).length) plan.updates.push({ g, ch, tr });
     } else {
       if (!cat) { plan.warns.push(`${line}번째 줄: 새 단어 '${ko}'에 분류가 없어요`); return; }
       if (plan.adds.some(a => a.cat === cat && norm(a.ko) === norm(ko))) return;
-      plan.adds.push({ cat, ko, en, tr });
+      plan.adds.push({ cat, ko, en, tr, ...(code ? { code } : {}) });
     }
   });
   return plan;
