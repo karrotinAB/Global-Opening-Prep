@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261031j">
+<link rel="stylesheet" href="style.css?v=20261031k">
 </head>
 <body>
 
@@ -227,6 +227,8 @@
               <button class="btn" id="ed-counts" data-staff title="페이지마다 넣은 고리·집기 수량을 제품코드와 함께 합계">고리·집기 수량 엑셀</button>
               <button class="btn" id="ed-regrab" data-edit="pog-make" title="POG 사이트에서 고친 매대를 다시 가져와요">↻ 다시 가져오기</button>
               <button class="btn" id="ed-pdf">PDF 저장</button>
+              <button class="btn small ghost ed-ur" id="ed-undo" data-edit="pog-make" title="되돌리기 (Ctrl+Z)" disabled>↶ 되돌리기</button>
+              <button class="btn small ghost ed-ur" id="ed-redo" data-edit="pog-make" title="다시 하기 (Ctrl+Y)" disabled>↷</button>
               <button class="btn primary" id="ed-final" data-edit="pog-make">최종 POG 내보내기</button>
               <button class="btn ghost danger" id="ed-delete" data-edit="pog-make">삭제</button>
             </div>
@@ -380,6 +382,6 @@
 <div id="toast"></div>
 
 <!-- 파일을 고치면 ?v= 숫자도 바꿀 것 (브라우저가 예전 파일을 쓰지 않도록) -->
-<script type="module" src="app.js?v=20261031j"></script>
+<script type="module" src="app.js?v=20261031k"></script>
 </body>
 </html>
