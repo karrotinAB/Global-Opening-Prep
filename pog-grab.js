@@ -59,7 +59,13 @@
       color: win.getComputedStyle(el).backgroundColor,
       x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight,
     }));
-    // 배경판: 제품·집기와 같은 판 위에 있는 색 있는 div (예: 매대 옆 회색 판, 칸 사이 기둥)
+    // 배경 무늬 (타공판 구멍 등): 그림 주소·크기(= 구멍 간격)·위치
+    const bgOf = cs => {
+      const img = cs.backgroundImage;
+      if (!img || img === 'none') return null;
+      return { img: img.slice(0, 400), size: cs.backgroundSize, pos: cs.backgroundPosition, rep: cs.backgroundRepeat };
+    };
+    // 배경판: 제품·집기와 같은 판 위에 있는 색(또는 무늬) 있는 div (예: 매대 옆 회색 판, 칸 사이 기둥, 타공판)
     const panels = [];
     const first = doc.querySelector('div[id^="obj"]') || doc.querySelector('div[id^="prop"]');
     const box = first && first.offsetParent;
@@ -67,16 +73,22 @@
       const br = box.getBoundingClientRect();
       for (const el of box.querySelectorAll('div')) {
         if (/^(obj|prop)\d+$/.test(el.id) || el.closest('div[id^="obj"], div[id^="prop"]') || el.querySelector('div[id^="obj"], div[id^="prop"]')) continue;
-        const cs = win.getComputedStyle(el), c = cs.backgroundColor;
-        if (!c || /rgba\(0, 0, 0, 0\)|transparent|rgb\(255, 255, 255\)/.test(c) || cs.display === 'none') continue;
+        const cs = win.getComputedStyle(el), c = cs.backgroundColor, bg = bgOf(cs);
+        if (cs.display === 'none' || (!bg && (!c || /rgba\(0, 0, 0, 0\)|transparent|rgb\(255, 255, 255\)/.test(c)))) continue;
         const r = el.getBoundingClientRect();
-        if (r.width < 4 || r.height < 40 || r.width > br.width * 0.95) continue;
-        panels.push({ id: el.id || '', cls: (el.className || '').toString().split(' ')[0], color: c,
+        if (r.width < 4 || r.height < 40 || (!bg && r.width > br.width * 0.95)) continue;
+        panels.push({ id: el.id || '', cls: (el.className || '').toString().split(' ')[0], color: c, ...(bg ? { bg } : {}),
           x: Math.round(r.left - br.left - box.clientLeft), y: Math.round(r.top - br.top - box.clientTop), w: Math.round(r.width), h: Math.round(r.height) });
         if (panels.length >= 200) break;
       }
     }
-    return { items, props, panels };
+    // 판 전체에 깔린 무늬 (타공판이 매대 판 자체의 배경일 때)
+    let board = null;
+    for (let el = box, k = 0; el && k < 3 && !board; el = el.parentElement, k++) {
+      const bg = bgOf(win.getComputedStyle(el));
+      if (bg) { const r = el.getBoundingClientRect(), br = box.getBoundingClientRect(); board = { ...bg, x: Math.round(r.left - br.left), y: Math.round(r.top - br.top), w: Math.round(r.width), h: Math.round(r.height) }; }
+    }
+    return { items, props, panels, board };
   }
 
   /* 숨은 창으로 매대 보기 화면을 열어 다 그려질 때까지 기다린 뒤 읽기.
@@ -226,7 +238,7 @@
         shelfCount: t.shelfCount ?? countKind(d.props, /선반/),
         pipeCount: t.pipeCount ?? countKind(d.props, /파이프/),
         itemCount: t.itemCount ?? d.items.length,
-        items: d.items, props: d.props, panels: d.panels || [], error: d.error || '',
+        items: d.items, props: d.props, panels: d.panels || [], board: d.board || null, error: d.error || '',
       };
     });
     const show = () => {

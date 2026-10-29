@@ -473,3 +473,20 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 /* 도면 끌어다 놓기 · 평수 필수 */
 #dw-body.dropping .dw-stage { outline: 3px dashed var(--or); outline-offset: -10px; background: #fff7ec; }
 #dw-area.need { border-color: var(--red); background: #fff3f3; }
+
+/* 왼쪽 썸네일: 위로·아래로·삭제 (POG 만들기, 편집할 때) + 끌어서 순서 바꾸기 */
+.th-page { position: relative; }
+.th-act { display: none; position: absolute; top: 3px; right: 3px; gap: 2px; z-index: 5; }
+.thumbs.editing .thumb:hover .th-act { display: flex; }
+.th-act button { border: 1px solid #d4d4d4; background: #fff; border-radius: 4px; width: 22px; height: 20px; padding: 0; font-size: 10px; line-height: 18px; cursor: pointer; color: #555; }
+.th-act button:hover { border-color: var(--or); color: var(--or-d); }
+.th-act button.del:hover { border-color: var(--red); color: var(--red); }
+.thumbs.editing .thumb[draggable=true] { cursor: grab; }
+.thumb.dragging { opacity: .4; }
+.thumb.drop-before .th-page { box-shadow: 0 -3px 0 0 var(--or); }
+.thumb.drop-after .th-page { box-shadow: 0 3px 0 0 var(--or); }
+
+/* 페이지 아래 담당자 고르기 (POG 만들기). 고르면 글자(.pf-mgr)가 바뀌고, 인쇄에는 글자만 나옴 */
+.pf-mgr-sel { font: inherit; font-weight: 700; font-size: 13px; border: 1px dashed #d4d4d4; background: #fffdf6; border-radius: 3px; padding: 1px 4px; max-width: 170px; }
+.page-block:has(.pf-mgr-sel) .pf-mgr { display: none; }
+@media print { .page-block:has(.pf-mgr-sel) .pf-mgr { display: inline; } }

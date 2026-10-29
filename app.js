@@ -264,13 +264,18 @@ function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
   // 매대 뒤 회색 바탕: 선반·파이프·배경판의 가로 범위 × 전체 높이 (붙인 매대는 매대마다 따로)
   const groups = new Map();
   for (const o of [...props, ...panels.filter(p => p.w >= 40)]) { const g = o._g || 0; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(o); }
-  for (const frame of groups.values()) {
+  for (const [g, frame] of groups) {
     const c = core(frame), fx0 = Math.min(...c.map(o => o.x)), fx1 = Math.max(...c.map(o => o.x + o.w));
-    inner.append(h('div', { class: 'cv-back', style: `left:${fx0 - x0 + pad}px;top:${pad}px;width:${fx1 - fx0}px;height:${y1 - y0}px` }));
+    const back = h('div', { class: 'cv-back', style: `left:${fx0 - x0 + pad}px;top:${pad}px;width:${fx1 - fx0}px;height:${y1 - y0}px` });
+    const part = (fx._parts || [fx])[g] || fx;
+    if (!panels.some(p => p.bg && (p._g || 0) === g)) holesOn(back, perfOf(part, fx1 - fx0), fx0 - x0 + pad, pad); // 타공판: 매대 뒤에 구멍
+    inner.append(back);
   }
   for (const p of panels) {
-    // 배경판은 POG 사이트 색과 상관없이 연한 회색 (진하게 칠하면 선반·파이프와 구분이 안 됨 · 사용자)
-    inner.append(h('div', { class: 'cv-panel', style: `left:${p.x - x0 + pad}px;top:${p.y - y0 + pad}px;width:${p.w}px;height:${p.h}px` }));
+    // 배경판은 POG 사이트 색과 상관없이 연한 회색 (진하게 칠하면 선반·파이프와 구분이 안 됨 · 사용자). 무늬(타공판)가 있으면 그 간격대로 구멍
+    const pe = h('div', { class: 'cv-panel', style: `left:${p.x - x0 + pad}px;top:${p.y - y0 + pad}px;width:${p.w}px;height:${p.h}px` });
+    if (p.bg) holesOn(pe, bgPitch(p.bg), 0, 0, p.bg);
+    inner.append(pe);
   }
   for (const p of props) {
     const color = p.color && !/rgba\(0, 0, 0, 0\)|transparent/.test(p.color) ? p.color : '#7d7d7d';
@@ -286,6 +291,41 @@ function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
   }
   wrap.append(inner);
   return wrap;
+}
+
+/* 타공판 구멍: POG 사이트의 배경 무늬(타공판 그림) 크기를 구멍 간격으로 씀. 그림을 그대로 쓰지 않고 구멍을 직접 그림 (다른 사이트 그림이 막혀도 보이게)
+   무늬를 못 읽은 예전 데이터는 매대명·매대 타입에 '타공'이 있으면 기본 간격으로 그림 */
+const imgSize = new Map(); // 무늬 그림 주소 → { w, h } (크기가 'auto'일 때 그림 크기가 간격)
+const bgUrl = img => (String(img || '').match(/url\(["']?(.*?)["']?\)/) || [])[1] || '';
+function bgPitch(bg) {
+  const m = String(bg?.size || '').match(/([\d.]+)px(?:\s+([\d.]+)px)?/);
+  if (m) return { x: +m[1], y: +(m[2] || m[1]) };
+  const u = bgUrl(bg?.img), z = u && imgSize.get(u);
+  return z && z.w ? { x: z.w, y: z.h } : u ? { url: u } : null;
+}
+function perfOf(f, frameW) {
+  const b = f.board && bgPitch(f.board);
+  if (b) return { ...b, bg: f.board };
+  if (/타공/.test(`${f.mdName || ''} ${f.fixtureType || ''} ${f.headerName || ''}`)) {
+    const mm = +((f.mdName || '').match(/_(\d{3,4})(?:\D*)$/) || [])[1]; // 매대명 끝 숫자 = 폭(mm)일 때 25mm 간격으로
+    const p = mm >= 300 && mm <= 3000 && frameW ? frameW / mm * 25 : 10;
+    return { x: Math.max(5, Math.min(p, 30)), y: Math.max(5, Math.min(p, 30)) };
+  }
+  return null;
+}
+function holesOn(el, pitch, ox, oy, bg) {
+  if (!pitch) return;
+  if (pitch.url) { // 그림 크기를 아직 모름 → 불러와서 크기를 안 뒤에 그림
+    const im = new Image();
+    im.onload = () => { imgSize.set(pitch.url, { w: im.naturalWidth, h: im.naturalHeight }); holesOn(el, { x: im.naturalWidth, y: im.naturalHeight }, ox, oy, bg); };
+    im.referrerPolicy = 'no-referrer'; im.src = pitch.url;
+    return;
+  }
+  const px = Math.max(3, pitch.x), py = Math.max(3, pitch.y), r = Math.max(0.7, Math.min(px, py) * 0.16);
+  el.classList.add('perf');
+  el.style.backgroundImage = `radial-gradient(circle, #9e9e9e ${r}px, transparent ${r + 0.5}px)`;
+  el.style.backgroundSize = `${px}px ${py}px`;
+  el.style.backgroundPosition = bg?.pos && /px/.test(bg.pos) ? bg.pos : `${px / 2}px ${py / 2}px`;
 }
 
 /* ---------- 표지 (매장명 + POG) ---------- */
@@ -315,7 +355,7 @@ function syncCover(block, pog) {
 }
 
 /* ---------- 슬라이드 목록 (PPT처럼 왼쪽 썸네일) ---------- */
-function makeThumbs(box, scroller, onActive) {
+function makeThumbs(box, scroller, onActive, tools = null) { // tools = { can(), del(id), move(id, dir), place(id, beforeId) } : POG 만들기에서만
   const els = new Map();
   let active = null;
   const setActive = id => {
@@ -330,6 +370,22 @@ function makeThumbs(box, scroller, onActive) {
     });
     if (id !== active) { active = id; onActive?.(id); }
   };
+  if (tools) { // 끌어다 놓을 자리: 마우스가 썸네일 위쪽 반이면 그 앞, 아래쪽 반이면 그 뒤
+    const spot = ev => { const t = ev.target.closest('.thumb'); if (!t || !t._fxId) return null; const r = t.getBoundingClientRect(); return { t, after: ev.clientY > r.top + r.height / 2 }; };
+    box.addEventListener('dragover', ev => {
+      if (!ev.dataTransfer.types.includes('text/x-page')) return;
+      ev.preventDefault(); const sp = spot(ev);
+      $$('.thumb.drop-before, .thumb.drop-after', box).forEach(x => x.classList.remove('drop-before', 'drop-after'));
+      if (sp) sp.t.classList.add(sp.after ? 'drop-after' : 'drop-before');
+    });
+    box.addEventListener('drop', ev => {
+      const id = ev.dataTransfer.getData('text/x-page'), sp = spot(ev);
+      $$('.thumb.drop-before, .thumb.drop-after', box).forEach(x => x.classList.remove('drop-before', 'drop-after'));
+      if (!id || !sp) return; ev.preventDefault();
+      const ids = [...els.keys()].filter(k => els.get(k)._fxId), i = ids.indexOf(sp.t._fxId);
+      tools.place(id, sp.after ? ids[i + 1] ?? null : sp.t._fxId);
+    });
+  }
   // 스크롤하면 지금 보고 있는 페이지를 표시
   let raf = 0;
   scroller.addEventListener('scroll', () => {
@@ -357,9 +413,17 @@ function makeThumbs(box, scroller, onActive) {
             h('div', { class: 'th-no' }),
             h('div', { class: 'th-page' }, h('div', { class: 'th-head' }, h('span', { class: 'th-name' })), h('div', { class: 'th-body' }, body)));
           t.onclick = () => { t._block?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setActive(e.id); };
+          if (tools && e.fx) { // 페이지 위로·아래로·삭제 + 끌어서 순서 바꾸기
+            const ab = (txt, title, fn, cls = '') => h('button', { type: 'button', class: cls, title, onclick: ev => { ev.stopPropagation(); fn(); } }, txt);
+            $('.th-page', t).append(h('div', { class: 'th-act no-print' },
+              ab('▲', '앞으로', () => tools.move(e.id, -1)), ab('▼', '뒤로', () => tools.move(e.id, 1)), ab('🗑', '이 페이지 삭제', () => tools.del(e.id), 'del')));
+            t.draggable = true;
+            t.addEventListener('dragstart', ev => { if (!tools.can()) { ev.preventDefault(); return; } ev.dataTransfer.setData('text/x-page', e.id); ev.dataTransfer.effectAllowed = 'move'; t.classList.add('dragging'); });
+            t.addEventListener('dragend', () => { t.classList.remove('dragging'); $$('.thumb.drop-before, .thumb.drop-after', box).forEach(x => x.classList.remove('drop-before', 'drop-after')); });
+          }
           els.set(e.id, t);
         }
-        t._block = e.block;
+        t._block = e.block; t._fxId = e.fx ? e.id : null;
         t.title = e.name;
         const sig = e.fx ? itemSig(e.fx) : '';
         if (e.fx && e.fx.kind !== 'free' && t._sig !== undefined && t._sig !== sig) $('.th-body', t).replaceChildren(buildCanvas(e.fx, 116, 150, null, { lazy: true }));
@@ -371,6 +435,7 @@ function makeThumbs(box, scroller, onActive) {
         if (box.children[i] !== t) box.insertBefore(t, box.children[i] || null);
       });
       if (!box.querySelector('.thumb.on') && entries[0]) setActive(entries[0].id);
+      box.classList.toggle('editing', !!tools?.can());
     },
   };
 }
@@ -385,7 +450,7 @@ const itemSig = fx => {
 function combineFx(host, kids) {
   const ext = f => { const xs = [...(f.props || []), ...(f.panels || []), ...(f.items || [])]; return xs.length ? [Math.min(...xs.map(o => o.x)), Math.max(...xs.map(o => o.x + o.w))] : [0, 0]; };
   let right = ext(host)[1];
-  const out = { ...host, items: [...(host.items || [])], props: [...(host.props || [])], panels: [...(host.panels || [])], _kids: kids.map(k => k.id) };
+  const out = { ...host, items: [...(host.items || [])], props: [...(host.props || [])], panels: [...(host.panels || [])], _kids: kids.map(k => k.id), _parts: [host, ...kids] };
   kids.forEach((k, gi) => {
     const [l, r] = ext(k), dx = right + 40 - l, sh = o => ({ ...o, x: o.x + dx, _g: gi + 1 });
     out.items.push(...(k.items || []).map(sh)); out.props.push(...(k.props || []).map(sh)); out.panels.push(...(k.panels || []).map(sh));
@@ -430,7 +495,12 @@ const slideEntries = (cover, pog, fixtures, blockOf) => [
   { id: '__cover', block: cover, name: coverTitle(pog) || '표지' },
   ...fixtures.map(fx => ({ id: fx.id, block: blockOf(fx), name: displayName(fx), fx })),
 ];
-edThumbs = makeThumbs($('#ed-thumbs'), $('#ed-pages'), id => { state.edActive = id; renderSidePanel(); });
+edThumbs = makeThumbs($('#ed-thumbs'), $('#ed-pages'), id => { state.edActive = id; renderSidePanel(); }, {
+  can: () => !!state.edEditable,
+  del: id => { const fx = state.fixtures.get(id); if (fx) deletePage(state.currentPog.id, fx); },
+  move: (id, dir) => movePage(state.currentPog.id, id, dir),
+  place: (id, beforeId) => placePage(state.currentPog.id, id, beforeId),
+});
 vwThumbs = makeThumbs($('#vw-thumbs'), $('#vw-pages'));
 trThumbs = makeThumbs($('#tr-thumbs'), $('#tr-pages'), id => { tr.active = id; renderTrSide(true); });
 $$('.list-toggle').forEach(b => b.onclick = () => b.closest('.split').classList.toggle('list-off'));
@@ -466,7 +536,7 @@ function buildPage(fx, pog, { editable, onItem, L = LABELS_KO }) {
           field('hookCount', h('input', { type: 'number', min: 0, class: 'hook-cnt', placeholder: '0' })))),
         box(L.sp, h('div', { class: 'sp-list' })),
         box(L.other, h('div', { class: 'ex-list' }), field('otherFixtures', h('textarea', { rows: 2, class: 'ex-memo', placeholder: editable ? '기타 메모 (선택)' : '' }))))),
-    h('div', { class: 'pf1' }, L.mgr + ' ', h('span', { class: 'pf-mgr' })),
+    h('div', { class: 'pf1' }, L.mgr + ' ', h('span', { class: 'pf-mgr' }), editable ? mgrSelect(fx, pog) : null),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
 
   const block = finishBlock(fx, pog, page, editable);
@@ -554,7 +624,7 @@ function buildFreePage(fx, pog, { editable, field, L = LABELS_KO }) {
   const page = h('div', { class: 'page free' },
     h('div', { class: 'ph' }, field('headerName', h('input', { class: 'ph-name', placeholder: '제목 (예: 3단 각고리 참고사진)' }))),
     h('div', { class: 'pb free-body' }),
-    h('div', { class: 'pf1' }, L.mgr + ' ', h('span', { class: 'pf-mgr' })),
+    h('div', { class: 'pf1' }, L.mgr + ' ', h('span', { class: 'pf-mgr' }), editable ? mgrSelect(fx, pog) : null),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
   return finishBlock(fx, pog, page, editable);
 }
@@ -572,13 +642,29 @@ async function addFreePage(pogId, afterOrder) {
     setTimeout(() => { state.pageEls.get(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setEdActive(id); }, 300);
   } catch (e) { toast('추가 실패: ' + e.message); }
 }
-async function moveFreePage(pogId, fxId, dir) {
-  const list = sortedFx(), i = list.findIndex(f => f.id === fxId), j = i + dir;
-  if (i < 0 || j < 0 || j >= list.length) return;
-  const b = writeBatch(db);
-  b.update(doc(db, 'pogs', pogId, 'fixtures', list[i].id), { order: list[j].order });
-  b.update(doc(db, 'pogs', pogId, 'fixtures', list[j].id), { order: list[i].order });
-  await b.commit();
+// 페이지 순서 바꾸기 (화면에 보이는 페이지 기준. 붙인 매대는 붙은 페이지를 따라감). 바뀐 순서대로 order를 1, 2, 3… 다시 매김
+async function reorderPages(pogId, ids) {
+  const changed = ids.map((id, i) => [id, i + 1]).filter(([id, o]) => state.fixtures.get(id)?.order !== o);
+  try {
+    for (let i = 0; i < changed.length; i += 400) {
+      const b = writeBatch(db);
+      changed.slice(i, i + 400).forEach(([id, o]) => b.update(doc(db, 'pogs', pogId, 'fixtures', id), { order: o }));
+      await b.commit();
+    }
+  } catch (e) { alert('순서를 바꾸지 못했어요: ' + (e.code || e.message)); }
+}
+const shownIds = () => [...(state.edComposed?.keys() || [])];
+function movePage(pogId, fxId, dir) {
+  const ids = shownIds(), i = ids.indexOf(fxId), j = i + dir;
+  if (i < 0 || j < 0 || j >= ids.length) return;
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  return reorderPages(pogId, ids);
+}
+function placePage(pogId, fxId, beforeId) { // beforeId 앞으로 (null이면 맨 뒤)
+  if (fxId === beforeId) return;
+  const ids = shownIds().filter(x => x !== fxId), k = beforeId ? ids.indexOf(beforeId) : ids.length;
+  ids.splice(k < 0 ? ids.length : k, 0, fxId);
+  return reorderPages(pogId, ids);
 }
 // 페이지 삭제 (매대 페이지·추가 페이지 모두). 붙여 둔 매대가 있으면 떼어서 따로 페이지로 남김
 async function deletePage(pogId, fx) {
@@ -804,6 +890,7 @@ function syncPage(block, fx, pog) {
     else if (el !== document.activeElement && el.value !== String(v)) el.value = v;
   });
   $('.pf-mgr', block).textContent = fx.manager || pog.manager || ''; // 페이지마다 다른 담당자를 정할 수 있음 (비우면 POG 담당자)
+  const ms = $('.pf-mgr-sel', block); if (ms) fillMgrSelect(ms, fx, pog);
   $('.pf-branch', block).textContent = footStore(pog);
   if (!pendingKey(`${fx.id}|itemZ`)) applyItemZ(block, fx);
   const spBox = block.querySelector('.page .sp-list'), spNow = spRows(fx);
@@ -986,13 +1073,6 @@ function renderSidePanel() {
       h('div', { class: 'se-btns' }, btn('맨 앞으로', () => moveItemZ(pog.id, view, selIt.id, 1)), btn('맨 뒤로', () => moveItemZ(pog.id, view, selIt.id, -1)),
         btn('선택 해제', () => selectItem(block, null), 'ghost')),
       h('p', { class: 'se-help' }, '겹친 제품 중 어느 것이 앞에 보일지만 바꿔요. 위치는 그대로예요.')));
-    if (ed) {
-      const names = [...new Set([...state.managers.map(m => m.name), fx.manager].filter(Boolean))];
-      const ms = h('select', { class: 'nb-sel' }, h('option', { value: '' }, `POG 담당자 따름${pog.manager ? ` (${pog.manager})` : ''}`), ...names.map(n => h('option', { value: n }, n)));
-      ms.value = fx.manager || '';
-      ms.onchange = () => { saveFx(pog.id, fx.id, 'manager', ms.value); fx.manager = ms.value; const el = $('.pf-mgr', block); if (el) el.textContent = ms.value || pog.manager || ''; };
-      nodes.push(sec('이 페이지 POG 담당자', ms, h('p', { class: 'se-help' }, '이 페이지만 담당자가 다르면 고르세요. 목록에 없는 이름은 위쪽 담당자 칸에서 먼저 추가하면 돼요.')));
-    }
     if (ed && block._bar) nodes.push(sec('메모 넣기', block._bar));
     if (ed && !free) {
       const list = [...state.edComposed.values()], i = list.findIndex(f => f.id === id), next = list.slice(i + 1).find(f => f.kind !== 'free');
@@ -1002,8 +1082,8 @@ function renderSidePanel() {
         next ? h('div', { class: 'se-btns' }, btn(`⇣ 다음 매대 '${displayName(next)}' 붙이기`, () => mergeNext(pog.id, fx, state.fixtures.get(next.id)))) : null));
     }
     if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' },
-      free ? btn('▲ 위로', () => moveFreePage(pog.id, fx.id, -1), 'ghost') : null,
-      free ? btn('▼ 아래로', () => moveFreePage(pog.id, fx.id, 1), 'ghost') : null,
+      btn('▲ 앞으로', () => movePage(pog.id, fx.id, -1), 'ghost'),
+      btn('▼ 뒤로', () => movePage(pog.id, fx.id, 1), 'ghost'),
       free ? null : btn('↻ 이 매대만 다시 가져오기', () => openRegrab(fx), 'ghost'),
       btn('+ 이 뒤에 빈 페이지 추가', () => addFreePage(pog.id, fx.order), 'ghost'),
       btn('이 페이지 삭제', () => deletePage(pog.id, fx), 'ghost danger'))));
@@ -1020,6 +1100,33 @@ async function restoreOutside(pogId, fx) {
   toast(`${out.length}개를 되살렸어요`);
 }
 
+// 페이지 아래 'POG 담당자' 옆에서 이 페이지 담당자를 바로 고름 (비우면 위쪽 담당자)
+function mgrSelect(fx, pog) {
+  const sel = h('select', { class: 'pf-mgr-sel no-print', title: '이 페이지 POG 담당자' });
+  sel.addEventListener('change', async () => {
+    let v = sel.value;
+    if (v === '__new') { v = await addManager(); if (!v) { fillMgrSelect(sel, fx, state.currentPog || pog); return; } }
+    fx.manager = v; saveFx(pog.id, fx.id, 'manager', v);
+    const blk = sel.closest('.page-block'), sp = blk && $('.pf-mgr', blk); if (sp) sp.textContent = v || state.currentPog?.manager || '';
+    fillMgrSelect(sel, fx, state.currentPog || pog);
+  });
+  fillMgrSelect(sel, fx, pog);
+  return sel;
+}
+function fillMgrSelect(sel, fx, pog) {
+  if (sel === document.activeElement) return;
+  const names = [...new Set([...state.managers.map(m => m.name), fx.manager].filter(Boolean))];
+  sel.replaceChildren(h('option', { value: '' }, pog.manager ? `${pog.manager} (전체)` : '(전체 담당자)'), ...names.map(n => h('option', { value: n }, n)), h('option', { value: '__new' }, '+ 새 담당자 추가'));
+  sel.value = fx.manager || '';
+}
+async function addManager() {
+  const name = (prompt('새 POG 담당자 이름') || '').trim();
+  if (!name) return '';
+  if (!state.managers.some(m => m.name === name)) await addDoc(collection(db, 'managers'), { name, createdAt: serverTimestamp() });
+  toast(`담당자 '${name}'을(를) 추가했어요`);
+  return name;
+}
+$('#ed-mgr-add').onclick = () => addManager();
 function refreshManagerSelect() {
   const sel = $('#ed-manager'); if (!sel) return;
   const cur = state.currentPog?.manager || '';
@@ -1028,15 +1135,14 @@ function refreshManagerSelect() {
   sel.innerHTML = '';
   sel.append(h('option', { value: '' }, '선택'), ...names.map(n => h('option', { value: n }, n)), h('option', { value: '__new' }, '+ 새 담당자 추가'));
   sel.value = cur;
+  state.pageEls?.forEach((blk, id) => { const ms = $('.pf-mgr-sel', blk), fx = state.fixtures.get(id); if (ms && fx && state.currentPog) fillMgrSelect(ms, fx, state.currentPog); });
 }
 $('#ed-manager').addEventListener('change', async e => {
   const p = state.currentPog; if (!p) return;
   let v = e.target.value;
   if (v === '__new') {
-    const name = (prompt('새 담당자 이름') || '').trim();
-    if (!name) { e.target.value = p.manager || ''; return; }
-    if (!state.managers.some(m => m.name === name)) await addDoc(collection(db, 'managers'), { name, createdAt: serverTimestamp() });
-    v = name;
+    v = await addManager();
+    if (!v) { e.target.value = p.manager || ''; return; }
   }
   p.manager = v;
   await updateDoc(doc(db, 'pogs', p.id), { manager: v, updatedAt: serverTimestamp() });
@@ -1187,7 +1293,7 @@ function pagesFromGrab(f, i) {
       teamName: f.teamName || '', mdName: f.mdName || '',
       shelfCount: sh, pipeCount: pi,
       itemCount: bays.length > 1 ? bay.items.length : (f.itemCount ?? bay.items.length),
-      items: bay.items, props: bay.props, panels: bay.panels || [],
+      items: bay.items, props: bay.props, panels: bay.panels || [], board: f.board || null,
       shelfPipe: autoShelfPipe(sh, pi), sp: autoSp(sh, pi),
     };
   });
@@ -1353,7 +1459,7 @@ async function applyRegrab(pog, plan) {
   for (const { o, pg } of plan.updates) {
     const keep = new Set(pg.items.map(it => String(it.id)));
     const patch = {
-      items: pg.items, props: pg.props, panels: pg.panels, outsideItems: [],
+      items: pg.items, props: pg.props, panels: pg.panels, board: pg.board || null, outsideItems: [],
       mdName: pg.mdName, teamName: pg.teamName, bayNo: pg.bayNo, bayCount: pg.bayCount,
       itemCount: pg.itemCount, shelfCount: pg.shelfCount, pipeCount: pg.pipeCount,
       itemZ: Object.fromEntries(Object.entries(o.itemZ || {}).filter(([k]) => keep.has(k))),
