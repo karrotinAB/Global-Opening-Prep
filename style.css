@@ -375,10 +375,8 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .tile svg .a { stroke: var(--accent); }
 .tile small { font-size: 12px; color: var(--mut); margin-top: -6px; }
 /* 처음 화면 아래 줄 (매장 등록·용어 사전·바코드 등록): 살짝 회색으로 위 줄과 구분 */
-.tile.sub { background: #e9e9ea; color: #555; }
+.tile.sub { background: #e9e9ea; }
 .tile.sub:hover { background: #e0e0e2; }
-.tile.sub svg { stroke: #666; }
-.tile.sub svg .a { stroke: #9a9a9a; }
 .back { color: var(--mut); text-decoration: none; }
 .back:hover { color: var(--ink); }
 @media (max-width: 600px) {
