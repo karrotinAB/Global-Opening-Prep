@@ -2,7 +2,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, where, limit,
-  writeBatch, serverTimestamp, arrayUnion, arrayRemove, deleteField, getDocs, getDoc, getCountFromServer, FieldPath
+  writeBatch, serverTimestamp, arrayUnion, arrayRemove, deleteField, getDocs, getDoc, getCountFromServer, startAfter, FieldPath
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
@@ -205,7 +205,7 @@ function go(v) {
   if (v.startsWith('dw-')) setDwMode({ 'dw-up': 'up', 'dw-tr': 'tr', 'dw-online': 'on' }[v]);
   window.scrollTo(0, 0);
   if (v === 'finder') renderFdStores();
-  if (v === 'barcodes') bcCount(); else bcReport([], '', 0); // 건너뛴 줄 알림은 이 화면을 나가면 사라짐
+  if (v === 'barcodes') { bcCount(); bcList(true); } else bcReport([], '', 0); // 건너뛴 줄 알림은 이 화면을 나가면 사라짐
 }
 $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
 $$('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
@@ -2655,18 +2655,35 @@ async function bcCount() {
   try { const c = await getCountFromServer(collection(db, 'barcodes')); el.textContent = `등록된 바코드 ${c.data().count.toLocaleString()}개`; }
   catch { el.textContent = ''; }
 }
-function bcRows(rows) {
+// 찾는 글자가 없으면 등록된 바코드 목록 (제품코드 순, 100개씩 '더 보기')
+const bcl = { rows: [], last: null, done: false, busy: false };
+async function bcList(reset) {
+  if (bcl.busy) return;
+  if (reset) { bcl.rows = []; bcl.last = null; bcl.done = false; }
+  if (bcl.done) return;
+  bcl.busy = true;
+  try {
+    const qs = [collection(db, 'barcodes'), orderBy('code'), ...(bcl.last ? [startAfter(bcl.last)] : []), limit(100)];
+    const s = await getDocs(query(...qs));
+    bcl.rows.push(...s.docs.map(d => ({ id: d.id, ...d.data() })));
+    bcl.last = s.docs.at(-1) || bcl.last; bcl.done = s.docs.length < 100;
+  } catch (e) { toast('바코드 목록을 읽지 못했어요: ' + (e.code || e.message)); }
+  bcl.busy = false;
+  if (!bcClean($('#bc-search').value)) bcRows(bcl.rows, true);
+}
+function bcRows(rows, listing = false) {
   const body = $('#bc-body'), ed = canEdit('barcodes');
   body.replaceChildren(...(rows.length ? rows.map(r => h('tr', {},
     h('td', {}, r.id), h('td', {}, r.code || ''), h('td', {}, r.name || ''),
     h('td', { class: 'tc' }, ed ? h('button', { class: 'btn ghost danger small', onclick: async () => {
       if (!confirm(`바코드 ${r.id}를 지울까요?`)) return;
-      try { await deleteDoc(doc(db, 'barcodes', r.id)); toast('지웠어요'); bcSearch(); bcCount(); } catch (e) { toast('지우지 못했어요: ' + e.code); }
-    } }, '삭제') : null))) : [h('tr', {}, h('td', { colspan: 4, class: 'mut pad' }, $('#bc-search').value.trim() ? '찾는 바코드·제품코드가 없어요.' : '바코드나 제품코드를 넣고 Enter를 누르면 찾아요.'))]));
+      try { await deleteDoc(doc(db, 'barcodes', r.id)); toast('지웠어요'); bcl.rows = bcl.rows.filter(x => x.id !== r.id); bcSearch(); bcCount(); } catch (e) { toast('지우지 못했어요: ' + e.code); }
+    } }, '삭제') : null))) : [h('tr', {}, h('td', { colspan: 4, class: 'mut pad' }, $('#bc-search').value.trim() ? '찾는 바코드·제품코드가 없어요.' : bcl.busy ? '불러오는 중…' : '등록된 바코드가 없어요.'))]),
+    ...(listing && !bcl.done && rows.length ? [h('tr', {}, h('td', { colspan: 4, class: 'tc' }, h('button', { class: 'btn small ghost', onclick: () => bcList() }, `더 보기 (지금 ${rows.length.toLocaleString()}개)`)))] : []));
 }
 async function bcSearch() {
   const q = bcClean($('#bc-search').value);
-  if (!q) { bcRows([]); return; }
+  if (!q) { bcRows(bcl.rows, true); return; }
   try {
     const [one, byCode] = await Promise.all([getDoc(doc(db, 'barcodes', q)), getDocs(query(collection(db, 'barcodes'), where('code', '==', code8(q)), limit(50)))]);
     const m = new Map();
@@ -2676,8 +2693,7 @@ async function bcSearch() {
   } catch (e) { toast('찾지 못했어요: ' + (e.code || e.message)); }
 }
 $('#bc-search').addEventListener('keydown', e => { if (e.key === 'Enter') bcSearch(); });
-$('#bc-search').addEventListener('input', e => { if (!e.target.value.trim()) bcRows([]); });
-bcRows([]);
+$('#bc-search').addEventListener('input', e => { if (!e.target.value.trim()) bcRows(bcl.rows, true); });
 $('#bc-add').addEventListener('submit', async e => {
   e.preventDefault();
   const f = e.target, bc = bcClean(f.barcode.value), code = code8(bcClean(f.code.value)), name = f.name.value.trim();
@@ -2688,7 +2704,7 @@ $('#bc-add').addEventListener('submit', async e => {
     if (one.exists()) { alert(`이미 있는 바코드예요 (등록된 제품코드 ${one.data().code}).\n바꾸려면 찾기에서 지우고 다시 추가해주세요.`); return; }
     if (same.docs.length) { alert(`이미 있는 제품코드예요 (등록된 바코드 ${same.docs[0].id}).\n바꾸려면 찾기에서 지우고 다시 추가해주세요.`); return; }
     await setDoc(doc(db, 'barcodes', bc), { code, ...(name ? { name } : {}), updatedAt: serverTimestamp(), updatedBy: me() });
-    toast('저장했어요'); f.reset(); $('#bc-search').value = bc; bcSearch(); bcCount();
+    toast('저장했어요'); f.reset(); $('#bc-search').value = bc; bcSearch(); bcCount(); bcList(true);
   } catch (err) { toast('저장하지 못했어요: ' + (err.code || err.message)); }
 });
 $('#bc-form').onclick = async () => {
@@ -2771,7 +2787,7 @@ $('#bc-file').addEventListener('change', async e => {
         for (const [bc, r] of list.slice(i, i + 400)) b.set(doc(db, 'barcodes', bc), { code: r.code, ...(r.name ? { name: r.name } : {}), updatedAt: serverTimestamp(), updatedBy: me() });
         await b.commit(); done = Math.min(list.length, i + 400); go.textContent = `올리는 중… ${done.toLocaleString()} / ${list.length.toLocaleString()}`;
       }
-      close(); toast(`바코드 ${list.length.toLocaleString()}개를 올렸어요` + (skip.length ? ` · ${skip.length}개는 건너뜀` : '')); bcCount();
+      close(); toast(`바코드 ${list.length.toLocaleString()}개를 올렸어요` + (skip.length ? ` · ${skip.length}개는 건너뜀` : '')); bcCount(); bcList(true);
       bcReport(skip, file.name, list.length, sameN);
     } catch (err) { alert(`올리다가 멈췄어요 (${done.toLocaleString()}개까지 저장됨): ${err.code || err.message}`); go.disabled = false; go.textContent = '다시 올리기'; }
   };
