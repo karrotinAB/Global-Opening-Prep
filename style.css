@@ -63,7 +63,23 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 .badge.draft { background: #fff1e0; color: var(--or-d); }
 .badge.final { background: #e3f5ea; color: var(--green); }
 
-.editor { flex: 1; overflow: auto; }
+.editor { flex: 1; overflow: auto; min-width: 0; }
+.split.list-off .side-list { display: none; }
+.ed-body { display: flex; flex-direction: column; height: 100%; }
+.ed-main { flex: 1; min-height: 0; display: flex; }
+.ed-main .pages { flex: 1; overflow: auto; }
+
+/* 슬라이드 썸네일 (PPT처럼) */
+.thumbs { width: 180px; flex: none; overflow-y: auto; background: #fff; border-right: 1px solid var(--line); padding: 14px 10px; display: flex; flex-direction: column; gap: 12px; }
+.thumb { display: flex; gap: 6px; cursor: pointer; align-items: flex-start; }
+.th-no { width: 18px; flex: none; text-align: right; font-size: 11px; color: var(--mut); padding-top: 2px; }
+.th-page { width: 132px; height: 187px; flex: none; background: #fff; border: 2px solid var(--line); border-radius: 3px; display: flex; flex-direction: column; overflow: hidden; }
+.thumb:hover .th-page { border-color: #c9ccd1; }
+.thumb.on .th-page { border-color: var(--or); box-shadow: 0 0 0 2px rgba(247,147,30,.25); }
+.thumb.on .th-no { color: var(--or-d); font-weight: 700; }
+.th-head { height: 22px; flex: none; background: #c8c8c8; color: #000; font-size: 8px; line-height: 1.25; padding: 3px 5px; overflow: hidden; }
+.th-body { flex: 1; min-height: 0; display: flex; justify-content: center; padding: 4px; }
+.th-cover { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; font: 700 13px/1.2 Arial, 'Malgun Gothic', sans-serif; color: #000; padding: 0 6px; word-break: keep-all; }
 .empty-state { margin: 80px auto; text-align: center; color: var(--mut); }
 .toolbar { position: sticky; top: 0; z-index: 5; background: #fff; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 18px; }
 .tb-title { font-weight: 700; }
@@ -90,6 +106,11 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 .hook-cnt { width: 54px !important; flex: none; }
 .x { color: #888; }
 .pf1 { height: 30px; flex: none; border-bottom: 1px solid #000; display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 16px; font-weight: 700; font-size: 13px; }
+.cover-gap { height: 18px; flex: none; border-top: 1px solid #000; border-bottom: 1px solid #000; }
+.cover-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-bottom: 1px solid #000; padding: 0 40px; }
+.page .cover-title.f, .cover-pog { font: 700 54px/1.15 Arial, 'Malgun Gothic', sans-serif; text-align: center; color: #000; }
+.page .cover-title.f { padding: 2px 6px; }
+.page .cover-title::placeholder { color: #000; opacity: 1; }
 .pf2 { height: 36px; flex: none; display: flex; align-items: center; padding: 0 16px; font-weight: 700; font-size: 13px; }
 
 .page input.f, .page textarea.f, .page select.f {
@@ -186,6 +207,13 @@ body:not([data-level=admin]) [data-need=admin] { display: none !important; }
   .tiles, .tiles.three { grid-template-columns: repeat(2, minmax(0, 150px)); }
 }
 
+/* 용어 사전 다국어 · 엑셀 */
+.gl-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.gl-tools-r { margin-left: auto; display: flex; gap: 6px; }
+.gl-lang-help { font-size: 12px; color: var(--mut); margin: 6px 0 0; line-height: 1.6; }
+.imp-sum { line-height: 1.9; margin: 0 0 8px; padding-left: 18px; }
+.imp-warn { max-height: 160px; overflow: auto; font-size: 12px; color: var(--red); background: #fdf2f2; border-radius: 6px; padding: 8px 10px; margin: 0; padding-left: 26px; }
+
 /* 용어 사전 검색 */
 .gl-search { display: flex; gap: 6px; align-items: center; margin-top: 16px; }
 .gl-search .search { flex: 1; padding: 10px 12px; font-size: 15px; }
@@ -210,6 +238,9 @@ body:not([data-level=admin]) [data-need=admin] { display: none !important; }
   .split { flex-direction: column; height: auto; }
   .side-list { width: auto; border-right: 0; border-bottom: 1px solid var(--line); max-height: 40vh; }
   .pages { align-items: flex-start; overflow-x: auto; }
+  .thumbs { display: none; }
+  .ed-body { height: auto; }
+  .ed-main { display: block; }
 }
 
 /* PDF 인쇄 */
@@ -228,7 +259,10 @@ body:not([data-level=admin]) [data-need=admin] { display: none !important; }
   .page-extra .photos img { width: 55mm; height: 40mm; }
   .page .f { border-color: transparent !important; background: transparent !important; }
   .page .f::placeholder { color: transparent; }
-  .page .ph-name::placeholder { color: #000; } /* 매대명 비어 있으면 POG 원본 이름 인쇄 */
+  .page .ph-name::placeholder, .page .cover-title::placeholder { color: #000; } /* 비어 있으면 자동 이름 인쇄 */
+  .thumbs { display: none !important; }
+  .ed-body, .ed-main { display: block; height: auto; }
+  .ed-main .pages { overflow: visible; }
   .page select.f { appearance: none; -webkit-appearance: none; }
   .page input[type=number]::-webkit-inner-spin-button, .page input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
 }

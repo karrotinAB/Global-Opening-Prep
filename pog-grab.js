@@ -107,7 +107,7 @@
       if (hi < 0) continue;
       const heads = [...trs[hi].cells].map(c => c.textContent.replace(/\s+/g, ''));
       const col = n => heads.findIndex(x => x === n);
-      const ci = { team: col('팀명'), name: col('매대명'), idx: col('고유번호'), shelf: col('선반'), pipe: col('파이프'), item: col('ITEM') };
+      const ci = { team: col('팀명'), name: col('매대명'), idx: col('고유번호'), shelf: col('선반'), pipe: col('파이프'), item: col('ITEM'), bays: col('매대수') };
       const out = [];
       for (const tr of trs.slice(hi + 1)) {
         const cells = [...tr.cells];
@@ -124,6 +124,7 @@
         out.push({
           mdidx: m[0], teamName: cellVal(cells[ci.team]), mdName: cellVal(cells[ci.name]),
           shelfCount: num(cellVal(cells[ci.shelf])), pipeCount: num(cellVal(cells[ci.pipe])), itemCount: num(cellVal(cells[ci.item])),
+          bayCount: ci.bays >= 0 ? num(cellVal(cells[ci.bays])) : null,
           checked: !!(cb && cb.checked), url,
         });
       }
@@ -196,7 +197,7 @@
     const build = () => targets.map(t => {
       const d = t.data || { items: [], props: [] };
       return {
-        mdidx: t.mdidx, teamName: t.teamName, mdName: t.mdName,
+        mdidx: t.mdidx, teamName: t.teamName, mdName: t.mdName, bayCount: t.bayCount ?? null,
         shelfCount: t.shelfCount ?? countKind(d.props, /선반/),
         pipeCount: t.pipeCount ?? countKind(d.props, /파이프/),
         itemCount: t.itemCount ?? d.items.length,
