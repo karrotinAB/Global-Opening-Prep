@@ -65,10 +65,11 @@ service cloud.firestore {
       allow read: if hasLevel(['admin', 'global', 'editor']);
       allow create: if hasLevel(['admin', 'global', 'editor']) && request.resource.data.by == myEmail();
     }
-    // 매장 등록: 직원은 보기, 등록·수정은 글로벌사업부
+    // 매장 등록: 직원은 보기, 등록·수정은 글로벌사업부, 삭제는 관리자만
     match /stores/{id} {
       allow read: if staff();
-      allow write: if hasLevel(['admin', 'global', 'editor']);
+      allow create, update: if hasLevel(['admin', 'global', 'editor']);
+      allow delete: if hasLevel(['admin']); // 매장 삭제는 관리자만
     }
     // 바코드: 문서 ID = 바코드, code = 제품코드, name = 제품명(선택). 제품 찾기에 쓰므로 로그인한 사람 모두 읽음. 올리기는 글로벌사업부
     match /barcodes/{bc} {
