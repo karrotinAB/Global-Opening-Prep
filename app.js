@@ -477,6 +477,7 @@ function renderSp(block) {
     return h('div', { class: 'ex-row' }, sel, h('span', { class: 'x' }, '×'), qty,
       ed ? h('button', { class: 'ex-del no-print', title: '삭제', onclick: () => { block._sp = list.filter(y => y !== x); save(); renderSp(block); } }, '×') : null);
   }), ...(ed ? [h('button', { class: 'ex-add no-print', onclick: () => { list.push({ id: uid(), name: '', qty: '' }); save(); renderSp(block); } }, '+ 추가')] : []));
+  roFill(block);
 }
 function renderExtras(block) {
   const box = block.querySelector('.page .ex-list'); if (!box) return;
@@ -494,6 +495,7 @@ function renderExtras(block) {
     return h('div', { class: 'ex-row' }, col, name, h('span', { class: 'x' }, '×'), qty,
       ed ? h('button', { class: 'ex-del no-print', title: '삭제', onclick: () => { block._extras = list.filter(y => y !== x); save(); renderExtras(block); } }, '×') : null);
   }), ...(ed ? [h('button', { class: 'ex-add no-print', onclick: () => { list.push({ id: uid(), name: '', qty: '' }); save(); renderExtras(block); block.querySelector('.page .ex-row:last-of-type .ex-name')?.focus(); } }, '+ 집기 추가')] : []));
+  roFill(block);
 }
 // 페이지 블록 마무리: 메모 층(네모·글상자·화살표·사진)과 편집 막대를 붙임
 function finishBlock(fx, pog, page, editable) {
@@ -777,6 +779,22 @@ function syncPage(block, fx, pog) {
     if (!block._notes.some(n => n.id === block._sel)) block._sel = null;
     renderNotes(block); renderNoteBar(block);
   }
+  roFill(block);
+}
+// 보기 전용 페이지(최종·번역·온라인 POG·PDF): 오른쪽 칸 값을 글자로 바꿔 보여줌. 긴 글은 줄바꿈, 수량 0·빈칸은 비워 둠 (× 도 숨김)
+function roFill(block) {
+  if (block._editable) return;
+  $$('.page .pside .f', block).forEach(el => {
+    if (el.tagName === 'TEXTAREA') return;
+    const qty = el.type === 'number';
+    let v = el.tagName === 'SELECT' ? (el.selectedOptions[0]?.textContent || el.value || '') : el.value;
+    if (qty && (v === '' || Number(v) === 0)) v = '';
+    let t = el._ro;
+    if (!t) { t = el._ro = h('div', { class: 'ro-v' + (qty ? ' q' : '') }); el.after(t); el.classList.add('ro-hide'); }
+    t.textContent = v; t.style.color = el.style.color || '';
+    const x = el.previousElementSibling?.classList.contains('x') ? el.previousElementSibling : null;
+    if (x) x.style.display = v ? '' : 'none';
+  });
 }
 
 async function resizeImage(file, max = 1600) {
