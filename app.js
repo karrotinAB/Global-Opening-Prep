@@ -872,7 +872,9 @@ document.addEventListener('keydown', e => {
 
 function fillHookSelect(sel, v) {
   if (sel === document.activeElement) return;
-  const opts = glossaryOf('고리타입').map(g => g.ko);
+  // POG 만들기: 표지에서 고른 '이 POG에서 쓸 고리'만 (아무것도 안 골랐으면 전부)
+  const pick = sel.closest('#ed-pages') ? state.currentPog?.hooks : null;
+  const opts = glossaryOf('고리타입').map(g => g.ko).filter(o => !pick?.length || pick.includes(o));
   if (v && !opts.includes(v)) opts.push(v);
   const sig = opts.join('\u0001');
   if (sel.dataset.sig !== sig) {
@@ -1046,6 +1048,38 @@ function setEdActive(id) {
   edThumbs.setActive(id);
   renderSidePanel();
 }
+// 표지 패널: 이 POG에서 쓸 고리 고르기 (pog.hooks). 고른 고리만 각 페이지 고리타입 칸에 나옴. 아무것도 안 고르면 사전의 고리 전부
+function hookPicker(pog, ed) {
+  const all = glossaryOf('고리타입').map(g => g.ko);
+  const picked = new Set((pog.hooks || []).filter(x => all.includes(x)));
+  const used = new Set([...state.fixtures.values()].map(f => f.hookType).filter(Boolean));
+  const apply = () => {
+    const arr = all.filter(x => picked.has(x));
+    pog.hooks = arr; savePog(pog.id, 'hooks', arr);
+    $$('#ed-pages select.hook-sel').forEach(sel => fillHookSelect(sel, sel.value));
+    count.textContent = arr.length ? `${arr.length}개 고름` : '안 고름 (전부 보임)';
+  };
+  const count = h('span', { class: 'mut' }, picked.size ? `${picked.size}개 고름` : '안 고름 (전부 보임)');
+  const q = h('input', { class: 'nb-sel hk-q', placeholder: '고리 찾기' });
+  const list = h('div', { class: 'hk-list' });
+  const draw = () => {
+    const k = norm(q.value);
+    list.replaceChildren(...all.filter(x => !k || norm(x).includes(k)).map(x => {
+      const cb = h('input', { type: 'checkbox', checked: picked.has(x), disabled: !ed });
+      cb.onchange = () => { cb.checked ? picked.add(x) : picked.delete(x); apply(); };
+      return h('label', { class: 'hk-item' }, cb, h('span', {}, x), used.has(x) ? h('small', { class: 'mut' }, '사용 중') : null);
+    }));
+    if (!all.length) list.append(h('p', { class: 'se-help' }, "용어 사전 '고리타입' 탭에 고리가 아직 없어요."));
+  };
+  q.oninput = draw; draw();
+  return h('section', { class: 'se-sec' }, h('h4', {}, '이 POG에서 쓸 고리 ', count),
+    h('p', { class: 'se-help' }, '체크한 고리만 각 페이지 고리타입 칸에 나와요. 하나도 체크하지 않으면 전부 나와요.'),
+    all.length > 8 ? q : null, list,
+    ed && all.length ? h('div', { class: 'se-btns' },
+      h('button', { class: 'btn small ghost', onclick: () => { all.forEach(x => picked.add(x)); apply(); draw(); } }, '모두 체크'),
+      h('button', { class: 'btn small ghost', onclick: () => { picked.clear(); apply(); draw(); } }, '모두 해제'),
+      used.size ? h('button', { class: 'btn small ghost', onclick: () => { used.forEach(x => all.includes(x) && picked.add(x)); apply(); draw(); } }, '쓰는 고리 체크') : null) : null);
+}
 function renderSidePanel() {
   const box = $('#ed-side'), pog = state.currentPog;
   if (!box || !pog?.status) return;
@@ -1057,6 +1091,7 @@ function renderSidePanel() {
   const nodes = [];
   if (id === '__cover') {
     nodes.push(h('div', { class: 'se-head' }, h('b', {}, '표지'), h('span', { class: 'mut' }, '매장명은 표지 가운데에서 바로 고칠 수 있어요')));
+    nodes.push(hookPicker(pog, ed));
     if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' }, btn('+ 표지 뒤에 빈 페이지 추가', () => addFreePage(pog.id, (sortedFx()[0]?.order ?? 0) - 1)))));
   } else {
     const fx = state.fixtures.get(id), block = state.pageEls.get(id);
