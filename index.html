@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261031l">
+<link rel="stylesheet" href="style.css?v=20261031m">
 </head>
 <body>
 
@@ -343,10 +343,21 @@
 
   <!-- 4. 제품 찾기 -->
   <section class="view" id="v-finder">
-    <div class="soon">
-      <h2>3. 제품 찾기</h2>
-      <p>카메라로 바코드를 찍으면 제품 정보와 함께 해당 매장의 POG 위치, 도면 위치를 보여주는 화면이에요. 도면과 POG가 모두 있는 매장만 선택할 수 있어요.</p>
-      <p class="mut">다음 버전에서 추가돼요. POG 데이터에 이미 제품코드와 위치가 저장되고 있어서, 제품 DB(바코드↔제품코드)만 연결하면 돼요.</p>
+    <div class="fd">
+      <div class="fd-top">
+        <select id="fd-store" class="fd-store" aria-label="매장"></select>
+        <div class="seg" id="fd-seg"></div>
+      </div>
+      <div class="fd-scan">
+        <label class="btn primary fd-cam" for="fd-photo"><span class="fd-cam-i">📷</span> <span id="fd-cam-t">바코드 찍기</span></label>
+        <input type="file" id="fd-photo" class="fd-file" accept="image/*" capture="environment">
+        <form id="fd-form" class="fd-form">
+          <input id="fd-q" inputmode="numeric" placeholder="바코드 또는 제품코드" autocomplete="off" enterkeyhint="search">
+          <button class="btn" id="fd-go">찾기</button>
+        </form>
+        <p class="mut fd-tip" id="fd-tip">바코드가 화면에 크게, 흔들리지 않게 찍어주세요.</p>
+      </div>
+      <div id="fd-result"></div>
     </div>
   </section>
   <!-- 계정 관리 (관리자만) -->
@@ -383,6 +394,6 @@
 <div id="toast"></div>
 
 <!-- 파일을 고치면 ?v= 숫자도 바꿀 것 (브라우저가 예전 파일을 쓰지 않도록) -->
-<script type="module" src="app.js?v=20261031l"></script>
+<script type="module" src="app.js?v=20261031m"></script>
 </body>
 </html>

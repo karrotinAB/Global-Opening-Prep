@@ -158,14 +158,14 @@ function startListeners() {
     : buyer ? query(collection(db, 'pogs'), where('status', '==', 'final'), where('storePrefix', '==', state.prefix || '#'))
     : query(collection(db, 'pogs'), where('status', '==', 'final'));
   if (buyer && !state.prefix) toast('이 바이어 계정에 매장코드 4자리가 없어서 볼 수 있는 매장이 없어요. 관리자에게 알려주세요.');
-  if (buyer) unsubs.push(onSnapshot(query(collection(db, 'drawings'), where('status', '==', 'final'), where('storePrefix', '==', state.prefix || '#')), s => {
+  if (!isStaff()) unsubs.push(onSnapshot(buyer ? query(collection(db, 'drawings'), where('status', '==', 'final'), where('storePrefix', '==', state.prefix || '#')) : query(collection(db, 'drawings'), where('status', '==', 'final')), s => {
     state.dwMap = new Map(s.docs.map(d => [d.id, { id: d.id, ...d.data() }]));
-    renderDwList();
+    renderDwList(); renderFdStores();
   }, e => toast('도면 목록을 읽지 못했어요: ' + e.code)));
   unsubs.push(onSnapshot(pq, s => {
     state.pogs = s.docs.map(d => ({ id: d.id, ...d.data() }))
       .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-    renderPogList(); renderOnlineList(); renderTrList(); scheduleTeamSync(); fillPrefixes();
+    renderPogList(); renderOnlineList(); renderTrList(); scheduleTeamSync(); fillPrefixes(); renderFdStores();
   }, e => toast('POG 목록을 읽지 못했어요: ' + e.code)));
   if (state.level === 'admin') unsubs.push(onSnapshot(collection(db, 'roles'), s => {
     state.roles = s.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -178,7 +178,7 @@ function startListeners() {
   }, e => toast('매장 목록을 읽지 못했어요: ' + e.code)));
   unsubs.push(onSnapshot(collection(db, 'drawings'), s => {
     state.dwMap = new Map(s.docs.map(d => [d.id, { id: d.id, ...d.data() }]));
-    renderStores(); renderDwList(); fillPrefixes();
+    renderStores(); renderDwList(); fillPrefixes(); renderFdStores();
   }, () => { }));
   unsubs.push(onSnapshot(query(collection(db, 'managers'), orderBy('name')), s => {
     state.managers = s.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -204,6 +204,7 @@ function go(v) {
   $$('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + secOf(v)));
   if (v.startsWith('dw-')) setDwMode({ 'dw-up': 'up', 'dw-tr': 'tr', 'dw-online': 'on' }[v]);
   window.scrollTo(0, 0);
+  if (v === 'finder') renderFdStores();
   if (v === 'barcodes') bcCount(); else bcReport([], '', 0); // 건너뛴 줄 알림은 이 화면을 나가면 사라짐
 }
 $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
@@ -2328,12 +2329,12 @@ function saveDwTr(gid, patch) {
 }
 
 // 그림: 업로드 화면 = 원본 + 읽은 매대명 표시 / 번역 화면 = 글자 뺀 바탕 + 번역 글자
-function drawingView(v, mode, { onPick, used, selId, picks, onLab, plain } = {}) {
+function drawingView(v, mode, { onPick, used, selId, picks, onLab, plain, ctx, only } = {}) {
   const wrap = h('div', { class: 'dw-canvas', style: `aspect-ratio:${v.w} / ${v.h}` }, h('img', { src: mode === 'en' ? v.baseUrl : v.url, alt: '', draggable: 'false' }));
   const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
   for (const g of v.groups || []) {
     if (mode === 'en') {
-      const s0 = dwRowState(g), m = s0.m, sc = m.sc || 1;
+      const s0 = ctx ? dwRowState(g, ctx.vId, ctx.trDoc, ctx.lang) : dwRowState(g), m = s0.m, sc = m.sc || 1;
       const look = dw.tab === 'on' || !onLab; // 보기만 (온라인 도면·PDF): 점선·끌기 없음
       const el = h('div', { class: 'dw-lab' + (s0.need && !look ? ' need' : '') + (g.id === selId && !look ? ' on' : '') + (!look && canEdit('drawing-trans') ? ' edit' : ''),
         style: `left:${pct(g.x + g.w / 2 + (m.dx || 0), v.w)};top:${pct(g.y + (m.dy || 0), v.h)};font-size:${(g.fs * 0.82 * sc / v.w * 100).toFixed(4)}cqw` },
@@ -2341,6 +2342,7 @@ function drawingView(v, mode, { onPick, used, selId, picks, onLab, plain } = {})
       el.title = g.ko;
       if (!look) el.addEventListener('pointerdown', e => dragLabel(e, g, wrap, v));
       wrap.append(el);
+    } else if (only) { if (g.id === only) wrap.append(h('div', { class: 'dw-box fd-on', style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko }));
     } else if (!plain) {
       const el = h('div', { class: 'dw-box' + (onPick ? ' pick' : '') + (used?.has(g.id) ? ' used' : '') + (g.id === selId || picks?.has(g.id) ? ' on' : ''),
         style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko });
@@ -2348,6 +2350,7 @@ function drawingView(v, mode, { onPick, used, selId, picks, onLab, plain } = {})
       wrap.append(el);
     }
   }
+  if (only && mode === 'en') { const g = (v.groups || []).find(x => x.id === only); if (g) wrap.append(h('div', { class: 'dw-box fd-on', style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}` })); }
   return wrap;
 }
 function dragLabel(e, g, wrap, v) {
@@ -2732,6 +2735,191 @@ function bcReport(skip, fileName, okN) {
       h('tbody', {}, ...skip.slice(0, 500).map(x => h('tr', {}, h('td', {}, x.line), h('td', {}, x.bc), h('td', {}, x.code), h('td', {}, x.why)))))),
     ...(skip.length > 500 ? [h('p', { class: 'mut' }, `앞의 500개만 보여요. 전부는 '엑셀로 받기'로 보세요.`)] : []));
   box.classList.remove('hidden');
+}
+
+/* ---------- 3. 제품 찾기 (휴대폰용) ----------
+   매장 고르기 → 바코드 사진 찍기(또는 입력) → barcodes/{바코드}로 제품코드 → 그 매장 최종 POG의 items[].code에서 찾기
+   → POG 위치(위에서 몇 번째 선반·파이프, 왼쪽에서 몇 번째) + 그림에 강조 + 도면에서 그 매대(drawingRef) 강조.
+   바코드 읽기: 휴대폰 기본 기능(BarcodeDetector, 안드로이드 크롬) → 없으면 ZXing(아이폰 등, 누를 때만 불러옴) */
+const fd = { pogId: null, fixtures: null, shown: [], trs: {}, lang: 'ko', last: null, dwCache: new Map() };
+const FD_EN = () => fd.lang !== 'ko';
+const T = (ko, en) => FD_EN() ? en : ko;
+function fdStores() { // 최종 POG가 있는 매장 (매장코드마다 가장 최근 최종본)
+  const m = new Map();
+  for (const p of state.pogs) {
+    if (p.status !== 'final') continue;
+    const k = String(p.storeCode || p.id), o = m.get(k);
+    if (!o || (p.finalizedAt?.toMillis?.() || 0) > (o.finalizedAt?.toMillis?.() || 0)) m.set(k, p);
+  }
+  return [...m.values()].map(p => {
+    const st = state.stores.find(x => String(x.code) === String(p.storeCode));
+    const dwd = [...state.dwMap.values()].find(d => String(d.storeCode) === String(p.storeCode) && d.status === 'final');
+    return { pog: p, name: (st && storeName(st)) || dwd?.storeName || p.branchName || p.storeName || p.storeCode, code: p.storeCode, dw: dwd };
+  }).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+function renderFdStores() {
+  const sel = $('#fd-store'); if (!sel) return;
+  const list = fdStores(); let want = fd.pogId;
+  if (!want) { try { want = localStorage.getItem('fd-store'); } catch { } }
+  sel.replaceChildren(h('option', { value: '' }, list.length ? T('매장을 고르세요', 'Choose a store') : T('볼 수 있는 매장이 없어요', 'No store available')),
+    ...list.map(x => h('option', { value: x.pog.id }, `${x.name}${x.code ? ` (${x.code})` : ''}${x.dw ? '' : T(' · 도면 없음', ' · no floor plan')}`)));
+  const ok = list.some(x => x.pog.id === want);
+  sel.value = ok ? want : (list.length === 1 ? list[0].pog.id : '');
+  if (sel.value && sel.value !== fd.pogId) fdOpen(sel.value);
+  if (!sel.value && fd.pogId) { fd.pogId = null; fd.fixtures = null; $('#fd-result').replaceChildren(); }
+  renderFdSeg();
+}
+$('#fd-store').addEventListener('change', e => { try { localStorage.setItem('fd-store', e.target.value); } catch { } fdOpen(e.target.value); });
+async function fdOpen(pogId) {
+  fd.pogId = pogId || null; fd.fixtures = null; fd.trs = {}; fd.last = null;
+  $('#fd-result').replaceChildren();
+  if (!pogId) { renderFdSeg(); return; }
+  try {
+    const [fs, ts] = await Promise.all([getDocs(query(collection(db, 'pogs', pogId, 'fixtures'), orderBy('order'))), getDocs(collection(db, 'pogs', pogId, 'translations')).catch(() => ({ docs: [] }))]);
+    if (fd.pogId !== pogId) return;
+    fd.fixtures = fs.docs.map(d => ({ id: d.id, ...d.data() }));
+    fd.shown = composeFx(fd.fixtures);
+    fd.trs = Object.fromEntries(ts.docs.map(d => [d.id, d.data()]).filter(([, d]) => d.out));
+  } catch (e) { toast(T('POG를 읽지 못했어요: ', 'Could not load POG: ') + (e.code || e.message)); }
+  if (fd.lang !== 'ko' && !fd.trs[fd.lang]) fd.lang = 'ko';
+  if (!fd.langSet && state.level === 'buyer' && fd.trs.English) fd.lang = 'English'; // 바이어는 영어부터
+  renderFdSeg();
+}
+function renderFdSeg() {
+  segButtons($('#fd-seg'), [['ko', '한국어'], ...Object.keys(fd.trs || {}).map(l => [l, l])], fd.lang, l => { fd.lang = l; fd.langSet = true; renderFdSeg(); renderFdStoresText(); if (fd.last) fdShow(fd.last); });
+  renderFdStoresText();
+}
+function renderFdStoresText() {
+  $('#fd-cam-t').textContent = T('바코드 찍기', 'Scan barcode');
+  $('#fd-q').placeholder = T('바코드 또는 제품코드', 'Barcode or item code');
+  $('#fd-go').textContent = T('찾기', 'Find');
+  $('#fd-tip').textContent = T('바코드가 화면에 크게, 흔들리지 않게 찍어주세요.', 'Take a close, steady photo of the barcode.');
+}
+// 사진에서 바코드 읽기
+const ZXING_URL = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
+let zxP = null;
+const loadZXing = () => zxP ||= new Promise((ok, no) => {
+  if (window.ZXing) return ok(window.ZXing);
+  const sc = h('script', { src: ZXING_URL }); sc.onload = () => ok(window.ZXing);
+  sc.onerror = () => { zxP = null; no(new Error(T('바코드 읽기 도구를 불러오지 못했어요. 인터넷 연결을 확인해주세요.', 'Could not load the barcode reader. Check your connection.'))); };
+  document.head.append(sc);
+});
+async function readBarcode(file) {
+  const bmp = await createImageBitmap(file).catch(() => null);
+  if (!bmp) throw new Error(T('사진을 열지 못했어요', 'Could not open the photo'));
+  if ('BarcodeDetector' in window) {
+    try { const r = await new window.BarcodeDetector().detect(bmp); if (r[0]?.rawValue) return r[0].rawValue; } catch { }
+  }
+  const Z = await loadZXing();
+  // 크기를 몇 가지로 바꿔 가며 시도 (흰 여백을 붙여야 잘 읽힘)
+  for (const max of [1200, 1800, 800, 2600]) {
+    const k = Math.min(1, max / Math.max(bmp.width, bmp.height)), w = Math.round(bmp.width * k), hh = Math.round(bmp.height * k), pad = 40;
+    const c = h('canvas'); c.width = w + pad * 2; c.height = hh + pad * 2;
+    const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(bmp, pad, pad, w, hh);
+    try {
+      const rd = new Z.MultiFormatReader(); rd.setHints(new Map([[Z.DecodeHintType.TRY_HARDER, true]]));
+      return rd.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(c)))).getText();
+    } catch { }
+  }
+  throw new Error(T('바코드를 읽지 못했어요. 더 가까이, 밝은 곳에서 다시 찍거나 숫자를 직접 넣어주세요.', 'Could not read the barcode. Try closer, in better light, or type the number.'));
+}
+$('#fd-photo').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  if (!fd.pogId) { alert(T('먼저 매장을 골라주세요', 'Choose a store first')); return; }
+  $('#fd-result').replaceChildren(h('div', { class: 'fd-card mut' }, T('바코드를 읽는 중…', 'Reading barcode…')));
+  try { const code = await readBarcode(f); $('#fd-q').value = code; await fdFind(code); }
+  catch (err) { $('#fd-result').replaceChildren(h('div', { class: 'fd-card fd-err' }, err.message)); }
+});
+$('#fd-form').addEventListener('submit', e => { e.preventDefault(); $('#fd-q').blur(); fdFind($('#fd-q').value); });
+async function fdFind(q) {
+  q = bcClean(q);
+  if (!q) return;
+  if (!fd.pogId) { alert(T('먼저 매장을 골라주세요', 'Choose a store first')); return; }
+  if (!fd.fixtures) { toast(T('POG를 불러오는 중이에요', 'Loading POG…')); return; }
+  let code = q, barcode = null;
+  try { const d = await getDoc(doc(db, 'barcodes', q)); if (d.exists()) { code = String(d.data().code); barcode = q; } } catch { }
+  const hits = [];
+  for (const fx of fd.shown) for (const it of fx.items || []) if (String(it.code) === code) hits.push({ fx, it });
+  fd.last = { q, code, barcode, hits };
+  fdShow(fd.last);
+}
+// POG 그림에서 몇 번째 단, 왼쪽에서 몇 번째인지
+function fdPos(fx, it) {
+  const g = it._g || 0, props = (fx.props || []).filter(p => (p._g || 0) === g && p.w >= 20);
+  const cx = it.x + it.w / 2, bottom = it.y + it.h;
+  const rows = [];
+  for (const p of [...props].sort((a, b) => a.y - b.y)) { const last = rows.at(-1); if (last && Math.abs(last.y - p.y) <= 6) last.ps.push(p); else rows.push({ y: p.y, ps: [p] }); }
+  const under = (r) => r.ps.some(p => cx >= p.x - 4 && cx <= p.x + p.w + 4);
+  let best = null;
+  rows.forEach((r, i) => {
+    if (!under(r)) return;
+    const pipe = r.ps.some(p => /파이프/.test(p.kind || '')), d = pipe ? it.y - r.y : r.y - bottom; // 선반: 제품 아래 / 파이프: 제품 위
+    if (d >= -12 && (!best || d < best.d)) best = { i, d, pipe };
+  });
+  if (!best) return null;
+  const row = rows[best.i];
+  // 같은 단에 놓인 제품들의 가로 위치 → 왼쪽에서 몇 번째 (위아래로 쌓인 것은 한 칸)
+  const onRow = (fx.items || []).filter(o => {
+    if ((o._g || 0) !== g) return false;
+    const ocx = o.x + o.w / 2, d = best.pipe ? o.y - row.y : row.y - (o.y + o.h);
+    return d >= -12 && d < 60 && row.ps.some(p => ocx >= p.x - 4 && ocx <= p.x + p.w + 4);
+  });
+  const cols = [...new Set(onRow.map(o => Math.round((o.x + o.w / 2) / 8)))].sort((a, b) => a - b);
+  const col = cols.indexOf(Math.round(cx / 8)) + 1;
+  return { row: best.i + 1, rows: rows.length, pipe: best.pipe, col: col || null, cols: cols.length };
+}
+function fdShow({ q, code, barcode, hits }) {
+  const box = $('#fd-result'), out = fd.lang !== 'ko' ? fd.trs[fd.lang]?.out : null;
+  if (!hits.length) {
+    box.replaceChildren(h('div', { class: 'fd-card fd-err' }, h('b', {}, q), h('div', {}, barcode
+      ? T(`제품코드 ${code} · 이 매장 POG에 없는 제품이에요.`, `Item code ${code} · not in this store's POG.`)
+      : T('등록된 바코드가 아니고, 이 매장 POG의 제품코드도 아니에요.', 'Not a registered barcode or an item code in this POG.'))));
+    return;
+  }
+  const it0 = hits[0].it;
+  const bcTd = h('span', {}, barcode || '…');
+  if (!barcode) getDocs(query(collection(db, 'barcodes'), where('code', '==', code), limit(3))).then(s => { bcTd.textContent = s.docs.map(d => d.id).join(', ') || '-'; }).catch(() => { bcTd.textContent = '-'; });
+  const nodes = [h('div', { class: 'fd-card fd-prod' },
+    it0.img ? h('img', { src: it0.img, alt: '', referrerpolicy: 'no-referrer' }) : h('div', { class: 'fd-noimg' }),
+    h('div', { class: 'fd-pi' }, h('b', {}, it0.name || code),
+      h('div', {}, T('제품코드 ', 'Item ') + code), h('div', {}, T('바코드 ', 'Barcode '), bcTd),
+      it0.price ? h('div', {}, '₩' + Number(it0.price).toLocaleString()) : null,
+      hits.length > 1 ? h('div', { class: 'fd-many' }, T(`이 매장에 ${hits.length}곳 있어요`, `${hits.length} locations in this store`)) : null))];
+  hits.forEach(({ fx, it }, n) => {
+    const part = (fx._parts || [fx])[it._g || 0] || fx, fxT = applyTr(fx, out?.[part.id] || out?.[fx.id]);
+    const name = (out?.[part.id]?.headerName) || displayName(part), pos = fdPos(fx, it);
+    const posTxt = !pos ? T('위치를 계산하지 못했어요 (집기 정보 없음)', 'Position unknown')
+      : FD_EN() ? `${pos.pipe ? 'Pipe' : 'Shelf'} ${pos.row} from top${pos.col ? ` · ${ordinal(pos.col)} from left` : ''}`
+      : `위에서 ${pos.row}번째 ${pos.pipe ? '파이프' : '선반'}${pos.col ? ` · 왼쪽에서 ${pos.col}번째` : ''}`;
+    const W = Math.min(window.innerWidth - 56, 520), cv = buildCanvas(fxT, W, Math.round(W * 1.15));
+    cv.classList.add('fd-dim');
+    cv.querySelector(`.cv-item[data-id="${CSS.escape(String(it.id))}"]`)?.classList.add('fd-hit');
+    const dwBox = h('div', { class: 'fd-dw' }, h('div', { class: 'mut' }, T('도면 불러오는 중…', 'Loading floor plan…')));
+    nodes.push(h('div', { class: 'fd-card' },
+      h('div', { class: 'fd-h' }, h('span', { class: 'fd-no' }, hits.length > 1 ? n + 1 : '📍'), h('div', {}, h('b', {}, name), h('div', { class: 'fd-pos' }, posTxt))),
+      h('div', { class: 'fd-sub' }, 'POG'), h('div', { class: 'fd-cv' }, cv),
+      h('div', { class: 'fd-sub' }, T('도면', 'Floor plan')), dwBox));
+    fdDrawing(dwBox, part.drawingRef);
+  });
+  box.replaceChildren(...nodes);
+  box.querySelector('.fd-card:nth-child(2)')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+const ordinal = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
+async function fdDrawing(box, ref) {
+  if (!ref?.storeId || !ref.vId) { box.replaceChildren(h('div', { class: 'mut' }, T('이 매대는 도면과 연결되지 않았어요.', 'This fixture is not linked to the floor plan.'))); return; }
+  try {
+    const key = `${ref.storeId}|${ref.vId}|${fd.lang}`;
+    let c = fd.dwCache.get(key);
+    if (!c) {
+      const [v, t] = await Promise.all([getDoc(doc(db, 'drawings', ref.storeId, 'versions', ref.vId)),
+        fd.lang !== 'ko' ? getDoc(doc(db, 'drawings', ref.storeId, 'translations', fd.lang)).catch(() => null) : null]);
+      if (!v.exists()) throw new Error('no version');
+      c = { v: { id: v.id, ...v.data() }, tr: t?.exists?.() ? t.data() : null }; fd.dwCache.set(key, c);
+    }
+    const en = fd.lang !== 'ko' && c.tr;
+    box.replaceChildren(drawingView(c.v, en ? 'en' : 'ko', { only: ref.gid, plain: true, ctx: { vId: c.v.id, trDoc: c.tr || {}, lang: fd.lang } }));
+    setTimeout(() => box.querySelector('.fd-on')?.scrollIntoView({ block: 'nearest', inline: 'center' }), 50);
+  } catch { box.replaceChildren(h('div', { class: 'mut' }, T('도면을 불러오지 못했어요.', 'Could not load the floor plan.'))); }
 }
 
 /* ---------- 3. 용어 사전 ---------- */

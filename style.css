@@ -503,3 +503,43 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .bc-rep-head .sp { flex: 1; }
 .bc-rep-x { position: static; }
 .bc-rep-wrap { max-height: 300px; overflow: auto; background: #fff; border-radius: 6px; }
+
+/* 3. 제품 찾기 (휴대폰 우선) */
+#v-finder { background: #f4f5f7; min-height: calc(100vh - 52px); }
+.fd { max-width: 560px; margin: 0 auto; padding: 16px 16px 40px; display: flex; flex-direction: column; gap: 12px; }
+.fd-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.fd-store { flex: 1; min-width: 0; font: inherit; font-size: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.fd-scan { background: #fff; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.fd-cam { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 18px; font-weight: 700; height: 60px; border-radius: 12px; cursor: pointer; }
+.fd-cam-i { font-size: 24px; }
+.fd-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.fd-form { display: flex; gap: 8px; }
+.fd-form input { flex: 1; min-width: 0; font: inherit; font-size: 17px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; letter-spacing: .5px; }
+.fd-form .btn { height: auto; padding: 0 18px; font-size: 16px; border-radius: 10px; }
+.fd-tip { margin: 0; font-size: 13px; text-align: center; }
+#fd-result { display: flex; flex-direction: column; gap: 12px; }
+.fd-card { background: #fff; border-radius: 14px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.06); overflow: hidden; }
+.fd-err { color: var(--red); line-height: 1.6; }
+.fd-prod { display: flex; gap: 14px; align-items: center; }
+.fd-prod img, .fd-noimg { width: 92px; height: 92px; object-fit: contain; border-radius: 8px; background: #f4f4f4; flex: none; }
+.fd-pi { display: flex; flex-direction: column; gap: 3px; font-size: 14px; color: #444; min-width: 0; overflow-wrap: anywhere; }
+.fd-pi b { font-size: 17px; color: var(--ink); }
+.fd-many { color: var(--or-d); font-weight: 700; }
+.fd-h { display: flex; gap: 10px; align-items: center; }
+.fd-no { width: 30px; height: 30px; border-radius: 50%; background: var(--or); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex: none; }
+.fd-h b { font-size: 17px; }
+.fd-pos { color: #e60012; font-weight: 700; font-size: 15px; margin-top: 2px; }
+.fd-sub { margin: 14px 0 6px; font-size: 12px; font-weight: 700; color: var(--mut); letter-spacing: .5px; }
+.fd-cv { display: flex; justify-content: center; }
+.cv.fd-dim .cv-item { opacity: .35; }
+.cv .cv-item.fd-hit { opacity: 1; outline: 4px solid #e60012; outline-offset: 2px; z-index: 99999 !important; animation: fdPulse 1.2s ease-in-out infinite; }
+@keyframes fdPulse { 50% { outline-color: rgba(230,0,18,.25); } }
+.fd-dw { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.fd-dw .dw-canvas { min-width: 520px; box-shadow: none; }
+.dw-box.fd-on { border: 3px solid #e60012; background: rgba(230,0,18,.22); border-radius: 3px; animation: fdPulse2 1.2s ease-in-out infinite; z-index: 3; }
+@keyframes fdPulse2 { 50% { background: rgba(230,0,18,.05); } }
+@media (max-width: 700px) {
+  .topbar { gap: 10px; padding: 0 10px; overflow-x: auto; }
+  .topbar .me #me-email { display: none; }
+  #nav { flex: none; }
+}
