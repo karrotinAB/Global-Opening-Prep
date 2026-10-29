@@ -86,8 +86,16 @@ onAuthStateChanged(auth, user => {
   $('#me-email').textContent = user.email;
   // 내 레벨을 읽고, 관리자가 바꾸면 바로 반영
   unsubRole = onSnapshot(doc(db, 'roles', user.email.toLowerCase()),
-    d => setLevel(LEVELS[d.data()?.level] ? d.data().level : 'finder'),
-    () => setLevel('finder'));
+    d => {
+      const lv = d.data()?.level;
+      if (!d.exists()) console.warn(`roles/${user.email.toLowerCase()} 문서가 없어서 '제품 찾기만'으로 동작해요`);
+      else if (!LEVELS[lv]) console.warn(`roles/${user.email.toLowerCase()}의 level 값 '${lv}'을 알 수 없어서 '제품 찾기만'으로 동작해요`);
+      setLevel(LEVELS[lv] ? lv : 'finder');
+    },
+    e => {
+      setLevel('finder');
+      alert(`계정 레벨을 읽지 못해서 '제품 찾기만'으로 열었어요.\n(${e.code || e.message})\n\nFirebase 콘솔 → Firestore Database → 규칙 탭에 firestore.rules 내용이 게시돼 있는지 확인해주세요.`);
+    });
 });
 function setLevel(lv) {
   if (lv === state.level) return;
