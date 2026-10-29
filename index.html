@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261031c">
+<link rel="stylesheet" href="style.css?v=20261031e">
 </head>
 <body>
 
@@ -27,11 +27,17 @@
     <button class="brand link-brand" data-go="home" title="처음 화면">ARTBOX <b>Global POG</b></button>
     <nav id="nav">
       <button data-view="home">홈</button>
-      <button data-view="stores">매장 등록</button>
-      <button data-view="drawing">1. 도면</button>
+      <button data-view="drawing" data-group="dw-">1. 도면</button>
       <button data-view="pog-home" data-group="pog-">2. POG</button>
       <button data-view="glossary">3. 용어 사전</button>
       <button data-view="finder">4. 제품 찾기</button>
+      <button data-view="stores" class="nav-sub">매장 등록</button>
+      <button data-view="barcodes" class="nav-sub">바코드 등록</button>
+      <span class="subnav" id="subnav-dw">
+        <button data-view="dw-up">도면 업로드</button>
+        <button data-view="dw-tr">도면 번역</button>
+        <button data-view="dw-online">온라인 도면</button>
+      </span>
       <span class="subnav" id="subnav">
         <button data-view="pog-make">POG 만들기</button>
         <button data-view="pog-trans">POG 번역</button>
@@ -45,10 +51,6 @@
   <section class="view" id="v-home">
     <div class="home">
       <div class="tiles five">
-        <button class="tile" data-go="stores">
-          <svg viewBox="0 0 48 48"><path d="M8 20 12 9h24l4 11"/><path d="M10 20v19h28V20"/><path d="M8 20c0 3 2.5 5 5.3 5S18.7 23 18.7 20c0 3 2.4 5 5.3 5s5.3-2 5.3-5c0 3 2.4 5 5.3 5S40 23 40 20"/><path class="a" d="M20 39V30h8v9"/></svg>
-          <span>매장 등록</span>
-        </button>
         <button class="tile" data-go="drawing">
           <svg viewBox="0 0 48 48"><rect x="7" y="9" width="34" height="30" rx="2"/><path d="M7 22h12M27 9v12M27 29v10"/><rect class="a" x="12" y="27" width="9" height="6"/><rect class="a" x="31" y="14" width="6" height="4"/></svg>
           <span>도면</span>
@@ -57,13 +59,21 @@
           <svg viewBox="0 0 48 48"><rect x="9" y="7" width="30" height="34" rx="1"/><path d="M9 19h30M9 31h30"/><rect class="a" x="13" y="12" width="5" height="7"/><rect class="a" x="21" y="10" width="5" height="9"/><rect class="a" x="13" y="24" width="6" height="7"/><rect class="a" x="23" y="25" width="5" height="6"/><rect class="a" x="31" y="23" width="4" height="8"/></svg>
           <span>POG</span>
         </button>
-        <button class="tile" data-go="glossary">
-          <svg viewBox="0 0 48 48"><path d="M10 9h22a4 4 0 0 1 4 4v26H14a4 4 0 0 1-4-4z"/><path d="M10 35a4 4 0 0 1 4-4h22"/><path class="a" d="M17 16h12M17 22h8"/></svg>
-          <span>용어 사전</span>
-        </button>
         <button class="tile" data-go="finder">
           <svg viewBox="0 0 48 48"><path d="M8 15V9h6M34 9h6v6M40 33v6h-6M14 39H8v-6"/><path d="M15 16v16M19 16v16M24 16v16M28 16v16M33 16v16"/><path class="a" d="M10 24h28"/></svg>
           <span>제품 찾기</span>
+        </button>
+        <button class="tile sub" data-go="stores">
+          <svg viewBox="0 0 48 48"><path d="M8 20 12 9h24l4 11"/><path d="M10 20v19h28V20"/><path d="M8 20c0 3 2.5 5 5.3 5S18.7 23 18.7 20c0 3 2.4 5 5.3 5s5.3-2 5.3-5c0 3 2.4 5 5.3 5S40 23 40 20"/><path class="a" d="M20 39V30h8v9"/></svg>
+          <span>매장 등록</span>
+        </button>
+        <button class="tile sub" data-go="glossary">
+          <svg viewBox="0 0 48 48"><path d="M10 9h22a4 4 0 0 1 4 4v26H14a4 4 0 0 1-4-4z"/><path d="M10 35a4 4 0 0 1 4-4h22"/><path class="a" d="M17 16h12M17 22h8"/></svg>
+          <span>용어 사전</span>
+        </button>
+        <button class="tile sub" data-go="barcodes">
+          <svg viewBox="0 0 48 48"><rect x="7" y="11" width="34" height="26" rx="2"/><path d="M13 17v14M17 17v14M22 17v14M26 17v14M31 17v14M35 17v14"/><path class="a" d="M24 41v-6M20 38l4 4 4-4"/></svg>
+          <span>바코드 등록</span>
         </button>
       </div>
     </div>
@@ -91,14 +101,33 @@
     </div>
   </section>
 
-  <!-- 1. 도면 번역 -->
+  <!-- 1. 도면 선택 -->
   <section class="view" id="v-drawing">
+    <div class="home">
+      <div class="home-title">도면</div>
+      <div class="tiles three">
+        <button class="tile" data-go="dw-up">
+          <svg viewBox="0 0 48 48"><rect x="7" y="13" width="34" height="26" rx="2"/><path d="M7 26h10M28 13v9"/><path class="a" d="M24 9v14M18 15l6-6 6 6"/></svg>
+          <span>도면 업로드</span><small>VMD팀</small>
+        </button>
+        <button class="tile" data-go="dw-tr">
+          <svg viewBox="0 0 48 48"><rect x="6" y="8" width="20" height="15" rx="3"/><path d="M11 23v5l5-5M11 15h10"/><rect class="a" x="22" y="21" width="20" height="15" rx="3"/><path class="a" d="M37 36v5l-5-5M27 28h10"/></svg>
+          <span>도면 번역</span><small>글로벌사업부</small>
+        </button>
+        <button class="tile" data-go="dw-online">
+          <svg viewBox="0 0 48 48"><rect x="6" y="9" width="36" height="24" rx="2"/><path d="M18 40h12M24 33v7"/><path class="a" d="M12 15h10v5H12zM26 15h10v12H26zM12 23h10v4H12z"/></svg>
+          <span>온라인 도면</span><small>최종본 보기 (한/영)</small>
+        </button>
+      </div>
+      <button class="link back" data-go="home">← 처음 화면으로</button>
+    </div>
+  </section>
+
+  <!-- 1.1~1.3 도면 업로드 · 번역 · 온라인 도면 (화면 하나를 같이 씀) -->
+  <section class="view" id="v-dw">
     <div class="split">
       <aside class="side-list">
-        <div class="dw-tabs">
-          <button type="button" data-dwtab="up" class="on">도면 업로드</button>
-          <button type="button" data-dwtab="tr">도면 번역하기</button>
-        </div>
+        <div class="side-head" id="dw-mode-title"></div>
         <input id="dw-search" class="search" placeholder="매장 검색">
         <div id="dw-list" class="plist"></div>
       </aside>
@@ -109,8 +138,7 @@
             <button class="btn small list-toggle" type="button" title="매장 목록 열기/닫기">☰ 목록</button>
             <div class="tb-title" id="dw-title"></div>
             <label class="tb-field" id="dw-area-f">평수 <input id="dw-area" type="number" step="0.1" min="0" placeholder="예: 45"></label>
-            <label class="tb-field" id="dw-lang-f">언어 <select id="dw-lang"></select></label>
-            <label class="tb-field tr-only" id="dw-ko-f"><input type="checkbox" id="dw-ko"> 한글 원본 보기</label>
+            <div class="seg" id="dw-seg"></div>
             <span class="badge" id="dw-ver"></span>
             <span class="saving" id="dw-saving"></span>
             <div class="tb-right">
@@ -145,6 +173,34 @@
       <table class="gl-table st-table">
         <thead><tr><th>매장코드</th><th>파트너 이름</th><th>지점 이름</th><th>오픈 예상일</th><th>도면</th><th>POG</th><th></th></tr></thead>
         <tbody id="st-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 바코드 등록 (관리자·글로벌사업부 편집, 직원 보기) -->
+  <section class="view" id="v-barcodes">
+    <div class="gl-wrap st-wrap">
+      <h2>바코드 등록</h2>
+      <p class="mut">제품 찾기에서 바코드를 찍으면 여기 목록으로 <b>제품코드</b>를 찾아 POG 위치를 보여줘요.
+        엑셀 머리글은 <b>제품코드 · 바코드</b> 두 개면 돼요 (제품명은 넣어도 되고 안 넣어도 돼요. 이 화면에서만 보여요).</p>
+      <div class="bc-bar">
+        <span id="bc-count" class="mut"></span>
+        <span class="sp"></span>
+        <button class="btn ghost" id="bc-form">빈 양식 받기</button>
+        <button class="btn ghost" id="bc-export">엑셀로 저장</button>
+        <button class="btn primary" id="bc-import" data-edit="barcodes">엑셀 올리기</button>
+        <input type="file" id="bc-file" accept=".xlsx,.xls,.csv" hidden>
+      </div>
+      <form id="bc-add" class="gl-add" data-edit="barcodes">
+        <input name="barcode" placeholder="바코드" required autocomplete="off">
+        <input name="code" placeholder="제품코드" required autocomplete="off">
+        <input name="name" placeholder="제품명 (선택)" autocomplete="off">
+        <button class="btn primary">추가</button>
+      </form>
+      <input id="bc-search" class="search bc-search" placeholder="바코드 또는 제품코드로 찾기 (Enter)" autocomplete="off">
+      <table class="gl-table">
+        <thead><tr><th>바코드</th><th>제품코드</th><th>제품명</th><th></th></tr></thead>
+        <tbody id="bc-body"></tbody>
       </table>
     </div>
   </section>
@@ -232,7 +288,7 @@
           <div class="toolbar">
             <button class="btn small list-toggle" type="button" title="POG 목록 열기/닫기">☰ 목록</button>
             <div class="tb-title" id="vw-title"></div>
-            <label class="tb-field">언어 <select id="vw-lang"></select></label>
+            <div class="seg" id="vw-seg"></div>
             <div class="tb-right"><button class="btn" id="vw-counts" data-staff>고리·집기 수량 엑셀</button><button class="btn" id="vw-pdf">PDF 저장</button></div>
           </div>
           <div class="ed-main">
@@ -300,16 +356,17 @@
         <li><b>POG팀</b> · POG 만들기 편집 / 도면·POG 번역·온라인 POG 보기 / 용어 사전 보기·엑셀 저장 / 제품 찾기</li>
         <li><b>VMD팀</b> · 도면 편집 / POG 보기 / 용어 사전 보기·엑셀 저장 / 제품 찾기</li>
         <li><b>글로벌사업부</b> · 도면·POG의 번역 부분만 편집 (나머지는 보기) / 용어 사전 편집·엑셀 저장·올리기 / 제품 찾기</li>
-        <li><b>바이어</b> · 최종 도면·최종 POG(한글·영어) 보기 / 제품 찾기 / 용어 사전 없음</li>
+        <li><b>바이어</b> · 최종 도면·최종 POG(한글·영어) 보기 / 제품 찾기 / 용어 사전 없음. <b>매장코드 앞 4자리</b>를 넣으면 그 4자리로 시작하는 매장만 보여요</li>
         <li><b>제품 찾기만</b> · 4. 제품 찾기만 (매장 계정). 레벨을 정하지 않은 계정도 이것</li>
       </ul>
       <form id="acc-add" class="gl-add">
         <input name="email" type="email" placeholder="이메일 (Firebase에 만든 계정)" required autocomplete="off">
         <select name="level" id="acc-add-level"></select>
+        <input name="prefix" class="acc-pf" maxlength="4" placeholder="매장코드 앞 4자리" autocomplete="off">
         <button class="btn primary">추가</button>
       </form>
       <table class="gl-table">
-        <thead><tr><th>이메일</th><th>레벨</th><th></th></tr></thead>
+        <thead><tr><th>이메일</th><th>레벨</th><th>바이어 매장코드<br>(앞 4자리)</th><th></th></tr></thead>
         <tbody id="acc-body"></tbody>
       </table>
     </div>
@@ -322,6 +379,6 @@
 <div id="toast"></div>
 
 <!-- 파일을 고치면 ?v= 숫자도 바꿀 것 (브라우저가 예전 파일을 쓰지 않도록) -->
-<script type="module" src="app.js?v=20261031c"></script>
+<script type="module" src="app.js?v=20261031e"></script>
 </body>
 </html>
