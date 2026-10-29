@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261031h">
+<link rel="stylesheet" href="style.css?v=20261031i">
 </head>
 <body>
 
@@ -219,7 +219,8 @@
           <div class="toolbar">
             <button class="btn small list-toggle" type="button" title="POG 목록 열기/닫기">☰ 목록</button>
             <div class="tb-title" id="ed-title"></div>
-            <label class="tb-field">담당자 <select id="ed-manager"></select></label>
+            <label class="tb-field">POG 담당자 <select id="ed-manager" title="모든 페이지 아래에 들어가요"></select></label>
+            <button class="btn small ghost" id="ed-mgr-add" data-edit="pog-make" type="button">+ 담당자 추가</button>
             <span class="badge" id="ed-status"></span>
             <span class="saving" id="ed-saving"></span>
             <div class="tb-right">
@@ -379,6 +380,6 @@
 <div id="toast"></div>
 
 <!-- 파일을 고치면 ?v= 숫자도 바꿀 것 (브라우저가 예전 파일을 쓰지 않도록) -->
-<script type="module" src="app.js?v=20261031h"></script>
+<script type="module" src="app.js?v=20261031i"></script>
 </body>
 </html>
