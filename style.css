@@ -508,7 +508,17 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 #v-finder { background: #f4f5f7; min-height: calc(100vh - 52px); }
 .fd { max-width: 560px; margin: 0 auto; padding: 16px 16px 40px; display: flex; flex-direction: column; gap: 12px; }
 .fd-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.fd-store { flex: 1; min-width: 0; font: inherit; font-size: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.fd-title { flex: 1; min-width: 0; font-size: 18px; font-weight: 800; line-height: 1.25; overflow-wrap: anywhere; }
+.fd-back { flex: none; padding: 8px 12px; font-size: 15px; }
+.fd-stores { display: flex; flex-direction: column; gap: 10px; }
+.fd-store-card { position: relative; display: block; width: 100%; text-align: left; background: #fff; border: 1.5px solid transparent; border-radius: 14px; padding: 16px 44px 16px 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); font: inherit; cursor: pointer; }
+.fd-store-card:active, .fd-store-card:hover { border-color: var(--or); }
+.fd-store-card.recent { border-color: #ffd39b; }
+.fd-sc-name { font-size: 17px; font-weight: 700; color: var(--ink); }
+.fd-sc-sub { font-size: 13px; color: var(--mut); margin-top: 3px; }
+.fd-sc-recent { display: inline-block; margin-top: 6px; font-size: 11px; font-weight: 700; color: var(--or-d); background: #fff1e0; border-radius: 999px; padding: 2px 8px; }
+.fd-sc-go { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-size: 26px; color: #c4c4c4; }
+.fd-step { display: flex; flex-direction: column; gap: 12px; }
 .fd-scan { background: #fff; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
 .fd-cam { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 18px; font-weight: 700; height: 60px; border-radius: 12px; cursor: pointer; }
 .fd-cam-i { font-size: 24px; }

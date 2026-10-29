@@ -204,7 +204,7 @@ function go(v) {
   $$('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + secOf(v)));
   if (v.startsWith('dw-')) setDwMode({ 'dw-up': 'up', 'dw-tr': 'tr', 'dw-online': 'on' }[v]);
   window.scrollTo(0, 0);
-  if (v === 'finder') renderFdStores();
+  if (v === 'finder') { if (!fd.langSet && state.level === 'buyer') fd.lang = 'English'; fdStep(1); renderFdStores(); } // 제품 찾기는 늘 매장 고르기부터 (바이어는 영어부터)
   if (v === 'barcodes') { bcCount(); bcList(true); } else bcReport([], '', 0); // 건너뛴 줄 알림은 이 화면을 나가면 사라짐
 }
 $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
@@ -2835,19 +2835,33 @@ function fdStores() { // 최종 POG가 있는 매장 (매장코드마다 가장 
     return { pog: p, name: (st && storeName(st)) || dwd?.storeName || p.branchName || p.storeName || p.storeCode, code: p.storeCode, dw: dwd };
   }).sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
+// 1단계: 매장 카드 목록 (마지막으로 고른 매장은 '최근'). 2단계: 그 매장에서 바코드 찍기
 function renderFdStores() {
-  const sel = $('#fd-store'); if (!sel) return;
-  const list = fdStores(); let want = fd.pogId;
-  if (!want) { try { want = localStorage.getItem('fd-store'); } catch { } }
-  sel.replaceChildren(h('option', { value: '' }, list.length ? T('매장을 고르세요', 'Choose a store') : T('볼 수 있는 매장이 없어요', 'No store available')),
-    ...list.map(x => h('option', { value: x.pog.id }, `${x.name}${x.code ? ` (${x.code})` : ''}${x.dw ? '' : T(' · 도면 없음', ' · no floor plan')}`)));
-  const ok = list.some(x => x.pog.id === want);
-  sel.value = ok ? want : (list.length === 1 ? list[0].pog.id : '');
-  if (sel.value && sel.value !== fd.pogId) fdOpen(sel.value);
-  if (!sel.value && fd.pogId) { fd.pogId = null; fd.fixtures = null; $('#fd-result').replaceChildren(); }
+  const box = $('#fd-stores'); if (!box) return;
+  const list = fdStores(); let last = null;
+  try { last = localStorage.getItem('fd-store'); } catch { }
+  box.replaceChildren(...(list.length ? list.map(x => h('button', { type: 'button', class: 'fd-store-card' + (x.pog.id === last ? ' recent' : ''), onclick: () => fdChoose(x.pog.id) },
+    h('div', { class: 'fd-sc-name' }, x.name),
+    h('div', { class: 'fd-sc-sub' }, [x.code, x.dw ? T('도면 있음', 'Floor plan') : T('도면 없음', 'No floor plan')].filter(Boolean).join(' · ')),
+    x.pog.id === last ? h('span', { class: 'fd-sc-recent' }, T('최근', 'Recent')) : null,
+    h('span', { class: 'fd-sc-go' }, '›'))) : [h('div', { class: 'fd-card mut' }, T('볼 수 있는 매장이 없어요. 최종 POG가 있는 매장만 나와요.', 'No store available. Only stores with a final POG are shown.'))]));
+  if (fd.pogId && !list.some(x => x.pog.id === fd.pogId)) fdStep(1);
   renderFdSeg();
 }
-$('#fd-store').addEventListener('change', e => { try { localStorage.setItem('fd-store', e.target.value); } catch { } fdOpen(e.target.value); });
+function fdChoose(pogId) {
+  try { localStorage.setItem('fd-store', pogId); } catch { }
+  if (pogId !== fd.pogId || !fd.fixtures) fdOpen(pogId);
+  fdStep(2);
+}
+function fdStep(n) {
+  fd.step = n;
+  $('#fd-step1').classList.toggle('hidden', n !== 1); $('#fd-step2').classList.toggle('hidden', n !== 2);
+  $('#fd-back').classList.toggle('hidden', n !== 2);
+  if (n === 1) { fd.pogId = null; fd.fixtures = null; fd.last = null; $('#fd-result').replaceChildren(); $('#fd-q').value = ''; renderFdStores(); }
+  else renderFdSeg();
+  window.scrollTo(0, 0);
+}
+$('#fd-back').onclick = () => fdStep(1);
 async function fdOpen(pogId) {
   fd.pogId = pogId || null; fd.fixtures = null; fd.trs = {}; fd.last = null;
   $('#fd-result').replaceChildren();
@@ -2859,15 +2873,18 @@ async function fdOpen(pogId) {
     fd.shown = composeFx(fd.fixtures);
     fd.trs = Object.fromEntries(ts.docs.map(d => [d.id, d.data()]).filter(([, d]) => d.out));
   } catch (e) { toast(T('POG를 읽지 못했어요: ', 'Could not load POG: ') + (e.code || e.message)); }
-  if (fd.lang !== 'ko' && !fd.trs[fd.lang]) fd.lang = 'ko';
-  if (!fd.langSet && state.level === 'buyer' && fd.trs.English) fd.lang = 'English'; // 바이어는 영어부터
   renderFdSeg();
 }
-function renderFdSeg() {
-  segButtons($('#fd-seg'), [['ko', '한국어'], ...Object.keys(fd.trs || {}).map(l => [l, l])], fd.lang, l => { fd.lang = l; fd.langSet = true; renderFdSeg(); renderFdStoresText(); if (fd.last) fdShow(fd.last); });
+function renderFdSeg() { // 언어: 한국어·English는 늘, 그 밖의 언어는 번역이 있는 POG일 때
+  const langs = [...new Set(['English', ...Object.keys(fd.trs || {})])];
+  segButtons($('#fd-seg'), [['ko', '한국어'], ...langs.map(l => [l, l])], fd.lang, l => { fd.lang = l; fd.langSet = true; renderFdSeg(); if (fd.step !== 2) renderFdStores(); if (fd.last) fdShow(fd.last); });
   renderFdStoresText();
 }
 function renderFdStoresText() {
+  const cur = fd.pogId && fdStores().find(x => x.pog.id === fd.pogId);
+  $('#fd-title').textContent = fd.step === 2 && cur ? cur.name : T('매장 선택', 'Choose a store');
+  $('#fd-back-t').textContent = T('매장', 'Stores');
+  $('#fd-pick-tip').textContent = T('제품을 찾을 매장을 골라주세요.', 'Choose the store to find products in.');
   $('#fd-cam-t').textContent = T('바코드 찍기', 'Scan barcode');
   $('#fd-q').placeholder = T('바코드 또는 제품코드', 'Barcode or item code');
   $('#fd-go').textContent = T('찾기', 'Find');
