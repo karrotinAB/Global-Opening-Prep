@@ -27,13 +27,13 @@ const CATS = ['카테고리', '매대타입', '고리타입', '선반/파이프'
 const LEVELS = { admin: '관리자', pog: 'POG팀', vmd: 'VMD팀', global: '글로벌사업부', buyer: '바이어', finder: '제품 찾기만', editor: '편집 (예전 레벨)' };
 const ASSIGNABLE = ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder']; // editor는 예전 레벨: 그대로 동작하지만 새로 고를 수는 없음
 // 레벨마다 볼 수 있는 화면(views)과 편집할 수 있는 부분(edit). 진짜 차단은 firestore.rules / storage.rules가 함
-const STAFF_VIEWS = ['home', 'drawing', 'pog-home', 'pog-make', 'pog-trans', 'pog-online', 'glossary', 'finder'];
-const ALL_EDIT = ['drawing', 'drawing-trans', 'pog-make', 'pog-trans', 'glossary'];
+const STAFF_VIEWS = ['home', 'stores', 'drawing', 'pog-home', 'pog-make', 'pog-trans', 'pog-online', 'glossary', 'finder'];
+const ALL_EDIT = ['stores', 'drawing', 'drawing-trans', 'pog-make', 'pog-trans', 'glossary'];
 const ACCESS = {
   admin: { views: [...STAFF_VIEWS, 'accounts'], edit: ALL_EDIT },
   pog: { views: STAFF_VIEWS, edit: ['pog-make'] },
   vmd: { views: STAFF_VIEWS, edit: ['drawing'] },
-  global: { views: STAFF_VIEWS, edit: ['drawing-trans', 'pog-trans', 'glossary'] },
+  global: { views: STAFF_VIEWS, edit: ['stores', 'drawing-trans', 'pog-trans', 'glossary'] },
   buyer: { views: ['home', 'drawing', 'pog-home', 'pog-online', 'finder'], edit: [] }, // 최종본만 (규칙에서도 막음)
   finder: { views: ['finder'], edit: [] },
   editor: { views: STAFF_VIEWS, edit: ALL_EDIT },
@@ -92,7 +92,7 @@ const displayName = fx => fx.kind === 'free' ? (fx.headerName || '추가 페이�
 const glossaryOf = cat => state.glossary.filter(g => g.cat === cat).sort((a, b) => (a.ko || '').localeCompare(b.ko || '', 'ko'));
 
 const state = {
-  user: null, level: null, view: 'home', roles: [], glLang: '',
+  user: null, level: null, view: 'home', roles: [], glLang: '', stores: [], dwMap: new Map(),
   pogs: [], managers: [], glossary: [], glCat: CATS[0],
   currentPog: null, fixtures: new Map(), pageEls: new Map(), lockKey: null, unsubPog: null, unsubFx: null,
   viewer: { unsubPog: null, unsubFx: null, pog: null, fixtures: [] },
@@ -157,6 +157,14 @@ function startListeners() {
     renderAccounts();
   }));
   if (!isStaff()) return; // 바이어·매장 계정: 사전·담당자는 필요 없음
+  unsubs.push(onSnapshot(collection(db, 'stores'), s => {
+    state.stores = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(a.code).localeCompare(String(b.code)));
+    renderStores(); renderDwList(); if (tr.pog) subTrDw();
+  }, e => toast('매장 목록을 읽지 못했어요: ' + e.code)));
+  unsubs.push(onSnapshot(collection(db, 'drawings'), s => {
+    state.dwMap = new Map(s.docs.map(d => [d.id, { id: d.id, ...d.data() }]));
+    renderStores(); renderDwList();
+  }, () => { }));
   unsubs.push(onSnapshot(query(collection(db, 'managers'), orderBy('name')), s => {
     state.managers = s.docs.map(d => ({ id: d.id, ...d.data() }));
     refreshManagerSelect();
@@ -167,7 +175,7 @@ function startListeners() {
     refreshGlossaryLists(); renderGlossary(); scheduleTeamSync(); renderTr();
   }));
 }
-function stopListeners() { unsubs.forEach(u => u()); unsubs = []; closePog(); closeViewer(); closeTr(); }
+function stopListeners() { unsubs.forEach(u => u()); unsubs = []; closePog(); closeViewer(); closeTr(); closeDw(); }
 
 /* ---------- 메뉴 이동 ---------- */
 function go(v) {
@@ -186,7 +194,7 @@ $('#btn-accounts').onclick = () => go('accounts');
 /* ---------- 저장 (디바운스) ---------- */
 const timers = {}; let pending = 0;
 function setSaving() {
-  for (const el of [$('#ed-saving'), $('#tr-saving')]) if (el) el.textContent = pending > 0 ? '저장 중…' : '저장됨';
+  for (const el of [$('#ed-saving'), $('#tr-saving'), $('#dw-saving')]) if (el) el.textContent = pending > 0 ? '저장 중…' : '저장됨';
 }
 function queueWrite(key, fn) {
   if (!timers[key]) { pending++; setSaving(); }
@@ -294,7 +302,11 @@ function makeThumbs(box, scroller, onActive) {
   const setActive = id => {
     els.forEach((t, k) => {
       const on = k === id;
-      if (on && !t.classList.contains('on')) t.scrollIntoView({ block: 'nearest' });
+      if (on && !t.classList.contains('on')) { // 썸네일 목록만 움직임 (페이지 화면은 그대로)
+        const a = t.getBoundingClientRect(), b = box.getBoundingClientRect();
+        if (a.top < b.top) box.scrollTop += a.top - b.top;
+        else if (a.bottom > b.bottom) box.scrollTop += a.bottom - b.bottom;
+      }
       t.classList.toggle('on', on);
     });
     if (id !== active) { active = id; onActive?.(id); }
@@ -410,7 +422,9 @@ function buildPage(fx, pog, { editable, onItem, L = LABELS_KO }) {
   if (fx.kind === 'free') return buildFreePage(fx, pog, { editable, field, L });
   const page = h('div', { class: 'page' },
     h('div', { class: 'ph' },
-      field('headerName', h('input', { class: 'ph-name', placeholder: origName(fx) || '매대명' })),
+      field('headerName', h('input', { class: 'ph-name', placeholder: origName(fx) || '매대명',
+        onclick: e => { if (editable && !e.target.value) openHeaderPicker(pog, fx); } })), // 비어 있으면 누를 때 도면이 뜸
+      editable ? h('button', { class: 'ph-dw no-print', type: 'button', title: '도면에서 매대를 골라 헤더에 넣어요', onclick: () => openHeaderPicker(pog, fx) }, '📐 도면에서 고르기') : null,
       h('div', { class: 'ph-cat' }, fx._cat ?? catName(fx.teamName))),
     h('div', { class: 'pb' },
       h('div', { class: 'pcanvas' }, buildCanvas(fx, CANVAS_W, CANVAS_H, onItem)),
@@ -463,6 +477,7 @@ function renderSp(block) {
     return h('div', { class: 'ex-row' }, sel, h('span', { class: 'x' }, '×'), qty,
       ed ? h('button', { class: 'ex-del no-print', title: '삭제', onclick: () => { block._sp = list.filter(y => y !== x); save(); renderSp(block); } }, '×') : null);
   }), ...(ed ? [h('button', { class: 'ex-add no-print', onclick: () => { list.push({ id: uid(), name: '', qty: '' }); save(); renderSp(block); } }, '+ 추가')] : []));
+  roFill(block);
 }
 function renderExtras(block) {
   const box = block.querySelector('.page .ex-list'); if (!box) return;
@@ -480,6 +495,7 @@ function renderExtras(block) {
     return h('div', { class: 'ex-row' }, col, name, h('span', { class: 'x' }, '×'), qty,
       ed ? h('button', { class: 'ex-del no-print', title: '삭제', onclick: () => { block._extras = list.filter(y => y !== x); save(); renderExtras(block); } }, '×') : null);
   }), ...(ed ? [h('button', { class: 'ex-add no-print', onclick: () => { list.push({ id: uid(), name: '', qty: '' }); save(); renderExtras(block); block.querySelector('.page .ex-row:last-of-type .ex-name')?.focus(); } }, '+ 집기 추가')] : []));
+  roFill(block);
 }
 // 페이지 블록 마무리: 메모 층(네모·글상자·화살표·사진)과 편집 막대를 붙임
 function finishBlock(fx, pog, page, editable) {
@@ -763,6 +779,22 @@ function syncPage(block, fx, pog) {
     if (!block._notes.some(n => n.id === block._sel)) block._sel = null;
     renderNotes(block); renderNoteBar(block);
   }
+  roFill(block);
+}
+// 보기 전용 페이지(최종·번역·온라인 POG·PDF): 오른쪽 칸 값을 글자로 바꿔 보여줌. 긴 글은 줄바꿈, 수량 0·빈칸은 비워 둠 (× 도 숨김)
+function roFill(block) {
+  if (block._editable) return;
+  $$('.page .pside .f', block).forEach(el => {
+    if (el.tagName === 'TEXTAREA') return;
+    const qty = el.type === 'number';
+    let v = el.tagName === 'SELECT' ? (el.selectedOptions[0]?.textContent || el.value || '') : el.value;
+    if (qty && (v === '' || Number(v) === 0)) v = '';
+    let t = el._ro;
+    if (!t) { t = el._ro = h('div', { class: 'ro-v' + (qty ? ' q' : '') }); el.after(t); el.classList.add('ro-hide'); }
+    t.textContent = v; t.style.color = el.style.color || '';
+    const x = el.previousElementSibling?.classList.contains('x') ? el.previousElementSibling : null;
+    if (x) x.style.display = v ? '' : 'none';
+  });
 }
 
 async function resizeImage(file, max = 1600) {
@@ -1377,7 +1409,8 @@ function trFields(fx) {
   return [
     { key: 'cat', label: '카테고리(팀명)', ko: catName(fx.teamName), cats: ['팀명'], dict: '팀명' },
     { key: 'headerName', label: '매대명', ko: fx.headerName || origName(fx), cats: ['카테고리'], addCat: '카테고리',
-      hint: fx.headerName ? '' : 'POG 원본 이름이에요 (매대명을 아직 안 넣음)' },
+      dw: fx.headerName && fx.drawingRef?.ko ? fx.drawingRef : null,
+      hint: !fx.headerName ? 'POG 원본 이름이에요 (매대명을 아직 안 넣음)' : fx.drawingRef ? '도면 매대와 연결됨 · 영문은 도면 번역에서 가져와요' : '' },
     { key: 'fixtureType', label: LABELS_KO.type, ko: fx.fixtureType, cats: ['매대타입'], dict: '매대타입' },
     { key: 'hookType', label: '고리타입', ko: fx.hookType, cats: ['고리타입'], dict: '고리타입' },
     ...spRows(fx).filter(x => (x.name || '').trim()).map((x, i) => ({ key: 's_' + x.id, label: `선반/파이프 ${i + 1}`, ko: x.name, cats: ['선반/파이프', '집기'], dict: '선반/파이프', qty: x.qty })),
@@ -1387,9 +1420,15 @@ function trFields(fx) {
   ].filter(r => (r.ko || '').trim());
 }
 function trState(r, saved, lang) {
-  const a = autoTranslate(r.ko, lang, r.cats);
+  let a = autoTranslate(r.ko, lang, r.cats);
+  if (r.dw) { // 도면에서 고른 매대명: 도면 번역 + 그 뒤에 POG팀이 붙인 글자(예: ' 1')
+    const en = dwEnglish(r.dw, lang), suffix = (r.ko || '').startsWith(r.dw.ko) ? r.ko.slice(r.dw.ko.length) : null;
+    if (en && suffix !== null) a = { text: en + suffix, missing: [] };
+    else if (!en) a = { ...a, missing: a.missing.length ? a.missing : [], dwMissing: true };
+  }
   const custom = r.dict ? !state.glossary.some(g => g.cat === r.dict && norm(g.ko) === norm(r.ko)) : !!r.custom;
   const need = !saved && (a.missing.length > 0 || custom); // 빨간 ! : 사전에 없는 말이 있거나 직접 입력한 값인데, 아직 번역을 안 넣음
+  if (a.dwMissing && !saved) return { a, custom: false, need: true, value: a.missing.length ? '' : a.text, status: 'missing', dwMissing: true };
   return { a, custom, need, value: saved || (a.missing.length ? '' : a.text), status: saved ? 'saved' : a.missing.length ? 'missing' : 'auto' };
 }
 
@@ -1412,7 +1451,7 @@ function renderTrList() {
   rows.forEach(p => list.append(pogListItem(p, tr.pog?.id === p.id, () => openTr(p.id))));
 }
 function closeTr() {
-  tr.unsubs.forEach(u => u()); tr.unsubs = []; tr.pog = null; tr.fixtures = []; tr.doc = {}; tr.active = '__cover'; tr.blocks = new Map();
+  tr.unsubs.forEach(u => u()); tr.unsubs = []; tr.unsubDoc?.(); tr.unsubDw?.(); tr.unsubDoc = tr.unsubDw = null; tr.dwKey = null; tr.pog = null; tr.fixtures = []; tr.doc = {}; tr.active = '__cover'; tr.blocks = new Map();
   trThumbs?.clear(); $('#tr-pages')?.replaceChildren(); $('#tr-side')?.replaceChildren();
   $('#tr-body')?.classList.add('hidden'); $('#tr-empty')?.classList.remove('hidden');
   $('#v-pog-trans .split')?.classList.remove('list-off');
@@ -1425,12 +1464,20 @@ function openTr(id) {
   $('#v-pog-trans .split').classList.add('list-off');
   $('#tr-pages').replaceChildren(h('div', { class: 'mut pad' }, '불러오는 중…'));
   renderTrList();
-  tr.unsubs.push(onSnapshot(doc(db, 'pogs', id), d => { if (!d.exists()) { closeTr(); return; } tr.pog = { id: d.id, ...d.data() }; renderTr(); }));
+  tr.unsubs.push(onSnapshot(doc(db, 'pogs', id), d => { if (!d.exists()) { closeTr(); return; } tr.pog = { id: d.id, ...d.data() }; subTrDw(); renderTr(); }));
   tr.unsubs.push(onSnapshot(query(collection(db, 'pogs', id, 'fixtures'), orderBy('order')), s => { tr.fixtures = s.docs.map(d => ({ id: d.id, ...d.data() })); renderTr(); }));
   subTrDoc();
 }
+// 이 POG 매장의 도면 번역 (POG 문서가 늦게 오거나 매장이 바뀌면 다시 구독)
+function subTrDw(force) {
+  const st = storeForPog(tr.pog), key = st ? st.id + '|' + tr.lang : '';
+  if (!force && key === tr.dwKey) return;
+  tr.unsubDw?.(); tr.unsubDw = null; tr.dwKey = key; tr.dwTr = {};
+  if (st) tr.unsubDw = onSnapshot(doc(db, 'drawings', st.id, 'translations', tr.lang), d => { tr.dwTr = d.exists() ? d.data() : {}; renderTr(); }, () => { });
+}
 function subTrDoc() {
   tr.unsubDoc?.();
+  subTrDw(true);
   const id = tr.pog.id, lang = tr.lang;
   tr.unsubDoc = onSnapshot(doc(db, 'pogs', id, 'translations', lang), d => {
     if (tr.lang !== lang) return;
@@ -1550,7 +1597,7 @@ function renderTrSide(force) {
         const v = inp.value.trim();
         if (v && (st.custom || st.a.missing.length)) askGlossary(sec, r, v);
       });
-      const why = st.a.missing.length ? `사전에 없는 말: ${st.a.missing.join(', ')}` : st.custom ? '기존 선택지가 아니라 직접 입력한 값이에요. 번역을 확인해주세요' : '';
+      const why = st.dwMissing ? '도면 번역에서 이 매대를 아직 번역하지 않았어요 (1. 도면 → 도면 번역하기)' : st.a.missing.length ? `사전에 없는 말: ${st.a.missing.join(', ')}` : st.custom ? '기존 선택지가 아니라 직접 입력한 값이에요. 번역을 확인해주세요' : '';
       rows.push(h('div', { class: 'tr-row' + (st.need ? ' need' : '') + (!st.need && why ? ' done' : '') },
         h('div', { class: 'tr-top' }, h('span', { class: 'tr-l' }, r.label),
           st.need ? h('span', { class: 'tr-bang', title: why }, '!') : st.status === 'saved' ? h('span', { class: 'tr-ok', title: '직접 저장한 번역' }, '✓') : h('span', { class: 'tr-auto', title: '사전에서 자동' }, '사전')),
@@ -1571,8 +1618,9 @@ function renderTrSide(force) {
 $('#tr-side').addEventListener('focusout', () => setTimeout(() => { if (tr.dirty) renderTrSide(); }, 60));
 
 // 사전에 추가: 넣기 전에 비슷한 단어를 보여줘서 이미 있는 말을 또 만들지 않게
-function askGlossary(sec, r, value) {
-  const lang = tr.lang, st = rowState(sec, r);
+function askGlossary(sec, r, value, opts = {}) {
+  const lang = opts.lang || tr.lang, st = opts.st || rowState(sec, r);
+  const use = opts.onUse || (v => saveTr(sec.id, r.key, v)), after = opts.after || (() => renderTr(true));
   const entries = r.dict || !st.a.missing.length || (st.a.missing.length === 1 && norm(st.a.missing[0]) === norm(r.ko))
     ? [{ ko: r.ko.trim(), cat: r.dict || r.addCat || '카테고리', val: value }]
     : st.a.missing.map(w => ({ ko: w, cat: r.addCat || '카테고리', val: '' }));
@@ -1595,7 +1643,7 @@ function askGlossary(sec, r, value) {
     h('p', { class: 'mut' }, `'${r.label}' 칸의 ${entries.length === 1 ? '값' : '사전에 없는 말'}이에요. 사전에 넣어두면 다음부터 자동으로 번역돼요.`),
     ...blocks, h('div', { class: 'modal-act' }, skip, add)), { wide: true });
   const single = entries.length === 1 && entries[0].ko === r.ko.trim();
-  skip.onclick = () => { if (single && entries[0].inp.value.trim()) saveTr(sec.id, r.key, entries[0].inp.value.trim()); close(); renderTr(true); };
+  skip.onclick = () => { if (single && entries[0].inp.value.trim()) use(entries[0].inp.value.trim()); close(); after(); };
   add.onclick = async () => {
     add.disabled = true;
     try {
@@ -1615,7 +1663,7 @@ function askGlossary(sec, r, value) {
         }
         n++;
       }
-      if (single && entries[0].inp.value.trim()) saveTr(sec.id, r.key, entries[0].inp.value.trim());
+      if (single && entries[0].inp.value.trim()) use(entries[0].inp.value.trim());
       toast(n ? `사전에 ${n}개 저장했어요` : '저장할 번역이 없어요');
       close();
     } catch (e) { toast('저장 실패: ' + e.message); add.disabled = false; }
@@ -1636,6 +1684,487 @@ $('#tr-publish').onclick = async () => {
     toast(`${tr.lang} 번역을 온라인 POG에 반영했어요`);
   } catch (e) { toast('반영 실패: ' + e.message); }
 };
+
+/* ---------- 매장 등록 (글사부) ----------
+   stores/{id}: code(매장코드 = POG 사이트 매장코드), partner, branch, openDate. 도면은 drawings/{같은 id} */
+const storeName = st => st ? `${st.partner || ''} ${st.branch || ''}`.trim() : '';
+const storeForPog = pog => pog && (state.stores.find(x => x.id === pog.storeId) || state.stores.find(x => String(x.code).trim() === String(pog.storeCode || '').trim()));
+function renderStores() {
+  const body = $('#st-body'); if (!body) return;
+  const ed = canEdit('stores');
+  body.innerHTML = '';
+  if (!state.stores.length) { body.append(h('tr', {}, h('td', { colspan: 7, class: 'mut pad' }, '등록된 매장이 없어요.'))); return; }
+  for (const st of state.stores) {
+    const inp = (f, type = 'text') => {
+      const el = h('input', { type, value: st[f] || '', disabled: !ed });
+      el.addEventListener('change', async () => {
+        const v = el.value.trim();
+        if (f === 'code' && state.stores.some(x => x.id !== st.id && String(x.code) === v)) { toast('이미 있는 매장코드예요'); el.value = st.code; return; }
+        await updateDoc(doc(db, 'stores', st.id), { [f]: v, updatedAt: serverTimestamp(), updatedBy: me() }); toast('수정했어요');
+      });
+      return el;
+    };
+    const d = state.dwMap.get(st.id);
+    const fin = d && dwFinalNo(d);
+    const pogs = state.pogs.filter(p => String(p.storeCode) === String(st.code));
+    body.append(h('tr', {}, h('td', {}, inp('code')), h('td', {}, inp('partner')), h('td', {}, inp('branch')), h('td', {}, inp('openDate', 'date')),
+      h('td', { class: 'st-dw' }, d?.latestNo ? `ver.${d.latestNo}${fin ? ` · ★ver.${fin}` : ''}${d.area ? ` · ${d.area}평` : ''}` : '없음'),
+      h('td', { class: 'st-dw' }, pogs.length ? `${pogs.length}개${pogs.some(p => p.status === 'final') ? ' (최종 있음)' : ''}` : '없음'),
+      h('td', { class: 'tc' }, ed && !d?.latestNo ? h('button', { class: 'btn ghost danger small', onclick: async () => {
+        if (confirm(`'${storeName(st)}' 매장을 지울까요?`)) await deleteDoc(doc(db, 'stores', st.id));
+      } }, '삭제') : null)));
+  }
+}
+$('#st-add').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target, code = f.code.value.trim(), partner = f.partner.value.trim(), branch = f.branch.value.trim(), openDate = f.open.value;
+  if (!code || !partner || !branch) return;
+  if (state.stores.some(x => String(x.code) === code)) { toast('이미 등록된 매장코드예요'); return; }
+  try {
+    await addDoc(collection(db, 'stores'), { code, partner, branch, openDate, createdAt: serverTimestamp(), createdBy: me() });
+    toast('매장을 등록했어요'); f.reset(); f.code.focus();
+  } catch (err) { toast('등록 실패: ' + err.message); }
+});
+
+/* ---------- 1. 도면: 업로드(VMD) · 번역하기(글사부) ----------
+   drawings/{storeId}: storeId, storeCode, area(평수), latestNo, finalVersion(★ 최종본 버전 id), status('final' = 내보낸 버전이 있음)
+   drawings/{storeId}/versions/{vId}: no, fileName, url/path(정리한 SVG), baseUrl/basePath(글자를 뺀 SVG = 영문 바탕),
+     w, h(viewBox), groups(매대명 글자 묶음 [{id, ko, lines, x,y,w,h, fs}]), memo, exported, uploadedAt/By, exportedAt/By
+   drawings/{storeId}/translations/{언어}: v: { vId: { groupId: { ko, text, dx, dy, sc } } }
+   SVG는 올릴 때 한 번만 브라우저에서 읽어서 글자 위치를 저장한다 (나중엔 그림으로만 보여줘서 다른 설정이 필요 없음) */
+const dwFinal = d => d?.finalVersion || null;
+const dwFinalNo = d => d?.finalNo || null;
+const dw = { tab: 'up', id: null, doc: null, versions: [], vId: null, lang: 'English', tr: {}, sel: null, unsubs: [], onlyNeed: false };
+$$('[data-dwtab]').forEach(b => b.onclick = () => {
+  dw.tab = b.dataset.dwtab;
+  $$('[data-dwtab]').forEach(x => x.classList.toggle('on', x === b));
+  const id = dw.id; closeDw(); renderDwList();
+  if (id && dwListRows().some(x => x.id === id)) openDw(id);
+});
+$('#dw-search').addEventListener('input', renderDwList);
+function dwListRows() {
+  const q = $('#dw-search').value.trim().toLowerCase();
+  return state.stores.filter(st => {
+    const d = state.dwMap.get(st.id);
+    if (dw.tab === 'tr' && !(d?.status === 'final')) return false; // 번역은 내보낸 도면만
+    return !q || [st.code, st.partner, st.branch].join(' ').toLowerCase().includes(q);
+  });
+}
+function renderDwList() {
+  const list = $('#dw-list'); if (!list) return;
+  const rows = dwListRows();
+  list.innerHTML = '';
+  if (!rows.length) list.append(h('div', { class: 'mut pad' }, dw.tab === 'tr' ? '내보낸 도면이 있는 매장이 없어요.' : '등록된 매장이 없어요. 처음 화면의 \'매장 등록\'에서 먼저 등록해주세요.'));
+  for (const st of rows) {
+    const d = state.dwMap.get(st.id);
+    const sub = !d?.latestNo ? '도면 없음' : `ver.${d.latestNo}${d.latestExported ? '' : ' 작성 중'}${dwFinalNo(d) ? ` · ★ver.${dwFinalNo(d)}` : ''}`;
+    list.append(h('div', { class: 'pitem' + (dw.id === st.id ? ' on' : ''), onclick: () => openDw(st.id) },
+      h('div', { class: 'pi-top' }, h('b', {}, storeName(st)), d?.status === 'final' ? h('span', { class: 'badge final' }, '내보냄') : d?.latestNo ? h('span', { class: 'badge draft' }, '작성 중') : null),
+      h('div', { class: 'pi-sub' }, `${st.code} · ${sub}`)));
+  }
+  $('#dw-empty').replaceChildren(...(dw.tab === 'up'
+    ? [h('div', { class: 'upload-rule' }, h('b', {}, '업로드 파일은 SVG 파일'), ' · ', h('b', {}, '글씨는 윤곽선 만들기 하지 말아주세요'),
+        h('div', { class: 'mut' }, '한글 매대명이 들어간 도면 파일 하나만 올리면 돼요. 영문 도면은 이 파일에서 글자만 바꿔 만들어요.')),
+       h('div', {}, '왼쪽에서 매장을 고르세요.')]
+    : [h('div', {}, '번역할 매장을 고르세요.'), h('div', { class: 'mut' }, 'VMD실이 내보낸 도면만 나와요.')]));
+}
+function closeDw() {
+  dw.unsubs.forEach(u => u()); dw.unsubs = []; dw.id = null; dw.doc = null; dw.versions = []; dw.vId = null; dw.tr = {}; dw.sel = null;
+  $('#dw-body')?.classList.add('hidden'); $('#dw-empty')?.classList.remove('hidden');
+  $('#v-drawing .split')?.classList.remove('list-off');
+}
+function openDw(id) {
+  closeDw();
+  dw.id = id;
+  $('#dw-empty').classList.add('hidden'); $('#dw-body').classList.remove('hidden');
+  $('#dw-stage').replaceChildren(h('div', { class: 'mut pad' }, '불러오는 중…'));
+  renderDwList();
+  dw.unsubs.push(onSnapshot(doc(db, 'drawings', id), d => { dw.doc = d.exists() ? { id: d.id, ...d.data() } : null; renderDw(); }, () => { }));
+  dw.unsubs.push(onSnapshot(query(collection(db, 'drawings', id, 'versions'), orderBy('no')), s => {
+    dw.versions = s.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (!dw.versions.some(v => v.id === dw.vId)) dw.vId = null;
+    renderDw();
+  }, () => { dw.versions = []; renderDw(); }));
+  subDwTr();
+}
+function subDwTr() {
+  dw.unsubTr?.();
+  if (dw.tab !== 'tr' || !dw.id) return;
+  const id = dw.id, lang = dw.lang;
+  dw.unsubTr = onSnapshot(doc(db, 'drawings', id, 'translations', lang), d => {
+    if (dw.id !== id || dw.lang !== lang) return;
+    const data = d.exists() ? d.data() : {};
+    dw.tr = { ...data, v: { ...(data.v || {}) } };
+    for (const [k, v] of Object.entries(dw.local || {})) if (pendingKey(k)) { const [, , , vid, gid] = k.split('|'); ((dw.tr.v[vid] ||= {})[gid] ||= {}); Object.assign(dw.tr.v[vid][gid], v); }
+    renderDw();
+  }, () => { });
+  dw.unsubs.push(() => dw.unsubTr?.());
+}
+const curVersion = () => dw.versions.find(v => v.id === dw.vId);
+function pickDefaultVersion() {
+  if (dw.vId && dw.versions.some(v => v.id === dw.vId)) return;
+  const exported = dw.versions.filter(v => v.exported);
+  dw.vId = dw.tab === 'tr' ? (dwFinal(dw.doc) && exported.some(v => v.id === dwFinal(dw.doc)) ? dwFinal(dw.doc) : exported.at(-1)?.id)
+    : dw.versions.at(-1)?.id || null;
+}
+function renderDw() {
+  if (!dw.id) return;
+  const st = state.stores.find(x => x.id === dw.id);
+  pickDefaultVersion();
+  const v = curVersion(), up = dw.tab === 'up';
+  $('#dw-title').textContent = `${storeName(st)} (${st?.code || ''})`;
+  const area = $('#dw-area'); area.disabled = !up || !canEdit('drawing');
+  if (area !== document.activeElement) area.value = dw.doc?.area ?? '';
+  $('#dw-area-f').classList.toggle('hidden', !up && !dw.doc?.area);
+  $('#dw-lang-f').classList.toggle('hidden', up); $('#dw-ko-f').classList.toggle('hidden', up);
+  if (!up) { const langs = trLangs(), sel = $('#dw-lang'); if (!langs.includes(dw.lang)) dw.lang = 'English'; sel.replaceChildren(...langs.map(l => h('option', { value: l }, l))); sel.value = dw.lang; }
+  const fin = dwFinal(dw.doc);
+  $('#dw-ver').textContent = v ? `ver.${v.no}${v.id === fin ? ' ★최종본' : ''}${v.exported ? '' : ' · 작성 중'}` : '도면 없음';
+  $('#dw-ver').className = 'badge ' + (v?.exported ? 'final' : 'draft');
+  $('#dw-upload').classList.toggle('hidden', !up || !canEdit('drawing'));
+  $('#dw-upload').textContent = dw.versions.length ? '재업로드' : '도면 파일 올리기';
+  $('#dw-export').classList.toggle('hidden', !up || !canEdit('drawing') || !v || v.exported);
+  $('#dw-print').classList.toggle('hidden', !v);
+  renderDwStage(); renderDwSide();
+}
+$('#dw-area').addEventListener('input', e => {
+  const id = dw.id, st = state.stores.find(x => x.id === id), val = e.target.value === '' ? '' : Number(e.target.value);
+  queueWrite(`dw|${id}|area`, () => setDoc(doc(db, 'drawings', id), { storeId: id, storeCode: st?.code || '', area: val, updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true }));
+});
+$('#dw-lang').addEventListener('change', e => { dw.lang = e.target.value; dw.tr = {}; subDwTr(); renderDw(); });
+$('#dw-ko').addEventListener('change', () => renderDwStage());
+$('#dw-upload').onclick = () => $('#dw-file').click();
+$('#dw-file').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (f) await uploadDrawing(f); };
+$('#dw-print').onclick = () => {
+  const imgs = $$('#dw-stage img').filter(i => !i.complete);
+  Promise.all(imgs.map(i => new Promise(r => { i.addEventListener('load', r, { once: true }); i.addEventListener('error', r, { once: true }); setTimeout(r, 8000); }))).then(() => window.print());
+};
+
+// SVG 읽기: 위험한 부분(script 등) 빼고, 화면 밖에 그려서 글자마다 위치를 잰 뒤 매대 단위로 묶음
+async function analyzeSvg(text) {
+  const xml = new DOMParser().parseFromString(text, 'image/svg+xml');
+  const svg = xml.documentElement;
+  if (xml.querySelector('parsererror') || svg.nodeName.toLowerCase() !== 'svg') throw new Error('SVG 파일이 아니에요');
+  svg.querySelectorAll('script, foreignObject, iframe').forEach(e => e.remove());
+  svg.querySelectorAll('*').forEach(e => [...e.attributes].forEach(a => { if (/^on/i.test(a.name) || (/href$/i.test(a.name) && /^\s*javascript:/i.test(a.value))) e.removeAttribute(a.name); }));
+  const vb = (svg.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+  const [vx, vy, vw, vh] = vb.length === 4 && vb.every(n => isFinite(n)) && vb[2] > 0 ? vb
+    : [0, 0, parseFloat(svg.getAttribute('width')) || 1000, parseFloat(svg.getAttribute('height')) || 700];
+  if (!svg.getAttribute('viewBox')) svg.setAttribute('viewBox', `${vx} ${vy} ${vw} ${vh}`);
+  const clean = new XMLSerializer().serializeToString(svg);
+  const host = h('div', { style: 'position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none' });
+  const live = document.importNode(svg, true);
+  live.setAttribute('width', vw); live.setAttribute('height', vh);
+  host.append(live); document.body.append(host);
+  const root = live.getBoundingClientRect(), k = vw / (root.width || vw);
+  const lines = [];
+  live.querySelectorAll('text').forEach(t => {
+    const parts = [...t.querySelectorAll('tspan')].filter(x => !x.querySelector('tspan'));
+    for (const el of parts.length ? parts : [t]) {
+      if (!el.textContent.trim()) continue;
+      for (const c of charRuns(el)) {
+        const w = c.w * k, hh = c.h * k;
+        lines.push({ text: c.text, x: (c.x - root.left) * k, y: (c.y - root.top) * k, w, h: hh, lh: c.text.length > 1 && hh > w * 1.5 ? w : hh }); // lh = 글자 굵기 (세로 글씨면 폭)
+      }
+    }
+  });
+  host.remove();
+  const base = svg.cloneNode(true); base.querySelectorAll('text').forEach(e => e.remove());
+  return { w: vw, h: vh, clean, base: new XMLSerializer().serializeToString(base), lines: lines.length, groups: groupLines(lines) };
+}
+// 글자 조각 하나를 글자 위치로 다시 나눔: 한 조각 안에 멀리 떨어진 매대명 여러 개가 들어 있을 때 (글자 크기만큼 떨어지면 다른 덩어리)
+function charRuns(el) {
+  const whole = () => { const r = el.getBoundingClientRect(); return r.width && r.height ? [{ text: el.textContent.replace(/\s+/g, ' ').trim(), x: r.left, y: r.top, w: r.width, h: r.height }] : []; };
+  let n, m;
+  try { n = el.getNumberOfChars(); m = el.getScreenCTM(); } catch { return whole(); }
+  if (!n || !m || n > 2000) return whole();
+  const str = el.textContent, boxes = [];
+  for (let i = 0; i < n; i++) {
+    let e; try { e = el.getExtentOfChar(i); } catch { return whole(); }
+    const pts = [[e.x, e.y], [e.x + e.width, e.y], [e.x, e.y + e.height], [e.x + e.width, e.y + e.height]].map(([x, y]) => [m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f]);
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    boxes.push({ ch: str[i] ?? '', x: Math.min(...xs), y: Math.min(...ys), r: Math.max(...xs), b: Math.max(...ys) });
+  }
+  const runs = []; let cur = null, prev = null;
+  for (const bx of boxes) {
+    if (/\s/.test(bx.ch)) { if (cur) cur.sp = true; continue; }
+    const fs = Math.min(bx.r - bx.x, bx.b - bx.y) > 0 ? Math.max(bx.r - bx.x, bx.b - bx.y) : 0;
+    const gap = prev ? Math.max(bx.x - prev.r, prev.x - bx.r, bx.y - prev.b, prev.y - bx.b, 0) : 0;
+    if (!cur || gap > Math.max(fs, prev.b - prev.y, prev.r - prev.x) * 0.9) { cur = { text: '', x: bx.x, y: bx.y, r: bx.r, b: bx.b }; runs.push(cur); }
+    else if (cur.sp) cur.text += ' ';
+    cur.sp = false; cur.text += bx.ch;
+    cur.x = Math.min(cur.x, bx.x); cur.y = Math.min(cur.y, bx.y); cur.r = Math.max(cur.r, bx.r); cur.b = Math.max(cur.b, bx.b);
+    prev = bx;
+  }
+  const out = runs.filter(r => r.text && r.r > r.x && r.b > r.y).map(r => ({ text: r.text, x: r.x, y: r.y, w: r.r - r.x, h: r.b - r.y }));
+  return out.length ? out : whole();
+}
+// 같은 매대 이름: 같은 줄에서 바로 붙은 조각 + 위아래로 이어지고 가로로 겹치는 줄 (예: '캐릭터인형' / 'ACC' / '/파우치 키링')
+function groupLines(lines) {
+  const par = lines.map((_, i) => i), find = i => par[i] === i ? i : (par[i] = find(par[i]));
+  for (let a = 0; a < lines.length; a++) for (let b = a + 1; b < lines.length; b++) {
+    const p = lines[a], q = lines[b], lh = Math.max(Math.min(p.lh, q.lh), 0.5);
+    const hOver = Math.min(p.x + p.w, q.x + q.w) - Math.max(p.x, q.x);
+    const vGap = Math.max(p.y, q.y) - Math.min(p.y + p.h, q.y + q.h);
+    const sameRow = Math.abs((p.y + p.h / 2) - (q.y + q.h / 2)) < lh * 0.5;
+    const near = sameRow ? -hOver < lh * 0.35
+      : vGap < lh * 0.5 && Math.abs((p.x + p.w / 2) - (q.x + q.w / 2)) < Math.max(p.w, q.w) * 0.6 + lh;
+    if (near) par[find(a)] = find(b);
+  }
+  const m = new Map(); lines.forEach((l, i) => { const r = find(i); if (!m.has(r)) m.set(r, []); m.get(r).push(l); });
+  const groups = [...m.values()].map(makeGroup).sort((a, b) => a.y - b.y || a.x - b.x);
+  return groups.map((g, i) => ({ id: 'g' + i, ...g }));
+}
+// 글자 조각들 → 매대명 묶음 하나 (parts = 나누기·합치기용 조각)
+function makeGroup(ls) {
+  ls.sort((a, b) => a.y - b.y || a.x - b.x);
+  const rows = [];
+  for (const l of ls) { const last = rows.at(-1); if (last && Math.abs(last.cy - (l.y + l.h / 2)) < l.lh * 0.5) last.parts.push(l); else rows.push({ cy: l.y + l.h / 2, parts: [l] }); }
+  const texts = rows.map(r => r.parts.sort((a, b) => a.x - b.x).reduce((acc, p, i, arr) => !i ? p.text : acc + (p.x - (arr[i - 1].x + arr[i - 1].w) > p.lh * 0.25 ? ' ' : '') + p.text, ''));
+  const x = Math.min(...ls.map(l => l.x)), y = Math.min(...ls.map(l => l.y));
+  const fs = ls.map(l => l.lh).sort((a, b) => a - b)[Math.floor(ls.length / 2)];
+  const parts = ls.map(l => ({ text: l.text, x: +l.x.toFixed(2), y: +l.y.toFixed(2), w: +l.w.toFixed(2), h: +l.h.toFixed(2), lh: +(l.lh ?? l.h).toFixed(2) }));
+  return { ko: joinLabel(texts), lines: texts, parts, x: +x.toFixed(2), y: +y.toFixed(2), w: +(Math.max(...ls.map(l => l.x + l.w)) - x).toFixed(2), h: +(Math.max(...ls.map(l => l.y + l.h)) - y).toFixed(2), fs: +fs.toFixed(2) };
+}
+// 줄 잇기: '/'로 끝나거나 시작하면 붙이고, 아니면 띄어쓰기
+const joinLabel = ts => ts.reduce((acc, t) => !acc ? t : (acc.endsWith('/') || t.startsWith('/') ? acc + t : acc + ' ' + t), '');
+
+async function uploadDrawing(file) {
+  if (!/\.svg$/i.test(file.name) && file.type !== 'image/svg+xml') { alert('SVG 파일만 올릴 수 있어요.\n(Illustrator: 파일 → 내보내기 → 다른 이름으로 내보내기 → SVG. 글씨는 윤곽선 만들기 하지 말아주세요)'); return; }
+  const id = dw.id, store = state.stores.find(x => x.id === id);
+  let an;
+  try { toast('도면을 읽는 중…'); an = await analyzeSvg(await file.text()); }
+  catch (e) { alert('도면을 읽지 못했어요: ' + e.message); return; }
+  if (!an.groups.length && !confirm('도면에서 글자를 하나도 못 읽었어요.\n매대명을 윤곽선 만들기 했다면 번역을 할 수 없어요.\n그래도 올릴까요?')) return;
+  const latest = dw.versions.at(-1), redo = latest && !latest.exported; // 아직 안 내보낸 버전이면 그 버전을 바꿈
+  const no = redo ? latest.no : (latest?.no || 0) + 1, vId = redo ? latest.id : 'v' + no, ts = Date.now();
+  const path = `drawings/${id}/v${no}_${ts}.svg`, basePath = `drawings/${id}/v${no}_${ts}_base.svg`;
+  try {
+    toast('도면 올리는 중…');
+    const typ = { contentType: 'image/svg+xml' };
+    await uploadBytes(sRef(st, path), new Blob([an.clean], { type: 'image/svg+xml' }), typ);
+    await uploadBytes(sRef(st, basePath), new Blob([an.base], { type: 'image/svg+xml' }), typ);
+    const [url, baseUrl] = await Promise.all([getDownloadURL(sRef(st, path)), getDownloadURL(sRef(st, basePath))]);
+    if (redo) for (const p of [latest.path, latest.basePath]) if (p) deleteObject(sRef(st, p)).catch(() => { });
+    await setDoc(doc(db, 'drawings', id, 'versions', vId), {
+      no, fileName: file.name, url, path, baseUrl, basePath, w: an.w, h: an.h, groups: an.groups, lineCount: an.lines,
+      memo: redo ? (latest.memo || '') : '', exported: false, uploadedAt: serverTimestamp(), uploadedBy: me(),
+    });
+    await setDoc(doc(db, 'drawings', id), { storeId: id, storeCode: store?.code || '', latestNo: no, latestExported: false, updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true });
+    dw.vId = vId;
+    toast(`ver.${no} 올렸어요 · 매대명 ${an.groups.length}개 읽음. 다 되면 '내보내기'를 눌러주세요`);
+  } catch (e) { toast('올리기 실패: ' + e.message); }
+}
+$('#dw-export').onclick = async () => {
+  const v = curVersion(); if (!v || v.exported) return;
+  if (!confirm(`ver.${v.no}을(를) 내보낼까요?\n내보내면 글로벌사업부가 번역할 수 있어요. 고칠 게 생기면 '재업로드'로 다음 버전을 올리면 돼요.`)) return;
+  const b = writeBatch(db);
+  b.update(doc(db, 'drawings', dw.id, 'versions', v.id), { exported: true, exportedAt: serverTimestamp(), exportedBy: me() });
+  b.set(doc(db, 'drawings', dw.id), { status: 'final', latestExported: v.no === dw.doc?.latestNo, updatedAt: serverTimestamp() }, { merge: true });
+  await b.commit();
+  toast(`ver.${v.no}을(를) 내보냈어요. 최종본이면 버전 기록에서 ★를 눌러주세요`);
+};
+async function starVersion(v) {
+  await setDoc(doc(db, 'drawings', dw.id), { finalVersion: v.id, finalNo: v.no, updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true });
+  toast(`ver.${v.no}을(를) 최종본(★)으로 정했어요. POG에서 이 도면이 보여요`);
+}
+
+// 도면 번역 값: 이 버전에 저장한 것 > 다른 버전에서 같은 한국어로 저장한 것 > 사전 자동
+function dwRowState(g, vId = dw.vId, trDoc = dw.tr, lang = dw.lang) {
+  const m0 = trDoc?.v?.[vId]?.[g.id] || {};
+  const m = m0.ko && norm(m0.ko) !== norm(g.ko) ? {} : m0; // 나누기·합치기로 글자가 바뀌었으면 예전 번역은 안 씀
+  let prev = '';
+  if (!m.text) for (const [vid, map] of Object.entries(trDoc?.v || {})) { if (vid === vId) continue; const hit = Object.values(map || {}).find(x => x?.text && norm(x.ko) === norm(g.ko)); if (hit) { prev = hit.text; break; } }
+  const a = autoTranslate(g.ko, lang, ['카테고리']);
+  const value = m.text || prev || (a.missing.length ? '' : a.text);
+  return { m, prev, a, value, show: value || a.text, need: !m.text && !prev && a.missing.length > 0, status: m.text ? 'saved' : prev ? 'prev' : a.missing.length ? 'missing' : 'auto' };
+}
+// POG 헤더용: 도면 매대 영문 (저장된 번역 없으면 사전 자동이 완전할 때만)
+function dwEnglish(ref, lang) {
+  const g = { id: ref.gid, ko: ref.ko };
+  const s0 = dwRowState(g, ref.vId, tr.dwTr || {}, lang);
+  return s0.value || '';
+}
+function saveDwTr(gid, patch) {
+  const id = dw.id, lang = dw.lang, vId = dw.vId, g = curVersion()?.groups.find(x => x.id === gid);
+  const k = `dwtr|${id}|${lang}|${vId}|${gid}`;
+  const cur = (((dw.tr.v ||= {})[vId] ||= {})[gid] ||= {});
+  Object.assign(cur, { ko: g?.ko || '' }, patch);
+  (dw.local ||= {})[k] = { ...cur };
+  queueWrite(k, () => setDoc(doc(db, 'drawings', id, 'translations', lang), { lang, v: { [vId]: { [gid]: { ...dw.local[k] } } }, updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true }));
+}
+
+// 그림: 업로드 화면 = 원본 + 읽은 매대명 표시 / 번역 화면 = 글자 뺀 바탕 + 번역 글자
+function drawingView(v, mode, { onPick, used, selId, picks } = {}) {
+  const wrap = h('div', { class: 'dw-canvas', style: `aspect-ratio:${v.w} / ${v.h}` }, h('img', { src: mode === 'en' ? v.baseUrl : v.url, alt: '', draggable: 'false' }));
+  const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
+  for (const g of v.groups || []) {
+    if (mode === 'en') {
+      const s0 = dwRowState(g), m = s0.m, sc = m.sc || 1;
+      const el = h('div', { class: 'dw-lab' + (s0.need ? ' need' : '') + (g.id === selId ? ' on' : '') + (canEdit('drawing-trans') ? ' edit' : ''),
+        style: `left:${pct(g.x + g.w / 2 + (m.dx || 0), v.w)};top:${pct(g.y + (m.dy || 0), v.h)};font-size:${(g.fs * 0.82 * sc / v.w * 100).toFixed(4)}cqw` },
+        (s0.show || g.ko).replace(/ ?\/ ?/g, '/'));
+      el.title = g.ko;
+      el.addEventListener('pointerdown', e => dragLabel(e, g, wrap, v));
+      wrap.append(el);
+    } else {
+      const el = h('div', { class: 'dw-box' + (onPick ? ' pick' : '') + (used?.has(g.id) ? ' used' : '') + (g.id === selId || picks?.has(g.id) ? ' on' : ''),
+        style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko });
+      if (onPick) el.onclick = () => onPick(g);
+      wrap.append(el);
+    }
+  }
+  return wrap;
+}
+function dragLabel(e, g, wrap, v) {
+  dw.sel = g.id; renderDwSide();
+  $$('.dw-lab.on', wrap).forEach(x => x.classList.remove('on')); e.currentTarget.classList.add('on');
+  if (!canEdit('drawing-trans')) return;
+  e.preventDefault();
+  const el = e.currentTarget, m0 = dwRowState(g).m, k = v.w / wrap.clientWidth, sx = e.clientX, sy = e.clientY, dx0 = m0.dx || 0, dy0 = m0.dy || 0;
+  let dx = dx0, dy = dy0, moved = false;
+  const mv = ev => {
+    dx = dx0 + (ev.clientX - sx) * k; dy = dy0 + (ev.clientY - sy) * k; moved = true;
+    el.style.left = `${((g.x + g.w / 2 + dx) / v.w * 100).toFixed(3)}%`; el.style.top = `${((g.y + dy) / v.h * 100).toFixed(3)}%`;
+  };
+  const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); if (moved) saveDwTr(g.id, { dx: +dx.toFixed(2), dy: +dy.toFixed(2) }); };
+  window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+}
+function renderDwStage() {
+  const box = $('#dw-stage'), v = curVersion(); if (!box) return;
+  if (!v) {
+    box.replaceChildren(h('div', { class: 'upload-rule' }, h('b', {}, '업로드 파일은 SVG 파일'), ' · ', h('b', {}, '글씨는 윤곽선 만들기 하지 말아주세요'),
+      h('div', { class: 'mut' }, canEdit('drawing') ? "위의 '도면 파일 올리기'를 눌러 한글 도면 SVG를 올려주세요." : 'VMD실이 아직 도면을 올리지 않았어요.')));
+    return;
+  }
+  const en = dw.tab === 'tr' && !$('#dw-ko').checked;
+  const legend = dw.tab === 'up'
+    ? h('div', { class: 'dw-legend' }, `파란 칸 = 사이트가 읽은 매대명 ${v.groups?.length || 0}개. 파란 칸이 없는 글자는 윤곽선이 된 글자라 번역할 수 없어요.${canEdit('drawing') ? ' 칸을 누르면 고르고, 오른쪽에서 나누기·합치기를 할 수 있어요.' : ''}`,
+      !v.groups?.length ? h('span', { class: 'warn' }, ' 글자를 하나도 못 읽었어요!') : null)
+    : h('div', { class: 'dw-legend' }, en ? '글자를 끌어서 옮길 수 있어요. 누르면 오른쪽에서 고쳐요. 회색 점선 = 아직 번역 안 된 글자' : '한글 원본이에요.');
+  const pickable = dw.tab === 'up' && canEdit('drawing');
+  box.replaceChildren(legend, drawingView(v, en ? 'en' : 'ko', pickable ? { picks: dwPicks(), onPick: g => togglePick(g.id) } : { selId: dw.sel }));
+}
+function verCard(v, { canStar, onOpen }) {
+  const fin = dwFinal(dw.doc) === v.id;
+  return h('div', { class: 'dw-ver' + (v.id === dw.vId ? ' cur' : ''), onclick: onOpen },
+    h('div', { class: 't' }, h('b', {}, `ver.${v.no}`),
+      h('span', { class: 'badge ' + (v.exported ? 'final' : 'draft') }, v.exported ? '내보냄' : '작성 중'),
+      canStar && v.exported ? h('button', { class: 'dw-star' + (fin ? ' on' : ''), title: fin ? '최종본' : '최종본으로 정하기', onclick: e => { e.stopPropagation(); if (!fin) starVersion(v); } }, '★')
+        : fin ? h('span', { class: 'dw-star on', title: '최종본' }, '★') : null),
+    h('div', { class: 'd' }, `올림 ${fmtTime(v.uploadedAt)} · ${v.uploadedBy || ''}${v.exportedAt ? ` · 내보냄 ${fmtTime(v.exportedAt)}` : ''}`),
+    v.memo ? h('div', { class: 'm' }, v.memo) : null);
+}
+function renderDwSide() {
+  const box = $('#dw-side'); if (!box || !dw.id) return;
+  const a = document.activeElement;
+  if (box.contains(a) && /INPUT|TEXTAREA/.test(a.tagName)) return; // 입력 중이면 그대로
+  const v = curVersion(), nodes = [];
+  const sec = (t, ...k) => h('section', { class: 'se-sec' }, h('h4', {}, t), ...k);
+  const vers = [...dw.versions].reverse();
+  if (dw.tab === 'up') {
+    const ed = canEdit('drawing');
+    if (v) {
+      nodes.push(h('div', { class: 'se-head' }, h('b', {}, `ver.${v.no}${dwFinal(dw.doc) === v.id ? ' ★최종본' : ''}`), h('span', { class: 'mut' }, `${v.fileName || ''} · 매대명 ${v.groups?.length || 0}개 읽음`)));
+      const ta = h('textarea', { class: 'se-memo', rows: 5, placeholder: ed ? (v.no > 1 ? '이번 버전에서 바뀐 것, 특이사항' : '특이사항 메모') : '', disabled: !ed });
+      ta.value = v.memo || '';
+      ta.addEventListener('input', () => queueWrite(`dw|${dw.id}|${v.id}|memo`, () => updateDoc(doc(db, 'drawings', dw.id, 'versions', v.id), { memo: ta.value })));
+      nodes.push(sec(v.no > 1 ? '메모 (바뀐 것·특이사항)' : '특이사항 메모', ta));
+      if (ed) nodes.push(groupEditor(v));
+    } else nodes.push(h('p', { class: 'se-help' }, '아직 올린 도면이 없어요.'));
+    if (vers.length) nodes.push(sec('버전 기록', h('p', { class: 'se-help' }, ed ? '내보낸 버전 중 최종본에 ★를 누르세요. ★ 버전이 POG에서 보여요.' : '★ = 최종본 (POG에서 보이는 도면)'),
+      ...vers.map(x => verCard(x, { canStar: ed, onOpen: () => { dw.vId = x.id; renderDw(); } }))));
+  } else {
+    const ed = canEdit('drawing-trans'), canGl = canEdit('glossary');
+    if (!v) { box.replaceChildren(h('p', { class: 'se-help' }, '내보낸 도면이 없어요.')); return; }
+    const groups = v.groups || [], states = groups.map(g => [g, dwRowState(g)]), needN = states.filter(([, s0]) => s0.need).length;
+    nodes.push(h('div', { class: 'se-head' }, h('b', {}, `ver.${v.no}${dwFinal(dw.doc) === v.id ? ' ★최종본' : ''} · ${dw.lang}`),
+      h('span', { class: needN ? 'badge warn' : 'badge final' }, needN ? `확인 필요 ${needN}` : '모두 번역됨')));
+    const g = groups.find(x => x.id === dw.sel);
+    if (g) {
+      const s0 = dwRowState(g);
+      const ta = h('textarea', { class: 'se-memo', rows: 2, placeholder: s0.a.text, disabled: !ed }); ta.value = s0.value;
+      ta.addEventListener('input', () => { saveDwTr(g.id, { text: ta.value.trim() }); renderDwStage(); });
+      if (canGl) ta.addEventListener('change', () => {
+        const val = ta.value.trim();
+        if (val && s0.a.missing.length) askGlossary({ id: 'dw' }, { key: g.id, label: '도면 매대명', ko: g.ko, addCat: '카테고리' }, val,
+          { lang: dw.lang, st: { a: s0.a, custom: false }, onUse: x => saveDwTr(g.id, { text: x }), after: () => renderDw() });
+      });
+      const scSel = h('select', { class: 'nb-sel', disabled: !ed }, ...[0.6, 0.7, 0.8, 0.9, 1, 1.2, 1.4, 1.7, 2].map(x => h('option', { value: x }, Math.round(x * 100) + '%')));
+      scSel.value = String(s0.m.sc || 1); scSel.onchange = () => { saveDwTr(g.id, { sc: Number(scSel.value) }); renderDwStage(); };
+      nodes.push(sec('고르는 글자', h('div', { class: 'tr-ko' }, g.lines.join('\n')),
+        ta, s0.a.missing.length && !s0.m.text && !s0.prev ? h('div', { class: 'tr-why', style: 'color:var(--red)' }, `사전에 없는 말: ${s0.a.missing.join(', ')}`) : null,
+        s0.status === 'prev' ? h('div', { class: 'tr-why' }, '이전 버전 번역을 그대로 가져왔어요') : null,
+        h('div', { class: 'se-btns' }, h('span', { class: 'nb-l' }, '글자 크기'), scSel,
+          ed ? h('button', { class: 'btn small ghost', onclick: () => { saveDwTr(g.id, { dx: 0, dy: 0, sc: 1 }); renderDw(); } }, '위치·크기 처음대로') : null,
+          canGl && s0.a.missing.length ? h('button', { class: 'btn small ghost', onclick: () => askGlossary({ id: 'dw' }, { key: g.id, label: '도면 매대명', ko: g.ko, addCat: '카테고리' }, ta.value.trim(),
+            { lang: dw.lang, st: { a: s0.a, custom: false }, onUse: x => saveDwTr(g.id, { text: x }), after: () => renderDw() }) }, '사전에 추가') : null)));
+    }
+    const only = h('input', { type: 'checkbox', checked: dw.onlyNeed }); only.onchange = () => { dw.onlyNeed = only.checked; renderDwSide(); };
+    nodes.push(sec(`매대명 ${groups.length}개`, h('label', { class: 'nb-chk' }, only, ' 확인 필요만'),
+      h('div', { class: 'dw-glist' }, ...states.filter(([, s0]) => !dw.onlyNeed || s0.need).map(([x, s0]) => h('div', { class: 'dw-gi' + (s0.need ? ' need' : '') + (x.id === dw.sel ? ' on' : ''), onclick: () => { dw.sel = x.id; renderDwStage(); renderDwSide(); } },
+        h('span', { class: 'ko' }, x.ko), h('span', { class: 'en' }, s0.need ? '!' : s0.show))))));
+    nodes.push(sec('버전 기록', ...vers.filter(x => x.exported).map(x => verCard(x, { canStar: false, onOpen: () => { dw.vId = x.id; dw.sel = null; renderDw(); } }))));
+  }
+  box.replaceChildren(...nodes);
+}
+// 매대명 묶음 고치기 (업로드 탭): 자동으로 묶은 게 틀렸을 때 나누기·합치기
+function dwPicks() { if (dw.picksV !== dw.vId) { dw.picks = new Set(); dw.picksV = dw.vId; } return dw.picks; }
+function togglePick(id) { const p = dwPicks(); p.has(id) ? p.delete(id) : p.add(id); renderDwStage(); renderDwSide(); }
+function groupEditor(v) {
+  const groups = v.groups || [], picks = dwPicks(), sel = groups.filter(g => picks.has(g.id));
+  const nextId = () => 'g' + (Math.max(-1, ...groups.map(g => parseInt(g.id.slice(1)) || 0)) + 1 + nextId.n++); nextId.n = 0;
+  const save = async (list, msg) => {
+    const linked = [...state.fixtures.values()].some(f => f.drawingRef?.vId === v.id);
+    if (v.exported && !confirm(`이미 내보낸 버전이에요. ${msg}${linked ? '\nPOG에서 이 버전의 매대를 고른 페이지가 있으면, 나뉜 매대는 다시 골라야 할 수 있어요.' : ''}\n계속할까요?`)) return;
+    list.sort((a, b) => a.y - b.y || a.x - b.x);
+    try { await updateDoc(doc(db, 'drawings', dw.id, 'versions', v.id), { groups: list }); dw.picks = new Set(); toast(msg); }
+    catch (e) { alert('저장하지 못했어요: ' + (e.code || e.message)); }
+  };
+  const split = () => {
+    const g = sel[0], parts = g.parts || [];
+    const pieces = parts.map((p, i) => ({ id: i ? nextId() : g.id, ...makeGroup([{ ...p }]) }));
+    save(groups.flatMap(x => x.id === g.id ? pieces : [x]), `'${g.ko}'를 ${pieces.length}개로 나눴어요`);
+  };
+  const merge = () => {
+    if (sel.some(g => !g.parts)) { alert('예전에 올린 도면이라 합칠 수 없어요. 도면을 다시 올려주세요.'); return; }
+    const first = sel.slice().sort((a, b) => a.y - b.y || a.x - b.x)[0];
+    const one = { id: first.id, ...makeGroup(sel.flatMap(g => g.parts.map(p => ({ ...p })))) };
+    save([...groups.filter(x => !picks.has(x.id)), one], `${sel.length}개를 '${one.ko}'로 합쳤어요`);
+  };
+  const g1 = sel.length === 1 ? sel[0] : null;
+  return h('section', { class: 'se-sec' }, h('h4', {}, '매대명 묶음 고치기'),
+    h('p', { class: 'se-help' }, '도면에서 파란 칸을 누르세요. 한 칸에 여러 매대가 들어갔으면 [나누기], 한 매대가 여러 칸으로 나뉘었으면 여러 칸을 눌러 [합치기].'),
+    sel.length ? h('div', { class: 'dw-glist' }, ...sel.map(g => h('div', { class: 'dw-gi on', onclick: () => togglePick(g.id) }, h('span', { class: 'ko' }, g.ko), h('span', { class: 'en' }, '×')))) : null,
+    h('div', { class: 'se-btns' },
+      h('button', { class: 'btn small', disabled: !(g1 && (g1.parts?.length || 0) > 1), onclick: split }, '나누기'),
+      h('button', { class: 'btn small', disabled: sel.length < 2, onclick: merge }, sel.length >= 2 ? `${sel.length}개 합치기` : '합치기'),
+      sel.length ? h('button', { class: 'btn small ghost', onclick: () => { dw.picks = new Set(); renderDwStage(); renderDwSide(); } }, '고른 것 지우기') : null),
+    g1 && !g1.parts ? h('div', { class: 'tr-why' }, '예전에 올린 도면이라 나눌 수 없어요. 다시 올리면 돼요.') : null);
+}
+$('#dw-side').addEventListener('focusout', () => setTimeout(() => renderDwSide(), 80));
+
+// POG 헤더: 이 매장의 ★최종본 도면에서 매대를 눌러 고름
+async function openHeaderPicker(pog, fx) {
+  const st0 = storeForPog(pog);
+  if (!st0) { modal(h('div', {}, h('h3', {}, '도면이 이어진 매장이 없어요'), h('p', {}, `처음 화면 → 매장 등록에서 매장코드 '${pog.storeCode}'인 매장을 등록하고, VMD실이 도면을 올리면 여기서 고를 수 있어요.`))); return; }
+  const d = state.dwMap.get(st0.id);
+  let vers = [];
+  try { vers = (await getDocs(query(collection(db, 'drawings', st0.id, 'versions'), orderBy('no')))).docs.map(x => ({ id: x.id, ...x.data() })).filter(x => x.exported); } catch { }
+  const v = vers.find(x => x.id === dwFinal(d)) || vers.at(-1);
+  if (!v) { modal(h('div', {}, h('h3', {}, '아직 내보낸 도면이 없어요'), h('p', {}, `'${storeName(st0)}' 매장 도면을 VMD실이 올리고 내보내면 고를 수 있어요.`))); return; }
+  const used = new Set([...state.fixtures.values()].filter(x => x.id !== fx.id && x.drawingRef?.vId === v.id).map(x => x.drawingRef.gid));
+  const close = modal(h('div', {},
+    h('h3', {}, `도면에서 매대 고르기 · ${storeName(st0)} ver.${v.no}${dwFinal(d) === v.id ? ' ★최종본' : ''}`),
+    h('p', { class: 'mut' }, '매대를 누르면 헤더에 들어가요. 초록 = 다른 페이지에서 이미 고른 매대. 넣은 뒤에 뒤에 숫자(1, 2…)를 붙여도 돼요.'),
+    drawingView(v, 'ko', { used, selId: fx.drawingRef?.vId === v.id ? fx.drawingRef.gid : null, onPick: g => {
+      const ref = { storeId: st0.id, vId: v.id, vNo: v.no, gid: g.id, ko: g.ko };
+      saveFx(pog.id, fx.id, 'headerName', g.ko); saveFx(pog.id, fx.id, 'drawingRef', ref);
+      const blk = state.pageEls.get(fx.id), inp = blk?.querySelector('[data-f="headerName"]'); if (inp) inp.value = g.ko;
+      fx.drawingRef = ref; fx.headerName = g.ko;
+      close(); toast(`헤더에 '${g.ko}'를 넣었어요`);
+    } })), { wide: true });
+}
 
 /* ---------- 2.3 온라인 POG ---------- */
 $('#on-search').addEventListener('input', renderOnlineList);
