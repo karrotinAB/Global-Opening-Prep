@@ -35,7 +35,13 @@
       const m = b.match(/url\(["']?(.*?)["']?\)/);
       return m ? m[1] : '';
     };
+    // 화면 요소에 붙은 data-* 값과 부모 요소를 모두 남김 (매대 번호 같은 정보가 어디 있는지 찾기 위해)
+    const extra = el => {
+      const par = el.parentElement;
+      return { data: { ...el.dataset }, cls: el.className || '', parent: par ? `${par.tagName.toLowerCase()}#${par.id || ''}.${(par.className || '').toString().split(' ')[0]}` : '' };
+    };
     const items = [...doc.querySelectorAll('div[id^="obj"]')].filter(el => /^obj\d+$/.test(el.id)).map(el => ({
+      ...extra(el),
       id: el.id.slice(3),
       code: el.dataset.item || '',
       name: el.getAttribute('alt') || '',
@@ -45,6 +51,7 @@
       x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight,
     }));
     const props = [...doc.querySelectorAll('div[id^="prop"]')].filter(el => /^prop\d+$/.test(el.id)).map(el => ({
+      ...extra(el),
       id: el.id.slice(4),
       kind: (el.getAttribute('title') || '').split('#')[0].trim(),
       cls: (el.className || '').split(' ')[0],
