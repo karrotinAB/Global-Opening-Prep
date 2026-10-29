@@ -104,7 +104,46 @@
       }
     } catch (e) { }
     const memos = [...doc.querySelectorAll('[id^="memo"]')].map(e => ({ text: (e.textContent || '').replace(/\s+/g, ' ').trim(), x: r1(e.style.left), y: r1(e.style.top), w: r1(e.style.width), h: r1(e.style.height) })).filter(m => m.text);
-    const src = { mdtype: gv('gv-mdtype'), mdcnt, bays, bodies, memos };
+    // 타공판 넓게 찾기: 매대 범위와 겹치는 모든 요소의 배경 무늬(::before·::after 포함)·그림(img·canvas·svg)·작은 구멍 요소
+    const look = { bg: [], holes: null, n: 0 };
+    try {
+      const objs = [...doc.querySelectorAll('div[id^="obj"], div[id^="prop"]')].map(e => e.getBoundingClientRect()).filter(r => r.width);
+      if (objs.length && box) {
+        const A = { l: Math.min(...objs.map(r => r.left)), t: Math.min(...objs.map(r => r.top)), r: Math.max(...objs.map(r => r.right)), b: Math.max(...objs.map(r => r.bottom)) };
+        // 타공판은 제품·집기보다 넓게 깔림 → 매대 몸통(md-body)까지, 그리고 둘레로 넉넉히
+        for (const e of doc.querySelectorAll('[id^="md-body"]')) { const r = e.getBoundingClientRect(); if (r.width) { A.l = Math.min(A.l, r.left); A.t = Math.min(A.t, r.top); A.r = Math.max(A.r, r.right); A.b = Math.max(A.b, r.bottom); } }
+        const mx = Math.max(80, (A.r - A.l) * 0.3), my = Math.max(80, (A.b - A.t) * 0.3);
+        A.l -= mx; A.r += mx; A.t -= my; A.b += my;
+        const br = box.getBoundingClientRect(), rel = r => ({ x: Math.round(r.left - br.left - box.clientLeft), y: Math.round(r.top - br.top - box.clientTop), w: Math.round(r.width), h: Math.round(r.height) });
+        const smalls = [];
+        for (const el of doc.body.querySelectorAll('*')) {
+          if (/^(obj|prop)\d+$/.test(el.id) || el.closest('div[id^="obj"], div[id^="prop"], #__pog_grab')) continue;
+          const r = el.getBoundingClientRect();
+          if (!r.width || !r.height || r.right < A.l || r.left > A.r || r.bottom < A.t || r.top > A.b) continue;
+          look.n++;
+          const tag = el.tagName.toLowerCase(), id = el.id || '', cls = (el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className || '').toString().split(' ')[0];
+          for (const ps of [null, '::before', '::after']) {
+            const c = win.getComputedStyle(el, ps), bi = c.backgroundImage;
+            if (bi && bi !== 'none' && look.bg.length < 30) look.bg.push({ tag, id, cls, ps: ps || '', img: bi.slice(0, 240), size: c.backgroundSize, rep: c.backgroundRepeat, pos: c.backgroundPosition, ...rel(r) });
+          }
+          if (/^(img|canvas|svg)$/.test(tag) && look.bg.length < 30) look.bg.push({ tag, id, cls, img: (el.currentSrc || el.src || '').toString().slice(0, 240), ...rel(r) });
+          if (r.width <= 16 && r.height <= 16 && r.width >= 2 && smalls.length < 5000) smalls.push(r);
+        }
+        if (smalls.length >= 12) { // 같은 크기의 작은 요소가 줄지어 있으면 구멍으로 봄 → 간격
+          const key = r => Math.round(r.width) + 'x' + Math.round(r.height), cnt = {};
+          smalls.forEach(r => cnt[key(r)] = (cnt[key(r)] || 0) + 1);
+          const top = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
+          const hs = smalls.filter(r => key(r) === top[0]);
+          const pitch = vals => { const u = [...new Set(vals.map(v => Math.round(v)))].sort((a, b) => a - b), d = u.slice(1).map((v, i) => v - u[i]).filter(x => x > 1).sort((a, b) => a - b); return d.length ? d[Math.floor(d.length / 2)] : 0; };
+          if (hs.length >= 12) look.holes = { n: hs.length, size: top[0], px: pitch(hs.map(r => r.left)), py: pitch(hs.map(r => r.top)), ...rel(hs[0]) };
+        }
+      }
+    } catch (e) { look.err = String(e && e.message || e); }
+    if (!board) { // 판 무늬를 못 찾았으면: 구멍 요소 → 넓게 깔린 무늬 순서로
+      if (look.holes && look.holes.px) board = { holes: { px: look.holes.px, py: look.holes.py || look.holes.px } };
+      else { const big = look.bg.filter(b => !/^url\(.*\/goods\//.test(b.img) && b.w * b.h >= 4000).sort((a, b) => b.w * b.h - a.w * a.h)[0]; if (big) board = { img: big.img, size: big.size, pos: big.pos, rep: big.rep, x: big.x, y: big.y, w: big.w, h: big.h, from: big.tag + (big.cls ? '.' + big.cls : '') + big.ps }; }
+    }
+    const src = { mdtype: gv('gv-mdtype'), mdcnt, bays, bodies, memos, look };
     return { items, props, panels, board, src };
   }
 
