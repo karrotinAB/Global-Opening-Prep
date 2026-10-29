@@ -249,10 +249,7 @@ function buildCover(pog, { editable }) {
     h('div', { class: 'cover-body' }, title, h('div', { class: 'cover-pog' }, 'POG')),
     h('div', { class: 'pf1' }, 'POG 담당자 ', h('span', { class: 'pf-mgr' })),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
-  const block = h('div', { class: 'page-block cover-block', 'data-id': '__cover' }, page);
-  if (editable) block.append(h('div', { class: 'page-extra empty' }, h('div', { class: 'pe-act no-print' },
-    h('button', { class: 'btn small ghost', onclick: () => addFreePage(pog.id, (sortedFx()[0]?.order ?? 0) - 1) }, '+ 표지 뒤에 빈 페이지 추가'))));
-  return block;
+  return h('div', { class: 'page-block cover-block', 'data-id': '__cover' }, page);
 }
 function syncCover(block, pog) {
   const t = $('.cover-title', block);
@@ -263,13 +260,17 @@ function syncCover(block, pog) {
 }
 
 /* ---------- 슬라이드 목록 (PPT처럼 왼쪽 썸네일) ---------- */
-function makeThumbs(box, scroller) {
+function makeThumbs(box, scroller, onActive) {
   const els = new Map();
-  const setActive = id => els.forEach((t, k) => {
-    const on = k === id;
-    if (on && !t.classList.contains('on')) t.scrollIntoView({ block: 'nearest' });
-    t.classList.toggle('on', on);
-  });
+  let active = null;
+  const setActive = id => {
+    els.forEach((t, k) => {
+      const on = k === id;
+      if (on && !t.classList.contains('on')) t.scrollIntoView({ block: 'nearest' });
+      t.classList.toggle('on', on);
+    });
+    if (id !== active) { active = id; onActive?.(id); }
+  };
   // 스크롤하면 지금 보고 있는 페이지를 표시
   let raf = 0;
   scroller.addEventListener('scroll', () => {
@@ -283,7 +284,8 @@ function makeThumbs(box, scroller) {
     });
   });
   return {
-    clear() { els.clear(); box.innerHTML = ''; },
+    clear() { els.clear(); box.innerHTML = ''; active = null; },
+    setActive,
     // entries: [{ id, block, name, fx }]  fx가 없으면 표지
     sync(entries) {
       const ids = new Set(entries.map(e => e.id));
@@ -300,6 +302,9 @@ function makeThumbs(box, scroller) {
         }
         t._block = e.block;
         t.title = e.name;
+        const sig = e.fx ? itemSig(e.fx) : '';
+        if (e.fx && e.fx.kind !== 'free' && t._sig !== undefined && t._sig !== sig) $('.th-body', t).replaceChildren(buildCanvas(e.fx, 116, 150, null, { lazy: true }));
+        t._sig = sig;
         $('.th-no', t).textContent = i + 1;
         $('.th-name', t).textContent = e.fx ? e.name : '';
         if (!e.fx || e.fx.kind === 'free') { const c = $('.th-cover', t); c.innerHTML = ''; c.append(h('b', {}, e.name), e.fx ? h('small', {}, '추가 페이지') : h('b', {}, 'POG')); }
@@ -309,11 +314,12 @@ function makeThumbs(box, scroller) {
     },
   };
 }
+const itemSig = fx => `${(fx.items || []).length}:${(fx.props || []).length}`;
 const slideEntries = (cover, pog, fixtures, blockOf) => [
   { id: '__cover', block: cover, name: coverTitle(pog) || '표지' },
   ...fixtures.map(fx => ({ id: fx.id, block: blockOf(fx), name: displayName(fx), fx })),
 ];
-edThumbs = makeThumbs($('#ed-thumbs'), $('#ed-pages'));
+edThumbs = makeThumbs($('#ed-thumbs'), $('#ed-pages'), id => { state.edActive = id; renderSidePanel(); });
 vwThumbs = makeThumbs($('#vw-thumbs'), $('#vw-pages'));
 $$('.list-toggle').forEach(b => b.onclick = () => b.closest('.split').classList.toggle('list-off'));
 
@@ -349,18 +355,11 @@ function buildPage(fx, pog, { editable, onItem }) {
     h('div', { class: 'pf1' }, 'POG 담당자 ', h('span', { class: 'pf-mgr' })),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
 
+  // 페이지 메모·사진: 편집은 오른쪽 패널에서. 여기는 온라인 POG 화면과 PDF(다음 장)에 보여주는 곳
   const extra = h('div', { class: 'page-extra' },
-    h('div', { class: 'pe-title' }, h('b', { class: 'pe-name' }), h('span', { class: 'mut' }, ` · POG 원본: ${origName(fx)} · 제품 ${(fx.items || []).length}개` +
-      ((fx.outsideItems || []).length ? ` · 매대 밖이라 뺀 제품 ${fx.outsideItems.length}개` : ''))),
-    field('memo', h('textarea', { rows: 3, placeholder: '메모 (선택)' })),
+    h('div', { class: 'pe-title' }, h('b', { class: 'pe-name' })),
+    h('div', { class: 'pe-memo' }),
     h('div', { class: 'photos' }));
-  if (editable) {
-    const up = h('input', { type: 'file', accept: 'image/*', multiple: true, class: 'hidden' });
-    up.onchange = async () => { await uploadPhotos(pid, fx.id, [...up.files]); up.value = ''; };
-    extra.append(h('div', { class: 'pe-act no-print' },
-      h('button', { class: 'btn small', onclick: () => up.click() }, '+ 사진 첨부'), up,
-      h('button', { class: 'btn small ghost', onclick: () => addFreePage(pog.id, fx.order) }, '+ 이 뒤에 빈 페이지 추가')));
-  }
   return finishBlock(fx, pog, page, extra, editable);
 }
 // 페이지 블록 마무리: 메모 층(네모·글상자·화살표·사진)과 편집 막대를 붙임
@@ -371,9 +370,13 @@ function finishBlock(fx, pog, page, extra, editable) {
   block._notes = structuredClone(fx.notes || []);
   block._sel = null;
   page.append(h('div', { class: 'anno' + (editable ? ' edit' : '') }));
-  if (editable) block.append(buildNoteBar(block));
+  block._itemSig = itemSig(fx);
+  if (editable) block._bar = buildNoteBar(block); // 오른쪽 패널에 붙여서 보여줌
   block.append(page, extra);
-  if (editable) page.addEventListener('pointerdown', e => { if (!e.target.closest('.nt, .nh')) selectNote(block, null); });
+  if (editable) page.addEventListener('pointerdown', e => {
+    setEdActive(fx.id);
+    if (!e.target.closest('.nt, .nh')) selectNote(block, null);
+  });
   renderNotes(block);
   return block;
 }
@@ -385,12 +388,7 @@ function buildFreePage(fx, pog, { editable, field }) {
     h('div', { class: 'pb free-body' }),
     h('div', { class: 'pf1' }, 'POG 담당자 ', h('span', { class: 'pf-mgr' })),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
-  const extra = h('div', { class: 'page-extra empty' }, h('div', { class: 'pe-title' }, h('b', { class: 'pe-name' }), h('span', { class: 'mut' }, ' · 추가 페이지')));
-  if (editable) extra.append(h('div', { class: 'pe-act no-print' },
-    h('button', { class: 'btn small ghost', onclick: () => moveFreePage(pog.id, fx.id, -1) }, '▲ 위로'),
-    h('button', { class: 'btn small ghost', onclick: () => moveFreePage(pog.id, fx.id, 1) }, '▼ 아래로'),
-    h('button', { class: 'btn small ghost', onclick: () => addFreePage(pog.id, fx.order) }, '+ 이 뒤에 빈 페이지 추가'),
-    h('button', { class: 'btn small ghost danger', onclick: () => deleteFreePage(pog.id, fx) }, '페이지 삭제')));
+  const extra = h('div', { class: 'page-extra empty' }, h('div', { class: 'pe-title' }, h('b', { class: 'pe-name' })));
   return finishBlock(fx, pog, page, extra, editable);
 }
 const sortedFx = () => [...state.fixtures.values()].sort((a, b) => a.order - b.order);
@@ -404,7 +402,7 @@ async function addFreePage(pogId, afterOrder) {
       teamName: '', mdName: '', createdAt: serverTimestamp(), createdBy: me(),
     });
     toast('빈 페이지를 추가했어요');
-    setTimeout(() => state.pageEls.get(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
+    setTimeout(() => { state.pageEls.get(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setEdActive(id); }, 300);
   } catch (e) { toast('추가 실패: ' + e.message); }
 }
 async function moveFreePage(pogId, fxId, dir) {
@@ -438,6 +436,7 @@ let noteSaveBlock = null; // Delete 키로 지울 때 쓰는, 지금 선택된 �
 
 function saveNotes(block) { saveFx(block._pog, block._fx, 'notes', structuredClone(block._notes)); }
 function selectNote(block, id) {
+  if (id) setEdActive(block._fx);
   if (block._sel === id) return;
   block._sel = id; noteSaveBlock = id ? block : null;
   renderNotes(block); renderNoteBar(block);
@@ -477,7 +476,7 @@ function renderNotes(block) {
     if (sel) el.classList.add('sel');
     if (ed) {
       el.addEventListener('pointerdown', e => startNoteDrag(e, block, n, 'move'));
-      if (n.t === 'text') el.addEventListener('dblclick', () => $('.nb-text', block)?.focus());
+      if (n.t === 'text') el.addEventListener('dblclick', () => block._bar?.querySelector('.nb-text')?.focus());
       if (sel) { const hd = h('div', { class: 'nh nh-se' }); hd.addEventListener('pointerdown', e => startNoteDrag(e, block, n, 'size')); el.append(hd); }
     }
     layer.append(el);
@@ -485,6 +484,7 @@ function renderNotes(block) {
 }
 function startNoteDrag(e, block, n, mode) {
   e.preventDefault(); e.stopPropagation();
+  if ($('#ed-side')?.contains(document.activeElement)) document.activeElement.blur(); // 패널에서 글 쓰던 중이면 끝내고 이 페이지로
   selectNote(block, n.id);
   const sx = e.clientX, sy = e.clientY, o = { ...n };
   let moved = false;
@@ -552,7 +552,7 @@ function swatches(cur, onPick, { none = false } = {}) {
     h('input', { type: 'color', class: 'sw-pick', value: cur || '#000000', title: '다른 색', onchange: e => onPick(e.target.value) }));
 }
 function renderNoteBar(block) {
-  const box = $('.nb-props', block); if (!box) return;
+  const box = block._bar?.querySelector('.nb-props'); if (!box) return;
   if (box.contains(document.activeElement) && document.activeElement.tagName === 'TEXTAREA') return; // 글 쓰는 중
   box.innerHTML = '';
   const n = block._notes.find(x => x.id === block._sel);
@@ -616,8 +616,9 @@ function syncPage(block, fx, pog) {
   $('.pf-mgr', block).textContent = pog.manager || '';
   $('.pf-branch', block).textContent = footStore(pog);
   $('.pe-name', block).textContent = displayName(fx);
+  const memo = $('.pe-memo', block); if (memo) memo.textContent = fx.memo || '';
   renderPhotos(block, pog.id, fx);
-  const typing = block.querySelector('.nb-text') === document.activeElement;
+  const typing = !!block._bar && block._bar.querySelector('.nb-text') === document.activeElement;
   if (!block._dragging && !typing && !pendingKey(`${fx.id}|notes`) && JSON.stringify(fx.notes || []) !== JSON.stringify(block._notes)) {
     block._notes = structuredClone(fx.notes || []);
     if (!block._notes.some(n => n.id === block._sel)) block._sel = null;
@@ -631,7 +632,6 @@ function renderPhotos(block, pogId, fx) {
   const box = $('.photos', block); if (!box) return; box.innerHTML = '';
   for (const p of fx.photos || []) {
     const fig = h('figure', {}, h('a', { href: p.url, target: '_blank' }, h('img', { src: p.url, alt: '' })));
-    if (block._editable) fig.append(h('button', { class: 'ph-del no-print', title: '삭제', onclick: () => removePhoto(pogId, fx.id, p) }, '×'));
     box.append(fig);
   }
 }
@@ -686,7 +686,8 @@ function renderPogList() {
 function closePog() {
   state.unsubPog?.(); state.unsubFx?.();
   state.unsubPog = state.unsubFx = null;
-  state.currentPog = null; state.fixtures = new Map(); state.pageEls = new Map(); state.lockKey = null; state.coverEl = null;
+  state.currentPog = null; state.fixtures = new Map(); state.pageEls = new Map(); state.lockKey = null; state.coverEl = null; state.edActive = null;
+  $('#ed-side')?.replaceChildren();
   edThumbs.clear();
   $('#editor-body')?.classList.add('hidden'); $('#editor-empty')?.classList.remove('hidden');
   $('#v-pog-make .split')?.classList.remove('list-off');
@@ -743,11 +744,71 @@ function renderEditorPages() {
   const order = [...state.fixtures.values()].sort((a, b) => a.order - b.order);
   order.forEach((fx, i) => {
     let el = state.pageEls.get(fx.id);
+    if (el && el._itemSig !== itemSig(fx)) { el.remove(); el = null; }
     if (!el) { el = buildPage(fx, pog, { editable: state.edEditable }); state.pageEls.set(fx.id, el); }
     syncPage(el, fx, pog);
     if (wrap.children[i + 1] !== el) wrap.insertBefore(el, wrap.children[i + 1] || null); // 0번은 표지
   });
   edThumbs.sync(slideEntries(state.coverEl, pog, order, fx => state.pageEls.get(fx.id)));
+  renderSidePanel();
+}
+
+/* ---------- 오른쪽 편집 패널: 지금 보고 있는 페이지의 메모 도구·메모·사진·페이지 버튼 ---------- */
+function setEdActive(id) {
+  if (state.edActive === id) return;
+  state.edActive = id;
+  edThumbs.setActive(id);
+  renderSidePanel();
+}
+function renderSidePanel() {
+  const box = $('#ed-side'), pog = state.currentPog;
+  if (!box || !pog?.status) return;
+  const a = document.activeElement;
+  if (box.contains(a) && /TEXTAREA|INPUT|SELECT/.test(a.tagName)) return; // 입력 중이면 그대로 둠
+  const id = state.edActive || '__cover', ed = state.edEditable;
+  const sec = (title, ...kids) => h('section', { class: 'se-sec' }, h('h4', {}, title), ...kids);
+  const btn = (t, fn, cls = '') => h('button', { class: 'btn small ' + cls, onclick: fn }, t);
+  const nodes = [];
+  if (id === '__cover') {
+    nodes.push(h('div', { class: 'se-head' }, h('b', {}, '표지'), h('span', { class: 'mut' }, '매장명은 표지 가운데에서 바로 고칠 수 있어요')));
+    if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' }, btn('+ 표지 뒤에 빈 페이지 추가', () => addFreePage(pog.id, (sortedFx()[0]?.order ?? 0) - 1)))));
+  } else {
+    const fx = state.fixtures.get(id), block = state.pageEls.get(id);
+    if (!fx || !block) { box.replaceChildren(); return; }
+    const free = fx.kind === 'free', out = (fx.outsideItems || []).length;
+    nodes.push(h('div', { class: 'se-head' }, h('b', {}, displayName(fx)),
+      h('span', { class: 'mut' }, free ? '추가 페이지' : `POG 원본: ${origName(fx)} · 제품 ${(fx.items || []).length}개`)));
+    if (out) nodes.push(h('div', { class: 'se-warn' }, `매대 밖이라 뺀 제품 ${out}개`,
+      ed ? btn('되살리기', () => restoreOutside(pog.id, fx), 'ghost') : null));
+    if (ed && block._bar) nodes.push(sec('메모 넣기', block._bar));
+    if (!free) {
+      const ta = h('textarea', { class: 'se-memo', rows: 4, placeholder: ed ? '이 매대에 대한 메모 (선택)' : '', disabled: !ed });
+      ta.value = fx.memo || '';
+      if (ed) ta.addEventListener('input', () => saveFx(pog.id, fx.id, 'memo', ta.value));
+      const photos = h('div', { class: 'se-photos' }, ...(fx.photos || []).map(p => h('figure', {},
+        h('a', { href: p.url, target: '_blank' }, h('img', { src: p.url, alt: '' })),
+        ed ? h('button', { class: 'ph-del', title: '삭제', onclick: () => removePhoto(pog.id, fx.id, p) }, '×') : null)));
+      const up = h('input', { type: 'file', accept: 'image/*', multiple: true, class: 'hidden' });
+      up.onchange = async () => { await uploadPhotos(pog.id, fx.id, [...up.files]); up.value = ''; };
+      nodes.push(sec('메모·사진', h('p', { class: 'se-help' }, 'PDF에서 이 페이지 바로 다음 장에 따로 붙어요. 페이지 위에 바로 넣으려면 위의 메모 넣기를 쓰세요.'),
+        ta, photos, ed ? h('div', { class: 'se-btns' }, btn('+ 사진 첨부', () => up.click()), up) : null));
+    }
+    if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' },
+      free ? btn('▲ 위로', () => moveFreePage(pog.id, fx.id, -1), 'ghost') : null,
+      free ? btn('▼ 아래로', () => moveFreePage(pog.id, fx.id, 1), 'ghost') : null,
+      btn('+ 이 뒤에 빈 페이지 추가', () => addFreePage(pog.id, fx.order), 'ghost'),
+      free ? btn('페이지 삭제', () => deleteFreePage(pog.id, fx), 'ghost danger') : null)));
+  }
+  if (!ed) nodes.push(h('p', { class: 'se-help' }, pog.status === 'final' ? '최종 POG라 잠겨 있어요.' : '보기 전용이에요.'));
+  box.replaceChildren(...nodes);
+}
+// 매대 밖이라 뺀 제품을 이 페이지에 다시 넣기
+async function restoreOutside(pogId, fx) {
+  const out = fx.outsideItems || [];
+  if (!out.length || !confirm(`매대 밖이라 뺀 제품 ${out.length}개를 이 페이지에 되살릴까요?`)) return;
+  const items = [...(fx.items || []), ...out];
+  await updateDoc(doc(db, 'pogs', pogId, 'fixtures', fx.id), { items, outsideItems: [], itemCount: items.length, updatedAt: serverTimestamp(), updatedBy: me() });
+  toast(`${out.length}개를 되살렸어요`);
 }
 
 $('#ed-branch').addEventListener('input', e => {
@@ -835,7 +896,7 @@ function openImport() {
       h('li', {}, '다 모이면 뜨는 창에서 \'복사하기\'를 누르고, 아래 칸에 붙여넣으세요.')),
     ta,
     h('label', { class: 'imp-opt' }, h('input', { type: 'checkbox', id: 'imp-drop', checked: true }),
-      ' 매대 밖에 놓인 제품은 빼고 가져오기 ', h('span', { class: 'mut' }, '(선반·파이프 옆이나 아래로 벗어난 제품. 뺀 제품은 따로 보관돼요)')),
+      ' 매대 밖에 놓인 제품은 빼고 가져오기 ', h('span', { class: 'mut' }, '(매대 옆으로 완전히 벗어난 제품. 뺀 제품은 보관되고 오른쪽 패널에서 되살릴 수 있어요)')),
     h('div', { class: 'modal-act' }, go)));
   go.onclick = async () => {
     go.disabled = true; go.textContent = '가져오는 중…';
@@ -882,18 +943,16 @@ function splitBays(items, props, expected) {
   return groups;
 }
 
-/* 매대 밖에 놓인 제품 골라내기 (POG 사이트에서 옆에 빼둔 제품 등)
-   - 가로: 제품 가운데가 어느 선반·파이프의 가로 범위(±10px)에도 없으면 밖
-   - 세로: 맨 아래 집기보다 30px 넘게 아래에서 시작하면 밖 (위쪽은 쌓아 진열할 수 있어 보지 않음)
-   집기가 없거나, 다 밖으로 나오면 판단할 수 없으니 그대로 둔다. */
+/* 매대 밖에 놓인 제품 골라내기 (POG 사이트에서 매대 옆에 빼둔 제품 등)
+   매대 전체(모든 선반·파이프)의 가로 범위에서 **완전히 벗어난** 제품만 밖으로 본다.
+   위아래는 보지 않는다: 파이프에 거는 제품은 집기보다 한참 아래로 내려오고, 쌓아 진열하면 위로 올라감.
+   (처음엔 아래쪽도 봤는데, 실제 거는화일 매대에서 24개 중 14개를 잘못 뺐음)
+   집기가 없거나 전부 밖으로 판정되면 그대로 둔다. */
 function splitOutside(items, props) {
   const ps = props.filter(p => p.w > 0);
   if (!ps.length || !items.length) return { inside: items, outside: [] };
-  const bottom = Math.max(...ps.map(p => p.y + Math.max(p.h || 0, 4)));
-  const out = o => {
-    const cx = o.x + (o.w || 0) / 2;
-    return !ps.some(p => cx >= p.x - 10 && cx <= p.x + p.w + 10) || o.y > bottom + 30;
-  };
+  const left = Math.min(...ps.map(p => p.x)) - 10, right = Math.max(...ps.map(p => p.x + p.w)) + 10;
+  const out = o => o.x + (o.w || 0) < left || o.x > right;
   const outside = items.filter(out);
   if (outside.length === items.length) return { inside: items, outside: [] };
   return { inside: items.filter(o => !out(o)), outside };
