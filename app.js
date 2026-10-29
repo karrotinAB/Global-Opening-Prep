@@ -2,7 +2,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy,
-  writeBatch, serverTimestamp, arrayUnion, arrayRemove, getDocs
+  writeBatch, serverTimestamp, arrayUnion, arrayRemove, getDocs, FieldPath
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
@@ -64,15 +64,19 @@ const fmtDate = ts => {
   const d = ts?.toDate ? ts.toDate() : (ts ? new Date(ts) : null);
   return d ? `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}` : '';
 };
-const displayName = fx => fx.headerName || fx.mdName || '';
+// POG 원본 이름. 칸이 여러 개인 매대는 '(1/2)'처럼 몇 번째 칸인지 붙임
+const origName = fx => (fx.mdName || '') + (fx.bayCount > 1 ? ` (${fx.bayNo}/${fx.bayCount})` : '');
+const displayName = fx => fx.headerName || origName(fx);
 const glossaryOf = cat => state.glossary.filter(g => g.cat === cat).sort((a, b) => (a.ko || '').localeCompare(b.ko || '', 'ko'));
 
 const state = {
-  user: null, level: null, view: 'home', roles: [],
+  user: null, level: null, view: 'home', roles: [], glLang: '',
   pogs: [], managers: [], glossary: [], glCat: CATS[0],
   currentPog: null, fixtures: new Map(), pageEls: new Map(), lockKey: null, unsubPog: null, unsubFx: null,
   viewer: { unsubPog: null, unsubFx: null, pog: null, fixtures: [] },
 };
+
+let edThumbs, vwThumbs; // 아래 썸네일 함수가 정의된 뒤 만들어짐
 
 /* ---------- 로그인 ---------- */
 let unsubRole = null;
@@ -169,11 +173,11 @@ function queueWrite(key, fn) {
 }
 const saveFx = (pogId, fxId, f, v) => queueWrite(`${fxId}|${f}`, () =>
   updateDoc(doc(db, 'pogs', pogId, 'fixtures', fxId), { [f]: v, updatedAt: serverTimestamp(), updatedBy: state.user.email }));
-const savePog = (pogId, f, v) => queueWrite(`pog|${f}`, () =>
+const savePog = (pogId, f, v) => queueWrite(`${pogId}|${f}`, () =>
   updateDoc(doc(db, 'pogs', pogId), { [f]: v, updatedAt: serverTimestamp() }));
 
 /* ---------- 매대 그리기 ---------- */
-function buildCanvas(fx, W, H, onItem) {
+function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
   const items = fx.items || [], props = fx.props || [];
   const wrap = h('div', { class: 'cv', style: `width:${W}px;height:${H}px` });
   const objs = [...props, ...items];
@@ -194,13 +198,92 @@ function buildCanvas(fx, W, H, onItem) {
   for (const it of items) {
     const el = h('div', { class: 'cv-item' + (onItem ? ' click' : ''), 'data-code': it.code, title: `[${it.code}] ${it.name}`,
       style: `left:${it.x - x0 + pad}px;top:${it.y - y0 + pad}px;width:${it.w}px;height:${it.h}px` },
-      it.img ? h('img', { src: it.img, alt: '', referrerpolicy: 'no-referrer' }) : h('span', {}, it.name));
+      it.img ? h('img', { src: it.img, alt: '', referrerpolicy: 'no-referrer', loading: lazy ? 'lazy' : null }) : h('span', {}, it.name));
     if (onItem) el.onclick = () => onItem(it, fx);
     inner.append(el);
   }
   wrap.append(inner);
   return wrap;
 }
+
+/* ---------- 표지 (매장명 + POG) ---------- */
+// 제목을 따로 안 적으면 지점명에서 끝의 '점'을 뺀 이름 (Keruen City점 → Keruen City)
+const autoCoverTitle = pog => (pog.branchName || pog.storeName || '').trim().replace(/\s*점$/, '');
+const coverTitle = pog => pog.coverTitle || autoCoverTitle(pog);
+function buildCover(pog, { editable }) {
+  const title = h('input', { class: 'f cover-title' });
+  if (!editable) title.disabled = true;
+  else title.addEventListener('input', () => savePog(pog.id, 'coverTitle', title.value));
+  const page = h('div', { class: 'page cover' },
+    h('div', { class: 'ph' }),
+    h('div', { class: 'cover-gap' }),
+    h('div', { class: 'cover-body' }, title, h('div', { class: 'cover-pog' }, 'POG')),
+    h('div', { class: 'pf1' }, 'POG 담당자 ', h('span', { class: 'pf-mgr' })),
+    h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
+  return h('div', { class: 'page-block cover-block', 'data-id': '__cover' }, page);
+}
+function syncCover(block, pog) {
+  const t = $('.cover-title', block);
+  t.placeholder = autoCoverTitle(pog) || '매장명';
+  if (t !== document.activeElement && t.value !== (pog.coverTitle || '')) t.value = pog.coverTitle || '';
+  $('.pf-mgr', block).textContent = pog.manager || '';
+  $('.pf-branch', block).textContent = pog.branchName || '';
+}
+
+/* ---------- 슬라이드 목록 (PPT처럼 왼쪽 썸네일) ---------- */
+function makeThumbs(box, scroller) {
+  const els = new Map();
+  const setActive = id => els.forEach((t, k) => {
+    const on = k === id;
+    if (on && !t.classList.contains('on')) t.scrollIntoView({ block: 'nearest' });
+    t.classList.toggle('on', on);
+  });
+  // 스크롤하면 지금 보고 있는 페이지를 표시
+  let raf = 0;
+  scroller.addEventListener('scroll', () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      const top = scroller.getBoundingClientRect().top + 120;
+      let cur = els.keys().next().value;
+      for (const [id, t] of els) if (t._block?.getBoundingClientRect().top <= top) cur = id;
+      setActive(cur);
+    });
+  });
+  return {
+    clear() { els.clear(); box.innerHTML = ''; },
+    // entries: [{ id, block, name, fx }]  fx가 없으면 표지
+    sync(entries) {
+      const ids = new Set(entries.map(e => e.id));
+      for (const [id, t] of els) if (!ids.has(id)) { t.remove(); els.delete(id); }
+      entries.forEach((e, i) => {
+        let t = els.get(e.id);
+        if (!t) {
+          const body = e.fx ? buildCanvas(e.fx, 116, 150, null, { lazy: true }) : h('div', { class: 'th-cover' });
+          t = h('div', { class: 'thumb', title: e.name },
+            h('div', { class: 'th-no' }),
+            h('div', { class: 'th-page' }, h('div', { class: 'th-head' }, h('span', { class: 'th-name' })), h('div', { class: 'th-body' }, body)));
+          t.onclick = () => { t._block?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setActive(e.id); };
+          els.set(e.id, t);
+        }
+        t._block = e.block;
+        t.title = e.name;
+        $('.th-no', t).textContent = i + 1;
+        $('.th-name', t).textContent = e.fx ? e.name : '';
+        if (!e.fx) { const c = $('.th-cover', t); c.innerHTML = ''; c.append(h('b', {}, e.name), h('b', {}, 'POG')); }
+        if (box.children[i] !== t) box.insertBefore(t, box.children[i] || null);
+      });
+      if (!box.querySelector('.thumb.on') && entries[0]) setActive(entries[0].id);
+    },
+  };
+}
+const slideEntries = (cover, pog, fixtures, blockOf) => [
+  { id: '__cover', block: cover, name: coverTitle(pog) || '표지' },
+  ...fixtures.map(fx => ({ id: fx.id, block: blockOf(fx), name: displayName(fx), fx })),
+];
+edThumbs = makeThumbs($('#ed-thumbs'), $('#ed-pages'));
+vwThumbs = makeThumbs($('#vw-thumbs'), $('#vw-pages'));
+$$('.list-toggle').forEach(b => b.onclick = () => b.closest('.split').classList.toggle('list-off'));
 
 /* ---------- POG 페이지 (A4 한 장 = 매대 하나) ---------- */
 function buildPage(fx, pog, { editable, onItem }) {
@@ -218,7 +301,7 @@ function buildPage(fx, pog, { editable, onItem }) {
 
   const page = h('div', { class: 'page' },
     h('div', { class: 'ph' },
-      field('headerName', h('input', { class: 'ph-name', placeholder: fx.mdName || '매대명' })),
+      field('headerName', h('input', { class: 'ph-name', placeholder: origName(fx) || '매대명' })),
       h('div', { class: 'ph-cat' }, catName(fx.teamName))),
     h('div', { class: 'pb' },
       h('div', { class: 'pcanvas' }, buildCanvas(fx, CANVAS_W, CANVAS_H, onItem)),
@@ -234,7 +317,7 @@ function buildPage(fx, pog, { editable, onItem }) {
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
 
   const extra = h('div', { class: 'page-extra' },
-    h('div', { class: 'pe-title' }, h('b', { class: 'pe-name' }), h('span', { class: 'mut' }, ` · POG 원본: ${fx.mdName || ''} · 제품 ${(fx.items || []).length}개`)),
+    h('div', { class: 'pe-title' }, h('b', { class: 'pe-name' }), h('span', { class: 'mut' }, ` · POG 원본: ${origName(fx)} · 제품 ${(fx.items || []).length}개`)),
     field('memo', h('textarea', { rows: 3, placeholder: '메모 (선택)' })),
     h('div', { class: 'photos' }));
   if (editable) {
@@ -333,12 +416,15 @@ function renderPogList() {
 function closePog() {
   state.unsubPog?.(); state.unsubFx?.();
   state.unsubPog = state.unsubFx = null;
-  state.currentPog = null; state.fixtures = new Map(); state.pageEls = new Map(); state.lockKey = null;
+  state.currentPog = null; state.fixtures = new Map(); state.pageEls = new Map(); state.lockKey = null; state.coverEl = null;
+  edThumbs.clear();
   $('#editor-body')?.classList.add('hidden'); $('#editor-empty')?.classList.remove('hidden');
+  $('#v-pog-make .split')?.classList.remove('list-off');
 }
 function openPog(id) {
   closePog();
   $('#editor-empty').classList.add('hidden'); $('#editor-body').classList.remove('hidden');
+  $('#v-pog-make .split').classList.add('list-off'); // 페이지를 넓게 보도록 목록은 접어둠
   $('#ed-pages').innerHTML = '<div class="mut pad">불러오는 중…</div>';
   state.currentPog = { id };
   renderPogList();
@@ -369,6 +455,7 @@ function applyPogDoc() {
   if (state.lockKey !== key) {
     state.lockKey = key;
     state.pageEls.forEach(el => el.remove()); state.pageEls = new Map();
+    state.coverEl?.remove(); state.coverEl = null;
   }
   renderEditorPages();
 }
@@ -377,20 +464,25 @@ function renderEditorPages() {
   if (!pog || pog.status === undefined) return; // 문서 본체가 아직 안 왔으면 대기
   const wrap = $('#ed-pages');
   wrap.querySelector(':scope > .pad')?.remove();
+  if (!state.coverEl) state.coverEl = buildCover(pog, { editable: pog.status !== 'final' });
+  syncCover(state.coverEl, pog);
+  if (wrap.firstElementChild !== state.coverEl) wrap.prepend(state.coverEl);
   for (const [id, el] of state.pageEls) if (!state.fixtures.has(id)) { el.remove(); state.pageEls.delete(id); }
   const order = [...state.fixtures.values()].sort((a, b) => a.order - b.order);
   order.forEach((fx, i) => {
     let el = state.pageEls.get(fx.id);
     if (!el) { el = buildPage(fx, pog, { editable: pog.status !== 'final' }); state.pageEls.set(fx.id, el); }
     syncPage(el, fx, pog);
-    if (wrap.children[i] !== el) wrap.insertBefore(el, wrap.children[i] || null);
+    if (wrap.children[i + 1] !== el) wrap.insertBefore(el, wrap.children[i + 1] || null); // 0번은 표지
   });
+  edThumbs.sync(slideEntries(state.coverEl, pog, order, fx => state.pageEls.get(fx.id)));
 }
 
 $('#ed-branch').addEventListener('input', e => {
   const p = state.currentPog; if (!p) return;
   p.branchName = e.target.value; savePog(p.id, 'branchName', e.target.value);
   state.pageEls.forEach(el => $('.pf-branch', el).textContent = e.target.value);
+  if (state.coverEl) syncCover(state.coverEl, p);
 });
 function refreshManagerSelect() {
   const sel = $('#ed-manager'); if (!sel) return;
@@ -476,6 +568,45 @@ function openImport() {
     if (ok) close(); else { go.disabled = false; go.textContent = '가져오기'; }
   };
 }
+/* POG 사이트의 매대 한 줄에 칸(매대)이 좌우로 여러 개 있으면 칸마다 나눈다.
+   선반(집기)의 가로 범위가 겹치는 것끼리 한 칸으로 묶고, 제품은 가운데 위치가 속한 칸에 넣는다.
+   expected = 목록의 '매대수' (모르면 null). 1이면 나누지 않음. */
+function splitBays(items, props, expected) {
+  if (expected === 1) return [{ items, props }];
+  const ranges = src => {
+    const iv = src.filter(o => o.w > 0).map(o => [o.x, o.x + o.w]).sort((a, b) => a[0] - b[0]);
+    const out = [];
+    for (const [a, b] of iv) { const last = out[out.length - 1]; if (last && a <= last[1] + 6) last[1] = Math.max(last[1], b); else out.push([a, b]); }
+    return out;
+  };
+  let bays = ranges(props);
+  // 집기로 못 나누면 제품 위치로 (칸 사이가 40px 이상 비어 있을 때만)
+  if (bays.length < 2 && expected > 1 && items.length) {
+    const r = ranges(items), merged = [];
+    for (const x of r) { const last = merged[merged.length - 1]; if (last && x[0] - last[1] < 40) last[1] = Math.max(last[1], x[1]); else merged.push([...x]); }
+    if (merged.length > 1) bays = merged;
+  }
+  if (bays.length < 2) return [{ items, props }];
+  const at = o => {
+    const cx = o.x + (o.w || 0) / 2;
+    let best = 0, bd = Infinity;
+    bays.forEach(([a, b], i) => { const d = cx < a ? a - cx : cx > b ? cx - b : 0; if (d < bd) { bd = d; best = i; } });
+    return best;
+  };
+  let groups = bays.map(() => ({ items: [], props: [] }));
+  items.forEach(o => groups[at(o)].items.push(o));
+  props.forEach(o => groups[at(o)].props.push(o));
+  // 제품이 하나도 없는 좁은 조각(옆에 붙은 작은 집기 등)은 옆 칸에 합침
+  const maxW = Math.max(...bays.map(([a, b]) => b - a));
+  for (let i = groups.length - 1; i >= 0 && groups.length > 1; i--) {
+    if (groups[i].items.length || bays[i][1] - bays[i][0] >= maxW * 0.4) continue;
+    const j = i > 0 ? i - 1 : 1;
+    groups[j].props.push(...groups[i].props);
+    groups.splice(i, 1); bays.splice(i, 1);
+  }
+  return groups;
+}
+
 async function doImport(text) {
   let data;
   try { data = JSON.parse(text.trim()); } catch { toast('붙여넣은 내용이 올바르지 않아요'); return false; }
@@ -484,26 +615,46 @@ async function doImport(text) {
   }
   let ref = null;
   try {
+    // 매대 줄마다 칸을 나눠서 페이지 목록 만들기
+    const pages = [];
+    let splitN = 0;
+    for (const [i, f] of data.fixtures.entries()) {
+      const bays = splitBays(f.items || [], f.props || [], f.bayCount ?? null);
+      if (bays.length > 1) splitN++;
+      const shelf = f.shelfCount ?? 0, pipe = f.pipeCount ?? 0;
+      const kinds = (f.props || []).some(p => /선반|파이프/.test(p.kind || ''));
+      bays.forEach((bay, k) => {
+        const count = (re, total) => bays.length === 1 ? total
+          : kinds ? bay.props.filter(p => re.test(p.kind || '')).length : Math.round(total / bays.length);
+        const sh = count(/선반/, shelf), pi = count(/파이프/, pipe);
+        const base = String(f.mdidx || 'fx' + i);
+        pages.push({
+          id: bays.length > 1 ? `${base}-${k + 1}` : base,
+          mdidx: String(f.mdidx || ''), bayNo: k + 1, bayCount: bays.length,
+          teamName: f.teamName || '', mdName: f.mdName || '',
+          shelfCount: sh, pipeCount: pi,
+          itemCount: bays.length > 1 ? bay.items.length : (f.itemCount ?? bay.items.length),
+          items: bay.items, props: bay.props,
+          shelfPipe: [sh ? `선반 ${sh}` : '', pi ? `파이프 ${pi}` : ''].filter(Boolean).join(' / '),
+        });
+      });
+    }
     ref = await addDoc(collection(db, 'pogs'), {
       storeCode: data.storeCode || '', storeName: data.storeName || '',
-      branchName: '', manager: '', status: 'draft', fixtureCount: data.fixtures.length,
+      branchName: '', manager: '', status: 'draft', fixtureCount: pages.length,
       grabbedAt: data.grabbedAt || '', createdAt: serverTimestamp(), createdBy: state.user.email, updatedAt: serverTimestamp(),
     });
     let b = writeBatch(db), n = 0;
-    for (const [i, f] of data.fixtures.entries()) {
-      const shelf = f.shelfCount ?? 0, pipe = f.pipeCount ?? 0;
-      b.set(doc(db, 'pogs', ref.id, 'fixtures', String(f.mdidx || 'fx' + i)), {
-        order: i, mdidx: String(f.mdidx || ''), teamName: f.teamName || '', mdName: f.mdName || '',
-        shelfCount: shelf, pipeCount: pipe, itemCount: f.itemCount ?? (f.items || []).length,
-        items: f.items || [], props: f.props || [],
+    for (const [i, { id, ...pg }] of pages.entries()) {
+      b.set(doc(db, 'pogs', ref.id, 'fixtures', id), {
+        order: i, ...pg,
         headerName: '', fixtureType: '', hookType: '', hookCount: '',
-        shelfPipe: [shelf ? `선반 ${shelf}` : '', pipe ? `파이프 ${pipe}` : ''].filter(Boolean).join(' / '),
         otherFixtures: '', memo: '', photos: [],
       });
       if (++n >= 400) { await b.commit(); b = writeBatch(db); n = 0; }
     }
     await b.commit();
-    toast(`매대 ${data.fixtures.length}개를 가져왔어요`);
+    toast(`매대 ${pages.length}개를 가져왔어요` + (splitN ? ` (칸이 여러 개인 매대 ${splitN}개는 칸마다 나눴어요)` : ''));
     openPog(ref.id);
     return true;
   } catch (e) {
@@ -529,13 +680,16 @@ function renderOnlineList() {
 function closeViewer() {
   const v = state.viewer; v.unsubPog?.(); v.unsubFx?.();
   v.unsubPog = v.unsubFx = null; v.pog = null; v.fixtures = [];
+  vwThumbs.clear();
   $('#viewer-body')?.classList.add('hidden'); $('#viewer-empty')?.classList.remove('hidden');
+  $('#v-pog-online .split')?.classList.remove('list-off');
 }
 function openViewer(id) {
   closeViewer();
   const v = state.viewer;
   v.pog = { id };
   $('#viewer-empty').classList.add('hidden'); $('#viewer-body').classList.remove('hidden');
+  $('#v-pog-online .split').classList.add('list-off');
   $('#vw-pages').innerHTML = '<div class="mut pad">불러오는 중…</div>';
   renderOnlineList();
   v.unsubPog = onSnapshot(doc(db, 'pogs', id), d => { if (!d.exists()) { closeViewer(); return; } v.pog = { id: d.id, ...d.data() }; renderViewer(); });
@@ -545,7 +699,10 @@ function renderViewer() {
   const v = state.viewer; if (!v.pog?.status) return;
   $('#vw-title').textContent = `${v.pog.branchName || v.pog.storeName || ''} · 최종 ${fmtDate(v.pog.finalizedAt)}${v.pog.manager ? ' · ' + v.pog.manager : ''}`;
   const wrap = $('#vw-pages'); wrap.innerHTML = '';
-  v.fixtures.forEach(fx => { const el = buildPage(fx, v.pog, { editable: false, onItem: showItem }); syncPage(el, fx, v.pog); wrap.append(el); });
+  const cover = buildCover(v.pog, { editable: false }); syncCover(cover, v.pog); wrap.append(cover);
+  const blocks = new Map();
+  v.fixtures.forEach(fx => { const el = buildPage(fx, v.pog, { editable: false, onItem: showItem }); syncPage(el, fx, v.pog); wrap.append(el); blocks.set(fx.id, el); });
+  vwThumbs.sync(slideEntries(cover, v.pog, v.fixtures, fx => blocks.get(fx.id)));
 }
 $('#vw-pdf').onclick = () => printPages($('#vw-pages'), state.viewer.pog);
 function showItem(it, fx) {
@@ -564,9 +721,11 @@ function showItem(it, fx) {
 /* ---------- 3. 용어 사전 ---------- */
 const norm = t => (t || '').toLowerCase().replace(/\s+/g, ''); // 띄어쓰기·대소문자 무시
 const catOrder = c => { const i = CATS.indexOf(c); return i < 0 ? CATS.length : i; };
+// 한국어·영어 말고 추가된 언어들 (각 단어의 tr: { 언어이름: 번역 })
+const glLangs = () => [...new Set(state.glossary.flatMap(g => Object.keys(g.tr || {})))].sort((a, b) => a.localeCompare(b));
 function glSearch(q) {
   const n = norm(q);
-  return state.glossary.filter(g => norm(g.ko).includes(n) || norm(g.en).includes(n))
+  return state.glossary.filter(g => [g.ko, g.en, ...Object.values(g.tr || {})].some(t => norm(t).includes(n)))
     .sort((a, b) => catOrder(a.cat) - catOrder(b.cat) || (a.ko || '').localeCompare(b.ko || '', 'ko'));
 }
 let glDirty = false;
@@ -591,19 +750,35 @@ function renderGlossary() {
   CATS.forEach(c => tabs.append(h('button', { class: !q && c === state.glCat ? 'on' : '', onclick: () => { $('#gl-q').value = ''; setGlCat(c); renderGlossary(); } },
     `${c} `, h('span', { class: 'cnt' }, glossaryOf(c).length))));
 
+  // 추가 언어 선택 칸
+  const langs = glLangs(), lsel = $('#gl-lang');
+  if (state.glLang && !langs.includes(state.glLang)) state.glLang = '';
+  lsel.innerHTML = '';
+  lsel.append(h('option', { value: '' }, langs.length ? '선택 안 함' : '(아직 없음)'), ...langs.map(l => h('option', { value: l }, l)));
+  lsel.value = state.glLang;
+  const lang = state.glLang;
+
   const rows = q ? glSearch(q) : glossaryOf(state.glCat);
   $('#gl-info').textContent = q ? `'${q}' 검색 결과 ${rows.length}개 · 전체 분류에서 찾았어요` : '';
   $('#gl-head').innerHTML = '';
-  $('#gl-head').append(h('tr', {}, q ? h('th', { class: 'gl-cat-col' }, '분류') : null, h('th', {}, '한국어'), h('th', {}, 'English'), h('th', {})));
+  $('#gl-head').append(h('tr', {}, q ? h('th', { class: 'gl-cat-col' }, '분류') : null, h('th', {}, '한국어'), h('th', {}, 'English'), lang ? h('th', {}, lang) : null, h('th', {})));
 
   body.innerHTML = '';
-  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: q ? 4 : 3, class: 'mut pad' },
+  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 3 + (q ? 1 : 0) + (lang ? 1 : 0), class: 'mut pad' },
     q ? '저장된 단어가 없어요. 위 칸에서 바로 추가할 수 있어요.' : '등록된 단어가 없어요.')));
   rows.forEach(g => {
     const inp = (f) => {
       const el = h('input', { value: g[f] || '' });
       el.addEventListener('change', async () => {
         await updateDoc(doc(db, 'glossary', g.id), { [f]: el.value.trim(), updatedAt: serverTimestamp() });
+        toast('수정했어요');
+      });
+      return el;
+    };
+    const trInp = () => {
+      const el = h('input', { value: g.tr?.[lang] || '' });
+      el.addEventListener('change', async () => {
+        await updateDoc(doc(db, 'glossary', g.id), new FieldPath('tr', lang), el.value.trim(), 'updatedAt', serverTimestamp());
         toast('수정했어요');
       });
       return el;
@@ -618,7 +793,7 @@ function renderGlossary() {
       });
       catCell = h('td', {}, sel);
     }
-    body.append(h('tr', {}, catCell, h('td', {}, inp('ko')), h('td', {}, inp('en')),
+    body.append(h('tr', {}, catCell, h('td', {}, inp('ko')), h('td', {}, inp('en')), lang ? h('td', {}, trInp()) : null,
       h('td', { class: 'tc' }, h('button', { class: 'btn ghost danger small', onclick: async () => {
         if (confirm(`'${g.ko}'를 삭제할까요?`)) await deleteDoc(doc(db, 'glossary', g.id));
       } }, '삭제'))));
@@ -658,6 +833,119 @@ $('#gl-add').addEventListener('submit', async e => {
 });
 setGlCat(state.glCat);
 renderGlossary();
+
+/* ---------- 용어 사전 엑셀 (내보내기 / 올리기) ---------- */
+// 열: ID | 분류 | 한국어 | English | 추가 언어들… 오른쪽에 새 열을 만들면 새 언어가 됨
+const XLSX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+let xlsxP = null;
+const loadXLSX = () => xlsxP ||= new Promise((ok, no) => {
+  if (window.XLSX) return ok(window.XLSX);
+  const sc = h('script', { src: XLSX_URL });
+  sc.onload = () => ok(window.XLSX);
+  sc.onerror = () => { xlsxP = null; no(new Error('엑셀 도구를 불러오지 못했어요. 인터넷 연결을 확인해주세요.')); };
+  document.head.append(sc);
+});
+const GL_FIXED = { id: 'ID (지우지 마세요)', cat: '분류', ko: '한국어', en: 'English' };
+const isFixedHead = t => /^id\b/i.test(t) || ['분류', '한국어', 'english', '영어'].includes(t.toLowerCase());
+
+$('#gl-lang').addEventListener('change', e => { state.glLang = e.target.value; renderGlossary(); });
+$('#gl-export').onclick = async () => {
+  try {
+    const X = await loadXLSX(), langs = glLangs();
+    const rows = [...state.glossary].sort((a, b) => catOrder(a.cat) - catOrder(b.cat) || (a.ko || '').localeCompare(b.ko || '', 'ko'));
+    const aoa = [[GL_FIXED.id, GL_FIXED.cat, GL_FIXED.ko, GL_FIXED.en, ...langs],
+      ...rows.map(g => [g.id, g.cat, g.ko || '', g.en || '', ...langs.map(l => g.tr?.[l] || '')])];
+    const ws = X.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 22 }, { wch: 10 }, { wch: 24 }, { wch: 24 }, ...langs.map(() => ({ wch: 24 }))];
+    const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, '용어사전');
+    X.writeFile(wb, `용어사전_${fmtDate(new Date()).replace(/\./g, '')}.xlsx`);
+  } catch (e) { toast(e.message); }
+};
+$('#gl-import').onclick = () => $('#gl-file').click();
+$('#gl-file').onchange = async e => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  try {
+    const X = await loadXLSX();
+    const wb = X.read(await file.arrayBuffer());
+    const aoa = X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' });
+    showImportPreview(planGlossaryImport(aoa));
+  } catch (err) { toast('엑셀을 읽지 못했어요: ' + err.message); }
+};
+
+// 엑셀 내용을 보고 무엇을 바꿀지 계산 (빈 칸은 바꾸지 않음)
+function planGlossaryImport(aoa) {
+  const head = (aoa[0] || []).map(t => String(t).trim());
+  const col = test => head.findIndex(test);
+  const ci = {
+    id: col(t => /^id\b/i.test(t)), cat: col(t => t === '분류'), ko: col(t => t === '한국어'),
+    en: col(t => ['english', '영어'].includes(t.toLowerCase())),
+  };
+  if (ci.ko < 0) throw new Error("첫 줄에 '한국어' 열이 없어요. 내보낸 엑셀 양식을 그대로 써주세요.");
+  const langCols = head.map((t, i) => [t, i]).filter(([t]) => t && !isFixedHead(t));
+  const known = new Set(glLangs());
+  const plan = { updates: [], adds: [], warns: [], newLangs: langCols.map(([t]) => t).filter(t => !known.has(t)), langs: langCols.map(([t]) => t) };
+  const byId = new Map(state.glossary.map(g => [g.id, g])), seen = new Set();
+  aoa.slice(1).forEach((row, ri) => {
+    const v = i => (i >= 0 ? String(row[i] ?? '').trim() : '');
+    const line = ri + 2, id = v(ci.id), ko = v(ci.ko), cat = v(ci.cat), en = v(ci.en);
+    if (!id && !ko) return; // 빈 줄
+    let g = id ? byId.get(id) : null;
+    if (id && !g) { plan.warns.push(`${line}번째 줄: ID '${id}'인 단어가 없어요 (삭제된 단어일 수 있어요)`); return; }
+    if (!g && cat && !CATS.includes(cat)) { plan.warns.push(`${line}번째 줄: 분류 '${cat}'을(를) 알 수 없어요 (${CATS.join(', ')} 중 하나)`); return; }
+    if (!g) g = state.glossary.find(x => x.cat === cat && norm(x.ko) === norm(ko)); // ID가 없으면 분류+한국어로 찾기
+    const tr = {};
+    langCols.forEach(([l, i]) => { const t = v(i); if (t && t !== (g?.tr?.[l] || '')) tr[l] = t; });
+    if (g) {
+      if (seen.has(g.id)) return;
+      seen.add(g.id);
+      const ch = {};
+      if (ko && ko !== g.ko) ch.ko = ko;
+      if (en && en !== (g.en || '')) ch.en = en;
+      if (cat && cat !== g.cat && CATS.includes(cat)) ch.cat = cat;
+      if (Object.keys(ch).length || Object.keys(tr).length) plan.updates.push({ g, ch, tr });
+    } else {
+      if (!cat) { plan.warns.push(`${line}번째 줄: 새 단어 '${ko}'에 분류가 없어요`); return; }
+      if (plan.adds.some(a => a.cat === cat && norm(a.ko) === norm(ko))) return;
+      plan.adds.push({ cat, ko, en, tr });
+    }
+  });
+  return plan;
+}
+function showImportPreview(plan) {
+  const nothing = !plan.updates.length && !plan.adds.length;
+  const go = h('button', { class: 'btn primary', disabled: nothing }, '적용하기');
+  const close = modal(h('div', {},
+    h('h3', {}, '엑셀 올리기 미리보기'),
+    h('ul', { class: 'imp-sum' },
+      plan.newLangs.length ? h('li', {}, '새 언어: ', h('b', {}, plan.newLangs.join(', '))) : null,
+      h('li', {}, `바뀌는 단어: ${plan.updates.length}개`),
+      h('li', {}, `새로 추가하는 단어: ${plan.adds.length}개`),
+      plan.warns.length ? h('li', {}, `건너뛰는 줄: ${plan.warns.length}개`) : null),
+    plan.warns.length ? h('ul', { class: 'imp-warn' }, ...plan.warns.slice(0, 50).map(w => h('li', {}, w))) : null,
+    h('p', { class: 'mut' }, nothing ? '바뀌는 내용이 없어요.' : '엑셀의 빈 칸은 지금 값을 그대로 둬요 (지우지 않아요).'),
+    h('div', { class: 'modal-act' }, go)));
+  go.onclick = async () => {
+    go.disabled = true; go.textContent = '저장 중…';
+    try {
+      let b = writeBatch(db), n = 0;
+      const flush = async () => { if (n) { await b.commit(); b = writeBatch(db); n = 0; } };
+      for (const { g, ch, tr } of plan.updates) {
+        const args = [...Object.entries(ch).flat(), ...Object.entries(tr).flatMap(([l, t]) => [new FieldPath('tr', l), t]), 'updatedAt', serverTimestamp()];
+        b.update(doc(db, 'glossary', g.id), ...args);
+        if (++n >= 400) await flush();
+      }
+      for (const a of plan.adds) {
+        b.set(doc(collection(db, 'glossary')), { ...a, createdAt: serverTimestamp() });
+        if (++n >= 400) await flush();
+      }
+      await flush();
+      if (plan.newLangs.length) state.glLang = plan.newLangs[0];
+      close(); toast(`저장했어요 (바뀜 ${plan.updates.length} · 추가 ${plan.adds.length})`);
+      renderGlossary();
+    } catch (e) { toast('저장 실패: ' + e.message); go.disabled = false; go.textContent = '적용하기'; }
+  };
+}
 
 /* ---------- 계정 관리 (관리자만) ---------- */
 const levelSelect = v => {
