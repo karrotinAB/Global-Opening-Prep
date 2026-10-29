@@ -1,46 +1,70 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 계정 레벨: roles/{이메일} 문서의 level = admin | editor | finder
-    // 문서가 없는 계정은 finder (제품 찾기만, 읽기 전용)
+    // 계정 레벨: roles/{이메일} 문서의 level
+    //   admin(관리자) | pog(POG팀) | vmd(VMD팀) | global(글로벌사업부) | buyer(바이어) | finder(제품 찾기만)
+    //   editor = 예전 '편집' 레벨 (모든 편집 가능, 새로 지정은 안 함)
+    // 문서가 없는 계정은 finder
     function signedIn() { return request.auth != null && request.auth.token.email != null; }
     function myEmail() { return request.auth.token.email.lower(); }
     function level() {
       let p = /databases/$(database)/documents/roles/$(myEmail());
       return exists(p) ? get(p).data.level : 'finder';
     }
-    function isAdmin() { return signedIn() && level() == 'admin'; }
-    function isEditor() { return signedIn() && level() in ['admin', 'editor']; }
+    function hasLevel(levels) { return signedIn() && level() in levels; }
+    // 내부 직원: 초안까지 모두 볼 수 있음. 바이어·매장 계정은 최종본만
+    function staff() { return hasLevel(['admin', 'pog', 'vmd', 'global', 'editor']); }
 
-    // 레벨 목록: 내 것은 읽을 수 있고, 관리자만 전체 읽기·수정
     match /roles/{email} {
-      allow read: if signedIn() && (email == myEmail() || isAdmin());
-      allow write: if isAdmin()
-                   && (request.resource == null || request.resource.data.level in ['admin', 'editor', 'finder']);
+      allow read: if signedIn() && (email == myEmail() || hasLevel(['admin']));
+      allow write: if hasLevel(['admin'])
+                   && (request.resource == null || request.resource.data.level in ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder']);
     }
 
-    // POG: 로그인하면 읽기(제품 찾기에 필요), 수정은 편집 이상만
+    // POG: 만들기는 POG팀, 번역(translations)은 글로벌사업부
+    function pogFinal(pogId) { return get(/databases/$(database)/documents/pogs/$(pogId)).data.status == 'final'; }
     match /pogs/{pogId} {
-      allow read: if signedIn();
-      allow write: if isEditor();
+      allow read: if staff() || (signedIn() && resource.data.status == 'final');
+      allow write: if hasLevel(['admin', 'pog', 'editor']);
       match /fixtures/{fxId} {
-        allow read: if signedIn();
-        allow write: if isEditor();
+        allow read: if staff() || (signedIn() && pogFinal(pogId));
+        allow write: if hasLevel(['admin', 'pog', 'editor']);
+      }
+      match /translations/{rest=**} {
+        allow read: if staff() || (signedIn() && pogFinal(pogId));
+        allow write: if hasLevel(['admin', 'global', 'editor']);
       }
     }
 
-    // 도면 (다음 버전): POG와 같은 규칙
+    // 도면: 편집은 VMD팀, 번역(translations)은 글로벌사업부
+    function drawingFinal(id) { return get(/databases/$(database)/documents/drawings/$(id)).data.status == 'final'; }
     match /drawings/{drawingId} {
-      allow read: if signedIn();
-      allow write: if isEditor();
-      match /{sub=**} {
-        allow read: if signedIn();
-        allow write: if isEditor();
+      allow read: if staff() || (signedIn() && resource.data.status == 'final');
+      allow write: if hasLevel(['admin', 'vmd', 'editor']);
+      match /translations/{rest=**} {
+        allow read: if staff() || (signedIn() && drawingFinal(drawingId));
+        allow write: if hasLevel(['admin', 'global', 'editor']);
+      }
+      match /{sub}/{rest=**} {
+        allow read: if staff() || (signedIn() && drawingFinal(drawingId));
+        allow write: if sub != 'translations' && hasLevel(['admin', 'vmd', 'editor']);
       }
     }
 
-    // 용어 사전·담당자 목록: 편집 이상만
-    match /glossary/{id} { allow read, write: if isEditor(); }
-    match /managers/{id} { allow read, write: if isEditor(); }
+    // 용어 사전: 직원은 보기(엑셀 저장 포함), 편집은 글로벌사업부
+    match /glossary/{id} {
+      allow read: if staff();
+      allow write: if hasLevel(['admin', 'global', 'editor']);
+    }
+    // 용어 사전 변경 기록: 편집하는 사람만 남기고 읽음. 고치거나 지울 수 없음
+    match /glossaryLog/{id} {
+      allow read: if hasLevel(['admin', 'global', 'editor']);
+      allow create: if hasLevel(['admin', 'global', 'editor']) && request.resource.data.by == myEmail();
+    }
+    // POG 담당자 목록
+    match /managers/{id} {
+      allow read: if staff();
+      allow write: if hasLevel(['admin', 'pog', 'editor']);
+    }
   }
 }

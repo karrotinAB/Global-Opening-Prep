@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy,
+  getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, where, limit,
   writeBatch, serverTimestamp, arrayUnion, arrayRemove, getDocs, FieldPath
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
@@ -23,9 +23,29 @@ const st = getStorage(fb);
 /* ---------- 공통 ---------- */
 const CATS = ['카테고리', '매대타입', '고리타입', '집기', '헤더문구'];
 // 계정 레벨. roles/{이메일} 문서가 없으면 'finder' (제품 찾기만)
-const LEVELS = { admin: '관리자', editor: '편집', finder: '제품 찾기만' };
-const canEdit = () => state.level === 'admin' || state.level === 'editor';
-const canSee = v => v === 'accounts' ? state.level === 'admin' : (v === 'finder' || canEdit());
+const LEVELS = { admin: '관리자', pog: 'POG팀', vmd: 'VMD팀', global: '글로벌사업부', buyer: '바이어', finder: '제품 찾기만', editor: '편집 (예전 레벨)' };
+const ASSIGNABLE = ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder']; // editor는 예전 레벨: 그대로 동작하지만 새로 고를 수는 없음
+// 레벨마다 볼 수 있는 화면(views)과 편집할 수 있는 부분(edit). 진짜 차단은 firestore.rules / storage.rules가 함
+const STAFF_VIEWS = ['home', 'drawing', 'pog-home', 'pog-make', 'pog-trans', 'pog-online', 'glossary', 'finder'];
+const ALL_EDIT = ['drawing', 'drawing-trans', 'pog-make', 'pog-trans', 'glossary'];
+const ACCESS = {
+  admin: { views: [...STAFF_VIEWS, 'accounts'], edit: ALL_EDIT },
+  pog: { views: STAFF_VIEWS, edit: ['pog-make'] },
+  vmd: { views: STAFF_VIEWS, edit: ['drawing'] },
+  global: { views: STAFF_VIEWS, edit: ['drawing-trans', 'pog-trans', 'glossary'] },
+  buyer: { views: ['home', 'drawing', 'pog-home', 'pog-online', 'finder'], edit: [] }, // 최종본만 (규칙에서도 막음)
+  finder: { views: ['finder'], edit: [] },
+  editor: { views: STAFF_VIEWS, edit: ALL_EDIT },
+};
+const access = () => ACCESS[state.level] || ACCESS.finder;
+const canSee = v => access().views.includes(v);
+const canEdit = area => access().edit.includes(area);
+const isStaff = () => canSee('glossary'); // 내부 직원 (초안 POG·용어 사전을 볼 수 있음)
+function applyAccess() {
+  $$('[data-view], [data-go]').forEach(el => el.classList.toggle('hidden', !canSee(el.dataset.view || el.dataset.go)));
+  $$('[data-edit]').forEach(el => el.classList.toggle('hidden', !canEdit(el.dataset.edit)));
+  $('#subnav').classList.toggle('hidden', !canSee('pog-make'));
+}
 const CANVAS_W = 540, CANVAS_H = 930;
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -107,6 +127,7 @@ function setLevel(lv) {
   document.body.dataset.level = lv || '';
   $('#me-level').textContent = lv ? LEVELS[lv] : '';
   if (!lv) return;
+  applyAccess();
   stopListeners(); startListeners();
   go(state.view);
 }
@@ -122,15 +143,18 @@ $('#logout').onclick = () => signOut(auth);
 let unsubs = [];
 function startListeners() {
   stopListeners();
-  unsubs.push(onSnapshot(query(collection(db, 'pogs'), orderBy('createdAt', 'desc')), s => {
-    state.pogs = s.docs.map(d => ({ id: d.id, ...d.data() }));
+  // 바이어·매장 계정은 최종 POG만 읽을 수 있음 (규칙도 같음). 정렬은 여기서 (색인 없이)
+  const pq = isStaff() ? query(collection(db, 'pogs'), orderBy('createdAt', 'desc')) : query(collection(db, 'pogs'), where('status', '==', 'final'));
+  unsubs.push(onSnapshot(pq, s => {
+    state.pogs = s.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     renderPogList(); renderOnlineList();
-  }));
+  }, e => toast('POG 목록을 읽지 못했어요: ' + e.code)));
   if (state.level === 'admin') unsubs.push(onSnapshot(collection(db, 'roles'), s => {
     state.roles = s.docs.map(d => ({ id: d.id, ...d.data() }));
     renderAccounts();
   }));
-  if (!canEdit()) return; // 제품 찾기만: 사전·담당자는 필요 없음
+  if (!isStaff()) return; // 바이어·매장 계정: 사전·담당자는 필요 없음
   unsubs.push(onSnapshot(query(collection(db, 'managers'), orderBy('name')), s => {
     state.managers = s.docs.map(d => ({ id: d.id, ...d.data() }));
     refreshManagerSelect();
@@ -145,7 +169,7 @@ function stopListeners() { unsubs.forEach(u => u()); unsubs = []; closePog(); cl
 /* ---------- 메뉴 이동 ---------- */
 function go(v) {
   if (!$('#v-' + v)) v = 'home';
-  if (!canSee(v)) v = canEdit() ? 'home' : 'finder';
+  if (!canSee(v)) v = canSee('home') ? 'home' : 'finder';
   state.view = v;
   $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.view === v || (!!b.dataset.group && v.startsWith(b.dataset.group))));
   $('#subnav').classList.toggle('on', v.startsWith('pog-') && v !== 'pog-home');
@@ -446,12 +470,14 @@ function applyPogDoc() {
   const br = $('#ed-branch'); if (br !== document.activeElement) br.value = p.branchName || '';
   refreshManagerSelect();
   const final = p.status === 'final';
-  $('#ed-status').textContent = final ? '최종' : '작성 중';
-  $('#ed-status').className = 'badge ' + (final ? 'final' : 'draft');
+  const editable = !final && canEdit('pog-make'); // POG팀·관리자만 편집, 나머지는 보기
+  state.edEditable = editable;
+  $('#ed-status').textContent = final ? '최종' : canEdit('pog-make') ? '작성 중' : '작성 중 · 보기 전용';
+  $('#ed-status').className = 'badge ' + (final ? 'final' : canEdit('pog-make') ? 'draft' : 'ro');
   $('#ed-final').textContent = final ? '잠금 해제 (다시 수정)' : '최종 POG 내보내기';
   $('#ed-final').classList.toggle('primary', !final);
-  br.disabled = final; $('#ed-manager').disabled = final;
-  const key = final ? 'ro' : 'rw';
+  br.disabled = !editable; $('#ed-manager').disabled = !editable;
+  const key = editable ? 'rw' : 'ro';
   if (state.lockKey !== key) {
     state.lockKey = key;
     state.pageEls.forEach(el => el.remove()); state.pageEls = new Map();
@@ -464,14 +490,14 @@ function renderEditorPages() {
   if (!pog || pog.status === undefined) return; // 문서 본체가 아직 안 왔으면 대기
   const wrap = $('#ed-pages');
   wrap.querySelector(':scope > .pad')?.remove();
-  if (!state.coverEl) state.coverEl = buildCover(pog, { editable: pog.status !== 'final' });
+  if (!state.coverEl) state.coverEl = buildCover(pog, { editable: state.edEditable });
   syncCover(state.coverEl, pog);
   if (wrap.firstElementChild !== state.coverEl) wrap.prepend(state.coverEl);
   for (const [id, el] of state.pageEls) if (!state.fixtures.has(id)) { el.remove(); state.pageEls.delete(id); }
   const order = [...state.fixtures.values()].sort((a, b) => a.order - b.order);
   order.forEach((fx, i) => {
     let el = state.pageEls.get(fx.id);
-    if (!el) { el = buildPage(fx, pog, { editable: pog.status !== 'final' }); state.pageEls.set(fx.id, el); }
+    if (!el) { el = buildPage(fx, pog, { editable: state.edEditable }); state.pageEls.set(fx.id, el); }
     syncPage(el, fx, pog);
     if (wrap.children[i + 1] !== el) wrap.insertBefore(el, wrap.children[i + 1] || null); // 0번은 표지
   });
@@ -728,6 +754,12 @@ function glSearch(q) {
   return state.glossary.filter(g => [g.ko, g.en, ...Object.values(g.tr || {})].some(t => norm(t).includes(n)))
     .sort((a, b) => catOrder(a.cat) - catOrder(b.cat) || (a.ko || '').localeCompare(b.ko || '', 'ko'));
 }
+// 편집 기록: glossaryLog에 누가 언제 무엇을 바꿨는지 남김 (화면에는 '변경 기록'·ⓘ로만 작게)
+const me = () => state.user.email.toLowerCase();
+const logEntry = (g, action, changes = []) => ({ gid: g.id, cat: g.cat || '', ko: g.ko || '', action, changes, by: me(), at: serverTimestamp() });
+const glLog = (g, action, changes) => addDoc(collection(db, 'glossaryLog'), logEntry(g, action, changes)).catch(() => { });
+const fieldLabel = f => ({ ko: '한국어', en: 'English', cat: '분류' }[f] || f.replace(/^tr\./, ''));
+
 let glDirty = false;
 function refreshGlossaryLists() {
   const dl = $('#dl-fixtureType'); dl.innerHTML = '';
@@ -766,37 +798,47 @@ function renderGlossary() {
   body.innerHTML = '';
   if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 3 + (q ? 1 : 0) + (lang ? 1 : 0), class: 'mut pad' },
     q ? '저장된 단어가 없어요. 위 칸에서 바로 추가할 수 있어요.' : '등록된 단어가 없어요.')));
+  const ed = canEdit('glossary'); // 글사부·관리자만 편집, 나머지는 보기
   rows.forEach(g => {
     const inp = (f) => {
-      const el = h('input', { value: g[f] || '' });
+      const el = h('input', { value: g[f] || '', disabled: !ed });
       el.addEventListener('change', async () => {
-        await updateDoc(doc(db, 'glossary', g.id), { [f]: el.value.trim(), updatedAt: serverTimestamp() });
+        const v = el.value.trim();
+        await updateDoc(doc(db, 'glossary', g.id), { [f]: v, updatedAt: serverTimestamp(), updatedBy: me() });
+        glLog(g, 'edit', [{ f, from: g[f] || '', to: v }]);
         toast('수정했어요');
       });
       return el;
     };
     const trInp = () => {
-      const el = h('input', { value: g.tr?.[lang] || '' });
+      const el = h('input', { value: g.tr?.[lang] || '', disabled: !ed });
       el.addEventListener('change', async () => {
-        await updateDoc(doc(db, 'glossary', g.id), new FieldPath('tr', lang), el.value.trim(), 'updatedAt', serverTimestamp());
+        const v = el.value.trim();
+        await updateDoc(doc(db, 'glossary', g.id), new FieldPath('tr', lang), v, 'updatedAt', serverTimestamp(), 'updatedBy', me());
+        glLog(g, 'edit', [{ f: 'tr.' + lang, from: g.tr?.[lang] || '', to: v }]);
         toast('수정했어요');
       });
       return el;
     };
     let catCell = null;
     if (q) {
-      const sel = h('select', { class: 'gl-cat-sel' }, ...CATS.map(c => h('option', { value: c }, c)));
+      const sel = h('select', { class: 'gl-cat-sel', disabled: !ed }, ...CATS.map(c => h('option', { value: c }, c)));
       sel.value = g.cat;
       sel.addEventListener('change', async () => {
-        await updateDoc(doc(db, 'glossary', g.id), { cat: sel.value, updatedAt: serverTimestamp() });
+        await updateDoc(doc(db, 'glossary', g.id), { cat: sel.value, updatedAt: serverTimestamp(), updatedBy: me() });
+        glLog(g, 'edit', [{ f: 'cat', from: g.cat, to: sel.value }]);
         toast(`'${sel.value}'(으)로 옮겼어요`);
       });
       catCell = h('td', {}, sel);
     }
     body.append(h('tr', {}, catCell, h('td', {}, inp('ko')), h('td', {}, inp('en')), lang ? h('td', {}, trInp()) : null,
-      h('td', { class: 'tc' }, h('button', { class: 'btn ghost danger small', onclick: async () => {
-        if (confirm(`'${g.ko}'를 삭제할까요?`)) await deleteDoc(doc(db, 'glossary', g.id));
-      } }, '삭제'))));
+      h('td', { class: 'tc' }, ed ? h('span', {},
+        h('button', { class: 'gl-i', type: 'button', title: g.updatedBy ? `마지막 수정: ${g.updatedBy} · ${fmtDate(g.updatedAt)}` : '편집 기록 보기', onclick: () => showGlLog(g) }, 'ⓘ'),
+        h('button', { class: 'btn ghost danger small', onclick: async () => {
+          if (!confirm(`'${g.ko}'를 삭제할까요?`)) return;
+          await deleteDoc(doc(db, 'glossary', g.id));
+          glLog(g, 'delete', [{ f: 'en', from: g.en || '', to: '' }]);
+        } }, '삭제')) : null)));
   });
   renderGlHint();
 }
@@ -827,12 +869,41 @@ $('#gl-add').addEventListener('submit', async e => {
     $('#gl-q').value = ko; renderGlossary(); return;
   }
   if (same.length && !confirm(`'${same.map(g => g.cat).join(', ')}' 분류에 같은 단어가 있어요. '${cat}'에도 추가할까요?`)) return;
-  await addDoc(collection(db, 'glossary'), { cat, ko, en, createdAt: serverTimestamp() });
+  const r = await addDoc(collection(db, 'glossary'), { cat, ko, en, createdAt: serverTimestamp(), createdBy: me() });
+  glLog({ id: r.id, cat, ko }, 'add', [{ f: 'en', from: '', to: en }]);
   toast('추가했어요');
   f.ko.value = ''; f.en.value = ''; f.ko.focus(); renderGlHint();
 });
 setGlCat(state.glCat);
 renderGlossary();
+
+/* ---------- 용어 사전 변경 기록 ---------- */
+const ACTION = { add: '추가', edit: '수정', delete: '삭제', import: '엑셀' };
+const fmtTime = ts => { const d = ts?.toDate?.(); return d ? `${fmtDate(d)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : ''; };
+async function showGlLog(g) {
+  const box = h('div', { class: 'log-box' }, h('div', { class: 'mut pad' }, '불러오는 중…'));
+  const q = h('input', { class: 'search w100', placeholder: '단어·편집자 이메일로 찾기' });
+  modal(h('div', {}, h('h3', {}, g ? `'${g.ko}' 변경 기록` : '용어 사전 변경 기록'), g ? null : q, box), { wide: true });
+  try {
+    const snap = await getDocs(g ? query(collection(db, 'glossaryLog'), where('gid', '==', g.id))
+      : query(collection(db, 'glossaryLog'), orderBy('at', 'desc'), limit(500)));
+    const logs = snap.docs.map(d => d.data()).sort((a, b) => (b.at?.toMillis?.() || 0) - (a.at?.toMillis?.() || 0));
+    const draw = () => {
+      const n = norm(q.value);
+      const rows = logs.filter(l => !n || [l.ko, l.by, ...(l.changes || []).map(c => c.to)].some(t => norm(t).includes(n)));
+      box.innerHTML = '';
+      if (!rows.length) { box.append(h('div', { class: 'mut pad' }, '기록이 없어요. (기록은 이 기능이 생긴 뒤부터 남아요)')); return; }
+      box.append(h('table', { class: 'log-tbl' },
+        h('tr', {}, h('th', {}, '날짜'), h('th', {}, '편집자'), h('th', {}, ''), g ? null : h('th', {}, '단어'), h('th', {}, '내용')),
+        ...rows.map(l => h('tr', {},
+          h('td', {}, fmtTime(l.at)), h('td', {}, l.by), h('td', {}, ACTION[l.action] || l.action),
+          g ? null : h('td', {}, `[${l.cat}] ${l.ko}`),
+          h('td', { class: 'log-ch' }, ...(l.changes || []).map(c => h('div', {}, `${fieldLabel(c.f)}: ${c.from || '(빈칸)'} → `, h('b', {}, c.to || '(빈칸)'))))))));
+    };
+    q.addEventListener('input', draw); draw();
+  } catch (e) { box.innerHTML = ''; box.append(h('div', { class: 'err pad' }, '기록을 읽지 못했어요: ' + e.code)); }
+}
+$('#gl-log').onclick = () => showGlLog(null);
 
 /* ---------- 용어 사전 엑셀 (내보내기 / 올리기) ---------- */
 // 열: ID | 분류 | 한국어 | English | 추가 언어들… 오른쪽에 새 열을 만들면 새 언어가 됨
@@ -931,13 +1002,18 @@ function showImportPreview(plan) {
       let b = writeBatch(db), n = 0;
       const flush = async () => { if (n) { await b.commit(); b = writeBatch(db); n = 0; } };
       for (const { g, ch, tr } of plan.updates) {
-        const args = [...Object.entries(ch).flat(), ...Object.entries(tr).flatMap(([l, t]) => [new FieldPath('tr', l), t]), 'updatedAt', serverTimestamp()];
+        const args = [...Object.entries(ch).flat(), ...Object.entries(tr).flatMap(([l, t]) => [new FieldPath('tr', l), t]), 'updatedAt', serverTimestamp(), 'updatedBy', me()];
         b.update(doc(db, 'glossary', g.id), ...args);
-        if (++n >= 400) await flush();
+        b.set(doc(collection(db, 'glossaryLog')), logEntry(g, 'import', [
+          ...Object.entries(ch).map(([f, to]) => ({ f, from: g[f] || '', to })),
+          ...Object.entries(tr).map(([l, to]) => ({ f: 'tr.' + l, from: g.tr?.[l] || '', to }))]));
+        if ((n += 2) >= 400) await flush();
       }
       for (const a of plan.adds) {
-        b.set(doc(collection(db, 'glossary')), { ...a, createdAt: serverTimestamp() });
-        if (++n >= 400) await flush();
+        const r = doc(collection(db, 'glossary'));
+        b.set(r, { ...a, createdAt: serverTimestamp(), createdBy: me() });
+        b.set(doc(collection(db, 'glossaryLog')), logEntry({ id: r.id, ...a }, 'add', [{ f: 'en', from: '', to: a.en || '' }]));
+        if ((n += 2) >= 400) await flush();
       }
       await flush();
       if (plan.newLangs.length) state.glLang = plan.newLangs[0];
@@ -949,7 +1025,8 @@ function showImportPreview(plan) {
 
 /* ---------- 계정 관리 (관리자만) ---------- */
 const levelSelect = v => {
-  const sel = h('select', { class: 'acc-sel' }, ...Object.entries(LEVELS).map(([k, t]) => h('option', { value: k }, t)));
+  const keys = ASSIGNABLE.includes(v) ? ASSIGNABLE : [v, ...ASSIGNABLE];
+  const sel = h('select', { class: 'acc-sel' }, ...keys.map(k => h('option', { value: k }, LEVELS[k])));
   sel.value = v; return sel;
 };
 function renderAccounts() {
@@ -965,15 +1042,16 @@ function renderAccounts() {
       catch (e) { toast('저장 실패: ' + e.message); sel.value = r.level; }
     });
     body.append(h('tr', {},
-      h('td', {}, r.id, r.id === me ? h('span', { class: 'acc-me' }, '나') : null),
+      h('td', {}, r.id, r.id === me ? h('span', { class: 'acc-me' }, '나') : null,
+        ASSIGNABLE.includes(r.level) ? null : h('span', { class: 'acc-old' }, '레벨을 다시 골라주세요')),
       h('td', {}, sel),
       h('td', { class: 'tc' }, r.id === me ? null : h('button', { class: 'btn ghost danger small', onclick: async () => {
         if (confirm(`'${r.id}'의 레벨을 지울까요? 지우면 '제품 찾기만'으로 바뀌어요.`)) await deleteDoc(doc(db, 'roles', r.id));
       } }, '삭제'))));
   });
 }
-$('#acc-add-level').append(...Object.entries(LEVELS).map(([k, t]) => h('option', { value: k }, t)));
-$('#acc-add-level').value = 'editor';
+$('#acc-add-level').append(...ASSIGNABLE.map(k => h('option', { value: k }, LEVELS[k])));
+$('#acc-add-level').value = 'pog';
 $('#acc-add').addEventListener('submit', async e => {
   e.preventDefault();
   const f = e.target, email = f.email.value.trim().toLowerCase();

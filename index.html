@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261029c">
+<link rel="stylesheet" href="style.css?v=20261029d">
 </head>
 <body>
 
@@ -26,18 +26,18 @@
   <header class="topbar">
     <button class="brand link-brand" data-go="home" title="처음 화면">ARTBOX <b>Global POG</b></button>
     <nav id="nav">
-      <button data-view="home" data-need="editor">홈</button>
-      <button data-view="drawing" data-need="editor">1. 도면</button>
-      <button data-view="pog-home" data-group="pog-" data-need="editor">2. POG</button>
-      <button data-view="glossary" data-need="editor">3. 용어 사전</button>
+      <button data-view="home">홈</button>
+      <button data-view="drawing">1. 도면</button>
+      <button data-view="pog-home" data-group="pog-">2. POG</button>
+      <button data-view="glossary">3. 용어 사전</button>
       <button data-view="finder">4. 제품 찾기</button>
-      <span class="subnav" id="subnav" data-need="editor">
+      <span class="subnav" id="subnav">
         <button data-view="pog-make">POG 만들기</button>
         <button data-view="pog-trans">POG 번역</button>
         <button data-view="pog-online">온라인 POG</button>
       </span>
     </nav>
-    <div class="me"><span id="me-email"></span><span id="me-level" class="lvl"></span><button class="link" data-view="accounts" data-need="admin" id="btn-accounts">계정 관리</button><button id="logout" class="link">로그아웃</button></div>
+    <div class="me"><span id="me-email"></span><span id="me-level" class="lvl"></span><button class="link" data-view="accounts" id="btn-accounts">계정 관리</button><button id="logout" class="link">로그아웃</button></div>
   </header>
 
   <!-- 처음 화면 -->
@@ -99,7 +99,7 @@
   <section class="view" id="v-pog-make">
     <div class="split">
       <aside class="side-list">
-        <button class="btn primary w100" id="btn-import">+ 새 POG 가져오기</button>
+        <button class="btn primary w100" id="btn-import" data-edit="pog-make">+ 새 POG 가져오기</button>
         <input id="pog-search" class="search" placeholder="매장·지점 검색">
         <div id="pog-list" class="plist"></div>
       </aside>
@@ -115,8 +115,8 @@
             <span class="saving" id="ed-saving"></span>
             <div class="tb-right">
               <button class="btn" id="ed-pdf">PDF 저장</button>
-              <button class="btn primary" id="ed-final">최종 POG 내보내기</button>
-              <button class="btn ghost danger" id="ed-delete">삭제</button>
+              <button class="btn primary" id="ed-final" data-edit="pog-make">최종 POG 내보내기</button>
+              <button class="btn ghost danger" id="ed-delete" data-edit="pog-make">삭제</button>
             </div>
           </div>
           <div class="ed-main">
@@ -174,15 +174,16 @@
       <div class="gl-tools">
         <label class="tb-field">추가 언어 보기 <select id="gl-lang"></select></label>
         <div class="gl-tools-r">
+          <button class="link gl-log-link" id="gl-log" type="button" data-edit="glossary">변경 기록</button>
           <button class="btn small" id="gl-export" type="button">⬇ 엑셀로 내보내기</button>
-          <button class="btn small" id="gl-import" type="button">⬆ 엑셀 올리기</button>
+          <button class="btn small" id="gl-import" type="button" data-edit="glossary">⬆ 엑셀 올리기</button>
           <input type="file" id="gl-file" accept=".xlsx,.xls,.csv" class="hidden">
         </div>
       </div>
-      <p class="gl-lang-help">다른 언어 추가하기: <b>엑셀로 내보내기</b> → 맨 오른쪽 빈 열 첫 칸에 언어 이름(예: 日本語)을 쓰고 번역 채우기 → <b>엑셀 올리기</b>.
+      <p class="gl-lang-help" data-edit="glossary">다른 언어 추가하기: <b>엑셀로 내보내기</b> → 맨 오른쪽 빈 열 첫 칸에 언어 이름(예: 日本語)을 쓰고 번역 채우기 → <b>엑셀 올리기</b>.
         새 단어도 엑셀 맨 아래에 줄을 추가해서 한 번에 올릴 수 있어요 (ID 칸은 비워두세요).</p>
       <div class="gl-tabs" id="gl-tabs"></div>
-      <form id="gl-add" class="gl-add">
+      <form id="gl-add" class="gl-add" data-edit="glossary">
         <select name="cat" id="gl-add-cat"></select>
         <input name="ko" placeholder="한국어" required autocomplete="off">
         <input name="en" placeholder="English" autocomplete="off">
@@ -212,9 +213,12 @@
       <p class="mut">계정(이메일·비밀번호)은 Firebase 콘솔에서 만들고, 여기서는 계정마다 레벨만 정해요.<br>
         레벨을 정하지 않은 계정은 <b>제품 찾기만</b>으로 동작해요.</p>
       <ul class="lv-help">
-        <li><b>관리자</b> · 모든 메뉴 + 계정 관리</li>
-        <li><b>편집</b> · 모든 메뉴 (POG 만들기·번역, 도면, 용어 사전)</li>
-        <li><b>제품 찾기만</b> · 4. 제품 찾기만 보이고 아무것도 수정할 수 없어요</li>
+        <li><b>관리자</b> · 모든 메뉴 편집 + 계정 관리</li>
+        <li><b>POG팀</b> · POG 만들기 편집 / 도면·POG 번역·온라인 POG 보기 / 용어 사전 보기·엑셀 저장 / 제품 찾기</li>
+        <li><b>VMD팀</b> · 도면 편집 / POG 보기 / 용어 사전 보기·엑셀 저장 / 제품 찾기</li>
+        <li><b>글로벌사업부</b> · 도면·POG의 번역 부분만 편집 (나머지는 보기) / 용어 사전 편집·엑셀 저장·올리기 / 제품 찾기</li>
+        <li><b>바이어</b> · 최종 도면·최종 POG(한글·영어) 보기 / 제품 찾기 / 용어 사전 없음</li>
+        <li><b>제품 찾기만</b> · 4. 제품 찾기만 (매장 계정). 레벨을 정하지 않은 계정도 이것</li>
       </ul>
       <form id="acc-add" class="gl-add">
         <input name="email" type="email" placeholder="이메일 (Firebase에 만든 계정)" required autocomplete="off">
@@ -234,6 +238,6 @@
 <div id="toast"></div>
 
 <!-- 파일을 고치면 ?v= 숫자도 바꿀 것 (브라우저가 예전 파일을 쓰지 않도록) -->
-<script type="module" src="app.js?v=20261029c"></script>
+<script type="module" src="app.js?v=20261029d"></script>
 </body>
 </html>
