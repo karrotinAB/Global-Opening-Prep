@@ -420,7 +420,7 @@ function buildPage(fx, pog, { editable, onItem, L = LABELS_KO }) {
           field('hookType', h('select', { class: 'hook-sel' })),
           h('span', { class: 'x' }, '×'),
           field('hookCount', h('input', { type: 'number', min: 0, class: 'hook-cnt', placeholder: '0' })))),
-        box(L.sp, field('shelfPipe', h('input', { placeholder: '예: 선반 3 / 파이프 12' }))),
+        box(L.sp, h('div', { class: 'sp-list' })),
         box(L.other, h('div', { class: 'ex-list' }), field('otherFixtures', h('textarea', { rows: 2, class: 'ex-memo', placeholder: editable ? '기타 메모 (선택)' : '' }))))),
     h('div', { class: 'pf1' }, L.mgr + ' ', h('span', { class: 'pf-mgr' })),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
@@ -428,11 +428,42 @@ function buildPage(fx, pog, { editable, onItem, L = LABELS_KO }) {
   const block = finishBlock(fx, pog, page, editable);
   block._extras = structuredClone(fx.extras || []);
   renderExtras(block);
+  block._sp = spRows(fx); renderSp(block);
   return block;
 }
 
 /* 이외집기: 사전 '집기'에서 고르고 × 수량 (여러 줄). fixture.extras = [{ id, name, qty }]
    사전에 없는 이름을 직접 쓰면 2.2 번역에서 빨간 ! 로 표시됨 */
+/* 선반/파이프여부: 고리타입처럼 [선반 ▾] × [수량] 줄들. fixture.sp = [{ id, name, qty }]
+   가져올 때 POG 사이트 선반·파이프 수로 자동으로 채움. 예전 글자(shelfPipe '선반 3 / 파이프 12')만 있으면 읽어서 줄로 바꿈.
+   저장할 때 shelfPipe 글자도 같이 맞춰 둠 */
+const SP_DEFAULT = ['선반', '파이프'];
+const autoSp = (sh, pi) => [...(sh ? [{ id: 'p0', name: '선반', qty: sh }] : []), ...(pi ? [{ id: 'p1', name: '파이프', qty: pi }] : [])];
+function spRows(fx) {
+  if (Array.isArray(fx.sp)) return structuredClone(fx.sp);
+  const t = (fx.shelfPipe || '').trim();
+  if (!t) return autoSp(fx.shelfCount, fx.pipeCount);
+  const rows = []; let m, i = 0; const re = /([^\d\/,·]+?)\s*(\d+)/g;
+  while ((m = re.exec(t))) rows.push({ id: 'p' + i++, name: m[1].trim(), qty: Number(m[2]) });
+  return rows.length ? rows : [{ id: 'p0', name: t, qty: '' }];
+}
+const spText = rows => rows.filter(r => (r.name || '').trim()).map(r => `${r.name}${r.qty !== '' && r.qty != null ? ' ' + r.qty : ''}`).join(' / ');
+function renderSp(block) {
+  const box = block.querySelector('.page .sp-list'); if (!box) return;
+  const ed = block._editable, list = block._sp;
+  const save = () => { saveFx(block._pog, block._fx, 'sp', structuredClone(list)); saveFx(block._pog, block._fx, 'shelfPipe', spText(list)); };
+  const opts = cur => [...new Set([...SP_DEFAULT, ...glossaryOf('선반/파이프').map(g => g.ko), ...(cur ? [cur] : [])])];
+  box.replaceChildren(...list.map(x => {
+    const sel = h('select', { class: 'f sp-sel', disabled: !ed }, h('option', { value: '' }, ''), ...opts(x.name).map(o => h('option', { value: o }, o)));
+    sel.value = x.name || '';
+    const qty = h('input', { class: 'f ex-qty', type: 'number', min: 0, placeholder: '0', disabled: !ed });
+    qty.value = x.qty ?? '';
+    sel.addEventListener('change', () => { x.name = sel.value; save(); });
+    qty.addEventListener('input', () => { x.qty = qty.value === '' ? '' : Number(qty.value); save(); });
+    return h('div', { class: 'ex-row' }, sel, h('span', { class: 'x' }, '×'), qty,
+      ed ? h('button', { class: 'ex-del no-print', title: '삭제', onclick: () => { block._sp = list.filter(y => y !== x); save(); renderSp(block); } }, '×') : null);
+  }), ...(ed ? [h('button', { class: 'ex-add no-print', onclick: () => { list.push({ id: uid(), name: '', qty: '' }); save(); renderSp(block); } }, '+ 추가')] : []));
+}
 function renderExtras(block) {
   const box = block.querySelector('.page .ex-list'); if (!box) return;
   const ed = block._editable, list = block._extras;
@@ -718,6 +749,10 @@ function syncPage(block, fx, pog) {
   $('.pf-mgr', block).textContent = pog.manager || '';
   $('.pf-branch', block).textContent = footStore(pog);
   if (!pendingKey(`${fx.id}|itemZ`)) applyItemZ(block, fx);
+  const spBox = block.querySelector('.page .sp-list'), spNow = spRows(fx);
+  if (spBox && !spBox.contains(document.activeElement) && !pendingKey(`${fx.id}|sp`) && JSON.stringify(spNow) !== JSON.stringify(block._sp)) {
+    block._sp = spNow; renderSp(block);
+  }
   const exBox = block.querySelector('.page .ex-list');
   if (exBox && !exBox.contains(document.activeElement) && !pendingKey(`${fx.id}|extras`) && JSON.stringify(fx.extras || []) !== JSON.stringify(block._extras)) {
     block._extras = structuredClone(fx.extras || []); renderExtras(block);
@@ -1075,7 +1110,7 @@ function pagesFromGrab(f, i, dropOutside) {
       itemCount: bays.length > 1 ? bay.items.length : (f.itemCount ?? bay.items.length),
       items: bay.items, props: bay.props, panels: bay.panels || [],
       outsideItems: k === 0 ? outside : [], // 뺀 제품은 첫 칸에 보관 (화면엔 안 그림)
-      shelfPipe: autoShelfPipe(sh, pi),
+      shelfPipe: autoShelfPipe(sh, pi), sp: autoSp(sh, pi),
     };
   });
   return { pages, outN: outside.length };
@@ -1247,7 +1282,8 @@ async function applyRegrab(pog, plan) {
       itemZ: Object.fromEntries(Object.entries(o.itemZ || {}).filter(([k]) => keep.has(k))),
       regrabbedAt: serverTimestamp(), updatedAt: serverTimestamp(), updatedBy: me(),
     };
-    if (!o.shelfPipe || o.shelfPipe === autoShelfPipe(o.shelfCount, o.pipeCount)) patch.shelfPipe = pg.shelfPipe; // 손댄 값은 그대로
+    // 선반/파이프: 손대지 않았을 때만 새 수로
+    if (JSON.stringify(spRows(o)) === JSON.stringify(autoSp(o.shelfCount, o.pipeCount)) || !spRows(o).length) { patch.shelfPipe = pg.shelfPipe; patch.sp = pg.sp; }
     await put(() => b.update(doc(db, 'pogs', pog.id, 'fixtures', o.id), patch));
   }
   // 칸이 늘어난 매대: 그 매대 마지막 페이지 바로 뒤에 끼워 넣기
@@ -1344,8 +1380,7 @@ function trFields(fx) {
       hint: fx.headerName ? '' : 'POG 원본 이름이에요 (매대명을 아직 안 넣음)' },
     { key: 'fixtureType', label: LABELS_KO.type, ko: fx.fixtureType, cats: ['매대타입'], dict: '매대타입' },
     { key: 'hookType', label: '고리타입', ko: fx.hookType, cats: ['고리타입'], dict: '고리타입' },
-    { key: 'shelfPipe', label: LABELS_KO.sp, ko: fx.shelfPipe, cats: ['선반/파이프', '집기'], addCat: '선반/파이프',
-      custom: !!fx.shelfPipe && fx.shelfPipe !== autoShelfPipe(fx.shelfCount, fx.pipeCount) },
+    ...spRows(fx).filter(x => (x.name || '').trim()).map((x, i) => ({ key: 's_' + x.id, label: `선반/파이프 ${i + 1}`, ko: x.name, cats: ['선반/파이프', '집기'], dict: '선반/파이프', qty: x.qty })),
     ...(fx.extras || []).filter(x => (x.name || '').trim()).map((x, i) => ({ key: 'x_' + x.id, label: `이외집기 ${i + 1}`, ko: x.name, cats: ['집기'], dict: '집기', qty: x.qty })),
     { key: 'otherFixtures', label: LABELS_KO.other + ' (메모)', ko: fx.otherFixtures, cats: ['집기'], addCat: '집기' },
     ...notes,
@@ -1363,7 +1398,8 @@ function applyTr(fx, o) {
   if (!o) return fx;
   return { ...fx, ...Object.fromEntries(['headerName', 'fixtureType', 'hookType', 'shelfPipe', 'otherFixtures'].filter(k => o[k]).map(k => [k, o[k]])),
     _cat: o.cat || undefined, notes: (fx.notes || []).map(n => o['n_' + n.id] ? { ...n, text: o['n_' + n.id] } : n),
-    extras: (fx.extras || []).map(x => o['x_' + x.id] ? { ...x, name: o['x_' + x.id] } : x) };
+    extras: (fx.extras || []).map(x => o['x_' + x.id] ? { ...x, name: o['x_' + x.id] } : x),
+    sp: spRows(fx).map(x => o['s_' + x.id] ? { ...x, name: o['s_' + x.id] } : x) };
 }
 const tr = { pog: null, fixtures: [], lang: 'English', doc: {}, unsubs: [], dirty: false, active: '__cover', blocks: new Map() };
 $('#tr-search').addEventListener('input', renderTrList);
@@ -1669,7 +1705,7 @@ function showItem(it, fx) {
 
 /* ---------- 3. 용어 사전 ---------- */
 const norm = t => (t || '').toLowerCase().replace(/\s+/g, ''); // 띄어쓰기·대소문자 무시
-const CODE_CATS = ['고리타입', '선반/파이프', '집기']; // 제품코드를 넣는 분류 (고리·집기 수량 엑셀에 쓰임)
+const CODE_CATS = ['고리타입', '집기']; // 선반/파이프는 제품코드 필요 없음 (사용자) // 제품코드를 넣는 분류 (고리·집기 수량 엑셀에 쓰임)
 const catOrder = c => { const i = CATS.indexOf(c); return i < 0 ? CATS.length : i; };
 const oldCats = () => [...new Set(state.glossary.map(g => g.cat).filter(c => c && !CATS.includes(c)))];
 const catLabel = c => CATS.includes(c) ? c : `${c} (예전)`;
@@ -1693,6 +1729,7 @@ function refreshGlossaryLists() {
   const dx = $('#dl-extras'); dx.innerHTML = '';
   glossaryOf('집기').forEach(g => dx.append(h('option', { value: g.ko })));
   $$('select.hook-sel').forEach(sel => fillHookSelect(sel, sel.value));
+  state.pageEls?.forEach(b => { if (b._sp && !b.querySelector('.sp-list')?.contains(document.activeElement)) renderSp(b); });
 }
 function setGlCat(c) {
   state.glCat = c;
