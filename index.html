@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261030h">
+<link rel="stylesheet" href="style.css?v=20261030l">
 </head>
 <body>
 
@@ -117,6 +117,7 @@
             <span class="badge" id="ed-status"></span>
             <span class="saving" id="ed-saving"></span>
             <div class="tb-right">
+              <button class="btn" id="ed-counts" data-staff title="페이지마다 넣은 고리·집기 수량을 제품코드와 함께 합계">고리·집기 수량 엑셀</button>
               <button class="btn" id="ed-regrab" data-edit="pog-make" title="POG 사이트에서 고친 매대를 다시 가져와요">↻ 다시 가져오기</button>
               <button class="btn" id="ed-pdf">PDF 저장</button>
               <button class="btn primary" id="ed-final" data-edit="pog-make">최종 POG 내보내기</button>
@@ -157,7 +158,11 @@
               <button class="btn primary" id="tr-publish" data-edit="pog-trans">온라인 POG에 반영</button>
             </div>
           </div>
-          <div class="tr-scroll"><div class="tr-wrap" id="tr-cards"></div></div>
+          <div class="ed-main">
+            <div class="thumbs" id="tr-thumbs"></div>
+            <div class="pages" id="tr-pages"></div>
+            <aside class="side-edit tr-side" id="tr-side"></aside>
+          </div>
         </div>
       </main>
     </div>
@@ -178,7 +183,7 @@
             <button class="btn small list-toggle" type="button" title="POG 목록 열기/닫기">☰ 목록</button>
             <div class="tb-title" id="vw-title"></div>
             <label class="tb-field">언어 <select id="vw-lang"></select></label>
-            <div class="tb-right"><button class="btn" id="vw-pdf">PDF 저장</button></div>
+            <div class="tb-right"><button class="btn" id="vw-counts" data-staff>고리·집기 수량 엑셀</button><button class="btn" id="vw-pdf">PDF 저장</button></div>
           </div>
           <div class="ed-main">
             <div class="thumbs" id="vw-thumbs"></div>
@@ -212,6 +217,7 @@
       <div class="gl-tabs" id="gl-tabs"></div>
       <form id="gl-add" class="gl-add" data-edit="glossary">
         <select name="cat" id="gl-add-cat"></select>
+        <input name="code" placeholder="제품코드" autocomplete="off" class="gl-code-in hidden">
         <input name="ko" placeholder="한국어" required autocomplete="off">
         <input name="en" placeholder="English" autocomplete="off">
         <button class="btn primary">추가</button>
@@ -266,6 +272,6 @@
 <div id="toast"></div>
 
 <!-- 파일을 고치면 ?v= 숫자도 바꿀 것 (브라우저가 예전 파일을 쓰지 않도록) -->
-<script type="module" src="app.js?v=20261030h"></script>
+<script type="module" src="app.js?v=20261030l"></script>
 </body>
 </html>
