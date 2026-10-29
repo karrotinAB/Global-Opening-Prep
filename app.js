@@ -2585,6 +2585,8 @@ function showItem(it, fx) {
    제품명은 이 화면에서만 보여줌 (제품 찾기에서는 POG의 제품명을 씀). 엑셀 머리글: 제품코드 · 바코드 · (제품명) */
 const bcClean = v => String(v ?? '').replace(/\s+/g, '').replace(/^'/, '');
 // 엑셀 칸 값 → 글자. 숫자 칸이면 지수 표기 없이. 제품코드는 POG 사이트처럼 8자리 (숫자 칸이라 앞의 0이 빠졌으면 채움)
+// 제품코드는 늘 8자리: 숫자로만 된 코드가 짧으면(엑셀에서 앞의 0이 빠진 경우) 앞에 0을 채움 (사용자)
+const code8 = c => /^\d{1,7}$/.test(c) ? c.padStart(8, '0') : c;
 const cellText = (v, pad = 0) => typeof v === 'number' ? (Number.isInteger(v) ? BigInt(Math.round(v)).toString() : String(v)).padStart(pad, '0') : bcClean(v);
 function bcCell(code) {
   const td = h('td', { class: 'mut' }, '…');
@@ -2612,7 +2614,7 @@ async function bcSearch() {
   const q = bcClean($('#bc-search').value);
   if (!q) { bcRows([]); return; }
   try {
-    const [one, byCode] = await Promise.all([getDoc(doc(db, 'barcodes', q)), getDocs(query(collection(db, 'barcodes'), where('code', '==', q), limit(50)))]);
+    const [one, byCode] = await Promise.all([getDoc(doc(db, 'barcodes', q)), getDocs(query(collection(db, 'barcodes'), where('code', '==', code8(q)), limit(50)))]);
     const m = new Map();
     if (one.exists()) m.set(one.id, { id: one.id, ...one.data() });
     byCode.docs.forEach(d => m.set(d.id, { id: d.id, ...d.data() }));
@@ -2624,7 +2626,7 @@ $('#bc-search').addEventListener('input', e => { if (!e.target.value.trim()) bcR
 bcRows([]);
 $('#bc-add').addEventListener('submit', async e => {
   e.preventDefault();
-  const f = e.target, bc = bcClean(f.barcode.value), code = bcClean(f.code.value), name = f.name.value.trim();
+  const f = e.target, bc = bcClean(f.barcode.value), code = code8(bcClean(f.code.value)), name = f.name.value.trim();
   if (!bc || !code) return;
   if (bc.includes('/')) { toast('바코드에 / 는 쓸 수 없어요'); return; }
   try {
@@ -2677,7 +2679,7 @@ $('#bc-file').addEventListener('change', async e => {
   } catch (err) { alert('등록된 바코드를 읽지 못했어요: ' + (err.code || err.message)); return; }
   const map = new Map(), skip = [], seenBc = new Map(), seenCode = new Map();
   rows.slice(1).forEach((r, i) => {
-    const line = i + 2, bc = cellText(r[iBc]), code = cellText(r[iCode], 8), name = iName >= 0 ? String(r[iName] ?? '').trim() : '';
+    const line = i + 2, bc = cellText(r[iBc]), code = code8(cellText(r[iCode])), name = iName >= 0 ? String(r[iName] ?? '').trim() : '';
     if (!bc && !code) return;
     const why = !bc ? '바코드 없음' : !code ? '제품코드 없음' : bc.includes('/') ? '바코드에 / 있음'
       : exBc.has(bc) ? `이미 있는 바코드 (등록된 제품코드 ${exBc.get(bc)})`
@@ -2836,7 +2838,7 @@ async function fdFind(q) {
   if (!q) return;
   if (!fd.pogId) { alert(T('먼저 매장을 골라주세요', 'Choose a store first')); return; }
   if (!fd.fixtures) { toast(T('POG를 불러오는 중이에요', 'Loading POG…')); return; }
-  let code = q, barcode = null;
+  let code = code8(q), barcode = null;
   try { const d = await getDoc(doc(db, 'barcodes', q)); if (d.exists()) { code = String(d.data().code); barcode = q; } } catch { }
   const hits = [];
   for (const fx of fd.shown) for (const it of fx.items || []) if (String(it.code) === code) hits.push({ fx, it });
