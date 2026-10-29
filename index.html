@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261030m">
+<link rel="stylesheet" href="style.css?v=20261031b">
 </head>
 <body>
 
@@ -27,6 +27,7 @@
     <button class="brand link-brand" data-go="home" title="처음 화면">ARTBOX <b>Global POG</b></button>
     <nav id="nav">
       <button data-view="home">홈</button>
+      <button data-view="stores">매장 등록</button>
       <button data-view="drawing">1. 도면</button>
       <button data-view="pog-home" data-group="pog-">2. POG</button>
       <button data-view="glossary">3. 용어 사전</button>
@@ -43,7 +44,11 @@
   <!-- 처음 화면 -->
   <section class="view" id="v-home">
     <div class="home">
-      <div class="tiles">
+      <div class="tiles five">
+        <button class="tile" data-go="stores">
+          <svg viewBox="0 0 48 48"><path d="M8 20 12 9h24l4 11"/><path d="M10 20v19h28V20"/><path d="M8 20c0 3 2.5 5 5.3 5S18.7 23 18.7 20c0 3 2.4 5 5.3 5s5.3-2 5.3-5c0 3 2.4 5 5.3 5S40 23 40 20"/><path class="a" d="M20 39V30h8v9"/></svg>
+          <span>매장 등록</span>
+        </button>
         <button class="tile" data-go="drawing">
           <svg viewBox="0 0 48 48"><rect x="7" y="9" width="34" height="30" rx="2"/><path d="M7 22h12M27 9v12M27 29v10"/><rect class="a" x="12" y="27" width="9" height="6"/><rect class="a" x="31" y="14" width="6" height="4"/></svg>
           <span>도면</span>
@@ -88,14 +93,59 @@
 
   <!-- 1. 도면 번역 -->
   <section class="view" id="v-drawing">
-    <div class="soon">
-      <h2>1. 도면 번역</h2>
-      <div class="upload-rule">
-        <b>업로드 파일은 SVG 파일</b> · <b>글씨는 윤곽선 만들기 하지 말아주세요</b>
-        <div class="mut">한글 매대명이 들어간 도면 파일 하나만 올리면 돼요. 영문 도면은 이 파일에서 글자만 바꿔 만들어요.</div>
-      </div>
-      <p>VMD실 도면을 올리면 한글 매대명을 뽑아 영문과 연결하고, 한글/영문 도면을 함께 저장하는 화면이에요.</p>
-      <p class="mut">다음 버전에서 추가돼요.</p>
+    <div class="split">
+      <aside class="side-list">
+        <div class="dw-tabs">
+          <button type="button" data-dwtab="up" class="on">도면 업로드</button>
+          <button type="button" data-dwtab="tr">도면 번역하기</button>
+        </div>
+        <input id="dw-search" class="search" placeholder="매장 검색">
+        <div id="dw-list" class="plist"></div>
+      </aside>
+      <main class="editor">
+        <div class="empty-state" id="dw-empty"></div>
+        <div id="dw-body" class="ed-body hidden">
+          <div class="toolbar">
+            <button class="btn small list-toggle" type="button" title="매장 목록 열기/닫기">☰ 목록</button>
+            <div class="tb-title" id="dw-title"></div>
+            <label class="tb-field" id="dw-area-f">평수 <input id="dw-area" type="number" step="0.1" min="0" placeholder="예: 45"></label>
+            <label class="tb-field" id="dw-lang-f">언어 <select id="dw-lang"></select></label>
+            <label class="tb-field tr-only" id="dw-ko-f"><input type="checkbox" id="dw-ko"> 한글 원본 보기</label>
+            <span class="badge" id="dw-ver"></span>
+            <span class="saving" id="dw-saving"></span>
+            <div class="tb-right">
+              <button class="btn" id="dw-upload" data-edit="drawing">도면 파일 올리기</button>
+              <button class="btn primary" id="dw-export" data-edit="drawing">내보내기</button>
+              <button class="btn" id="dw-print">PDF 저장</button>
+            </div>
+          </div>
+          <div class="ed-main">
+            <div class="dw-stage" id="dw-stage"></div>
+            <aside class="side-edit" id="dw-side"></aside>
+          </div>
+        </div>
+      </main>
+    </div>
+    <input type="file" id="dw-file" accept=".svg,image/svg+xml" class="hidden">
+  </section>
+
+  <!-- 매장 등록 -->
+  <section class="view" id="v-stores">
+    <div class="gl-wrap st-wrap">
+      <h2>매장 등록</h2>
+      <p class="mut">매장을 먼저 등록하면 VMD실이 '1. 도면 → 도면 업로드'에서 이 매장을 골라 도면을 올려요.
+        <b>매장코드는 POG 사이트의 매장코드와 똑같이</b> 써주세요 (예: 826503). 그래야 POG와 도면이 이어져요.</p>
+      <form id="st-add" class="gl-add st-add" data-edit="stores">
+        <input name="code" placeholder="매장코드" required autocomplete="off">
+        <input name="partner" placeholder="파트너 이름" required autocomplete="off">
+        <input name="branch" placeholder="지점 이름" required autocomplete="off">
+        <label class="st-date">오픈 예상일 <input name="open" type="date"></label>
+        <button class="btn primary">등록</button>
+      </form>
+      <table class="gl-table st-table">
+        <thead><tr><th>매장코드</th><th>파트너 이름</th><th>지점 이름</th><th>오픈 예상일</th><th>도면</th><th>POG</th><th></th></tr></thead>
+        <tbody id="st-body"></tbody>
+      </table>
     </div>
   </section>
 
@@ -272,6 +322,6 @@
 <div id="toast"></div>
 
 <!-- 파일을 고치면 ?v= 숫자도 바꿀 것 (브라우저가 예전 파일을 쓰지 않도록) -->
-<script type="module" src="app.js?v=20261030m"></script>
+<script type="module" src="app.js?v=20261031b"></script>
 </body>
 </html>

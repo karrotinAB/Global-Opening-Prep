@@ -61,6 +61,11 @@ service cloud.firestore {
       allow read: if hasLevel(['admin', 'global', 'editor']);
       allow create: if hasLevel(['admin', 'global', 'editor']) && request.resource.data.by == myEmail();
     }
+    // 매장 등록: 직원은 보기, 등록·수정은 글로벌사업부
+    match /stores/{id} {
+      allow read: if staff();
+      allow write: if hasLevel(['admin', 'global', 'editor']);
+    }
     // POG 담당자 목록
     match /managers/{id} {
       allow read: if staff();

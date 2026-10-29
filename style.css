@@ -158,6 +158,49 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 .nh-pt { transform: translate(-50%, -50%); border-radius: 50%; cursor: crosshair; }
 .free-body { padding: 0; }
 
+/* 매장 등록 */
+.st-wrap { max-width: 1000px; }
+.st-add .st-date { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--mut); white-space: nowrap; }
+.st-add .st-date input { flex: none; width: 150px; }
+.st-table td input[type=date] { font-size: 13px; }
+.st-dw { font-size: 12px; color: var(--mut); white-space: nowrap; }
+.tiles.five { grid-template-columns: repeat(3, 170px); }
+
+/* 도면 */
+.dw-tabs { display: flex; background: #f1f2f4; border-radius: 8px; padding: 3px; gap: 3px; }
+.dw-tabs button { flex: 1; border: 0; background: none; border-radius: 6px; padding: 7px 4px; font: inherit; font-size: 13px; cursor: pointer; color: var(--mut); }
+.dw-tabs button.on { background: #fff; color: var(--ink); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.dw-stage { flex: 1; overflow: auto; padding: 20px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.dw-canvas { position: relative; width: 100%; max-width: 1200px; background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,.12); container-type: inline-size; user-select: none; }
+.dw-canvas > img { display: block; width: 100%; height: 100%; }
+.dw-box { position: absolute; border: 1px solid rgba(10,132,255,.55); background: rgba(10,132,255,.06); border-radius: 1px; }
+.dw-box.pick { cursor: pointer; }
+.dw-box.pick:hover, .dw-box.on { background: rgba(247,147,30,.25); border-color: var(--or); }
+.dw-box.used { background: rgba(46,158,91,.18); border-color: var(--green); }
+.dw-lab { position: absolute; transform: translateX(-50%); white-space: pre; text-align: center; line-height: 1.15; color: #d61518; font-family: Arial, 'Malgun Gothic', sans-serif; cursor: default; padding: 0 1px; }
+.dw-lab.edit { cursor: move; }
+.dw-lab.need { color: #888; outline: 1px dashed var(--red); }
+.dw-lab.on { outline: 2px solid #0a84ff; outline-offset: 1px; background: rgba(10,132,255,.08); }
+.dw-legend { font-size: 12px; color: var(--mut); max-width: 1200px; width: 100%; }
+.dw-legend .warn { color: var(--red); font-weight: 700; }
+.dw-ver { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; cursor: pointer; }
+.dw-ver.cur { border-color: var(--or); background: #fff8f0; }
+.dw-ver .t { display: flex; align-items: center; gap: 6px; }
+.dw-ver .t b { font-size: 13px; }
+.dw-ver .d { color: var(--mut); font-size: 11px; }
+.dw-ver .m { white-space: pre-wrap; color: var(--ink); }
+.dw-star { border: 0; background: none; cursor: pointer; font-size: 16px; color: #ccc; padding: 0 2px; }
+.dw-star.on { color: #f5b301; }
+.dw-glist { display: flex; flex-direction: column; gap: 3px; max-height: 40vh; overflow: auto; }
+.dw-gi { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; padding: 4px 6px; border-radius: 5px; cursor: pointer; }
+.dw-gi:hover, .dw-gi.on { background: #f1f2f4; }
+.dw-gi .ko { color: var(--mut); white-space: pre-wrap; }
+.dw-gi.need .en { color: var(--red); }
+.ph-dw { position: absolute; right: 16px; top: 10px; border: 1px solid #aaa; background: #fff; border-radius: 5px; font-size: 11px; padding: 3px 8px; cursor: pointer; }
+.ph-dw:hover { border-color: var(--or); color: var(--or-d); }
+.ph { position: relative; }
+@page dwg { size: A4 landscape; margin: 0; }
+
 /* 2.2 POG 번역 */
 .tr-scroll { flex: 1; overflow: auto; }
 .tr-wrap { max-width: 1100px; margin: 0 auto; padding: 18px 20px 60px; display: flex; flex-direction: column; gap: 14px; }
@@ -394,6 +437,11 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
   .anno .nt.sel:not(.nt-hit) { outline: none; }
   .anno .nt-hit { stroke: transparent !important; }
   .page-block.cover-block .page-extra { display: none; }
+  #v-drawing .side-list, #v-drawing .side-edit, #v-drawing .toolbar, .dw-legend { display: none !important; }
+  .dw-stage { padding: 0; overflow: visible; display: block; }
+  .dw-canvas { page: dwg; width: 297mm !important; max-width: none; box-shadow: none; }
+  .dw-lab.need, .dw-lab.on { outline: none; background: none; color: #d61518; }
+  .ph-dw { display: none; }
   .page .f::placeholder { color: transparent; }
   .page .ph-name::placeholder, .page .cover-title::placeholder { color: #000; } /* 비어 있으면 자동 이름 인쇄 */
   .thumbs, .side-edit { display: none !important; }
