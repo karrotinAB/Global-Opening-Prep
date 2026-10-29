@@ -156,7 +156,6 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 .se-btns { display: flex; flex-wrap: wrap; gap: 6px; }
 .pe-memo { white-space: pre-wrap; font-size: 13px; }
 .pe-memo:empty { display: none; }
-@media screen { #ed-pages .page-extra, #vw-pages .page-extra.empty { display: none; } }
 
 /* 메모 편집 막대 (오른쪽 패널 안) */
 .nbar { width: 100%; box-sizing: border-box; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
@@ -338,7 +337,6 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
   .page .f::placeholder { color: transparent; }
   .page .ph-name::placeholder, .page .cover-title::placeholder { color: #000; } /* 비어 있으면 자동 이름 인쇄 */
   .thumbs, .side-edit { display: none !important; }
-  #ed-pages .page-extra:not(.empty) { display: flex; }
   .ed-body, .ed-main { display: block; height: auto; }
   .ed-main .pages { overflow: visible; }
   .page select.f { appearance: none; -webkit-appearance: none; }
