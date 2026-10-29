@@ -1,17 +1,26 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // 읽기: 로그인한 사람 / 올리기·지우기: 편집 레벨 이상만, 파일 하나당 10MB까지
-    // (레벨은 Firestore의 roles/{이메일} 문서에서 읽음)
-    function isEditor() {
-      return request.auth != null && request.auth.token.email != null
-        && firestore.exists(/databases/(default)/documents/roles/$(request.auth.token.email.lower()))
-        && firestore.get(/databases/(default)/documents/roles/$(request.auth.token.email.lower())).data.level in ['admin', 'editor'];
+    // 읽기: 로그인한 사람 / 올리기·지우기: 레벨별, 파일 하나당 10MB까지
+    // (레벨은 Firestore의 roles/{이메일} 문서에서 읽음. 문서가 없으면 finder)
+    function level() {
+      let p = /databases/(default)/documents/roles/$(request.auth.token.email.lower());
+      return firestore.exists(p) ? firestore.get(p).data.level : 'finder';
+    }
+    function can(levels) {
+      return request.auth != null && request.auth.token.email != null && level() in levels
+        && (request.resource == null || request.resource.size < 10 * 1024 * 1024);
     }
     match /{allPaths=**} {
       allow read: if request.auth != null;
-      allow write: if isEditor()
-                   && (request.resource == null || request.resource.size < 10 * 1024 * 1024);
+    }
+    // POG 사진: POG팀
+    match /pogs/{rest=**} {
+      allow write: if can(['admin', 'pog', 'editor']);
+    }
+    // 도면 파일: VMD팀(원본), 글로벌사업부(영문본)
+    match /drawings/{rest=**} {
+      allow write: if can(['admin', 'vmd', 'global', 'editor']);
     }
   }
 }
