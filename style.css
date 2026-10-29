@@ -137,8 +137,29 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 .nh-pt { transform: translate(-50%, -50%); border-radius: 50%; cursor: crosshair; }
 .free-body { padding: 0; }
 
-/* 메모 편집 막대 */
-.nbar { width: 210mm; box-sizing: border-box; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+/* 오른쪽 편집 패널 */
+.side-edit { width: 300px; flex: none; overflow-y: auto; background: #fff; border-left: 1px solid var(--line); padding: 14px 14px 40px; display: flex; flex-direction: column; gap: 14px; font-size: 13px; }
+.side-edit:empty { display: none; }
+.se-head { display: flex; flex-direction: column; gap: 2px; }
+.se-head b { font-size: 15px; }
+.se-head .mut { font-size: 12px; }
+.se-warn { display: flex; align-items: center; justify-content: space-between; gap: 6px; background: #fff4e5; color: var(--or-d); border-radius: 7px; padding: 6px 8px; font-size: 12px; }
+.se-sec { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.se-sec h4 { margin: 0; font-size: 13px; }
+.se-help { margin: 0; font-size: 12px; color: var(--mut); line-height: 1.5; }
+.se-memo { width: 100%; box-sizing: border-box; font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; resize: vertical; }
+.se-memo:disabled { background: #fafafa; }
+.se-photos { display: flex; flex-wrap: wrap; gap: 6px; }
+.se-photos:empty { display: none; }
+.se-photos figure { margin: 0; position: relative; }
+.se-photos img { width: 82px; height: 62px; object-fit: cover; border-radius: 5px; border: 1px solid var(--line); display: block; }
+.se-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.pe-memo { white-space: pre-wrap; font-size: 13px; }
+.pe-memo:empty { display: none; }
+@media screen { #ed-pages .page-extra, #vw-pages .page-extra.empty { display: none; } }
+
+/* 메모 편집 막대 (오른쪽 패널 안) */
+.nbar { width: 100%; box-sizing: border-box; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
 .nb-add, .nb-props { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .nb-props { min-height: 26px; border-top: 1px dashed var(--line); padding-top: 6px; }
 .nb-l { color: var(--mut); margin-left: 4px; }
@@ -147,7 +168,7 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 .sw.on { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #0a84ff; }
 .sw-none { background: #fff; color: #999; font-size: 11px; line-height: 1; }
 .sw-pick { width: 22px; height: 20px; border: 0; padding: 0; background: none; cursor: pointer; }
-.nb-text { width: 230px; font: inherit; font-size: 13px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; resize: vertical; }
+.nb-text { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; resize: vertical; }
 .nb-sel { font: inherit; font-size: 12px; border: 1px solid var(--line); border-radius: 5px; padding: 2px 4px; }
 .nb-chk { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
 .nb-sp { flex: 1; }
@@ -284,7 +305,7 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
   .split { flex-direction: column; height: auto; }
   .side-list { width: auto; border-right: 0; border-bottom: 1px solid var(--line); max-height: 40vh; }
   .pages { align-items: flex-start; overflow-x: auto; }
-  .thumbs { display: none; }
+  .thumbs, .side-edit { display: none; }
   .ed-body { height: auto; }
   .ed-main { display: block; }
 }
@@ -310,7 +331,8 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
   .page-block.cover-block .page-extra { display: none; }
   .page .f::placeholder { color: transparent; }
   .page .ph-name::placeholder, .page .cover-title::placeholder { color: #000; } /* 비어 있으면 자동 이름 인쇄 */
-  .thumbs { display: none !important; }
+  .thumbs, .side-edit { display: none !important; }
+  #ed-pages .page-extra:not(.empty) { display: flex; }
   .ed-body, .ed-main { display: block; height: auto; }
   .ed-main .pages { overflow: visible; }
   .page select.f { appearance: none; -webkit-appearance: none; }
