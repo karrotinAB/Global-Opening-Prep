@@ -275,7 +275,7 @@ glossary/{id}    cat, ko, en, code, tr, auto, createdBy, updatedBy, updatedAt //
 ### 2.3 온라인 POG
 - `final`인 POG만 목록에 나온다. 읽기 전용.
 - **POG 계산기용 파일 받기** (툴바, 글사부·관리자만 · 편집 영역 `calc`, `exportCalc`): POG-calculator2의 수집 파일과 같은 모양(`POG_FL_DATA`, `source:'global-pog'`). 칸으로 나눈 페이지를 `mdidx`별로 다시 합치고, 집기 종류는 계산기 규칙(`data-propoption` 'Y' = 파이프). 매대 크기 mm·몸통·메모는 fixture `src`. `products`는 비어 있음 → 계산기에서 '상품 상세정보 채우기'. `src`가 없는 예전 POG는 경고 후 받기 (다시 가져오기 권장).
-- 제품을 클릭하면 팝업: 사진, 제품명, 제품코드, 가격, **바코드(바코드 등록에서 제품코드로 찾음)**, 매대, 진열 그룹.
+- 제품을 클릭하면 팝업: 사진, 제품명, 제품코드, 가격, **바코드(바코드 등록에서 제품코드로 찾음)**, 매대. (진열 그룹은 뺌 · 사용자)
 - 언어는 툴바의 알약 버튼(한국어 | English)으로 바로 바꾼다.
 
 ### 3. 용어 사전
