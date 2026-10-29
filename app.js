@@ -1885,6 +1885,7 @@ function renderDw() {
   $('#dw-title').textContent = `${storeName(st)} (${st?.code || ''})`;
   const area = $('#dw-area'); area.disabled = !up || !canEdit('drawing');
   if (area !== document.activeElement) area.value = dw.doc?.area ?? '';
+  area.classList.toggle('need', up && canEdit('drawing') && !(Number(area.value) > 0));
   $('#dw-area-f').classList.toggle('hidden', !up && !dw.doc?.area);
   $('#dw-seg').classList.toggle('hidden', up);
   if (!up) {
@@ -1906,11 +1907,35 @@ function renderDw() {
   renderDwStage(); renderDwSide();
 }
 $('#dw-area').addEventListener('input', e => {
+  e.target.classList.toggle('need', !(Number(e.target.value) > 0));
   const id = dw.id, st = state.stores.find(x => x.id === id), val = e.target.value === '' ? '' : Number(e.target.value);
   queueWrite(`dw|${id}|area`, () => setDoc(doc(db, 'drawings', id), { ...dwStoreInfo(st), storeId: id, area: val, updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true }));
 });
-$('#dw-upload').onclick = () => $('#dw-file').click();
+// 평수는 꼭 적어야 올리기·내보내기가 됨 (사용자)
+function needArea() {
+  const a = $('#dw-area'), ok = a.value.trim() !== '' && Number(a.value) > 0;
+  a.classList.toggle('need', !ok);
+  if (!ok) { alert('평수를 먼저 적어주세요. 평수가 있어야 도면을 저장할 수 있어요.'); a.focus(); }
+  return ok;
+}
+$('#dw-upload').onclick = () => { if (needArea()) $('#dw-file').click(); };
 $('#dw-file').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (f) await uploadDrawing(f); };
+// 도면 파일을 화면에 끌어다 놓아도 올라감 (도면 업로드 화면, VMD·관리자)
+const canDrop = () => dw.id && dw.tab === 'up' && canEdit('drawing') && state.view === 'dw-up';
+const dropZone = $('#dw-body');
+dropZone.addEventListener('dragover', e => { if (!canDrop() || ![...e.dataTransfer.types].includes('Files')) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; dropZone.classList.add('dropping'); });
+dropZone.addEventListener('dragleave', e => { if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('dropping'); });
+dropZone.addEventListener('drop', async e => {
+  dropZone.classList.remove('dropping');
+  if (!canDrop()) return;
+  e.preventDefault();
+  const f = e.dataTransfer.files[0]; if (!f) return;
+  if (!needArea()) return;
+  await uploadDrawing(f);
+});
+// 다른 곳에 떨어뜨려도 브라우저가 파일을 열어 사이트를 떠나지 않게
+window.addEventListener('dragover', e => { if (state.view === 'dw-up' && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+window.addEventListener('drop', e => { if (state.view === 'dw-up') e.preventDefault(); });
 $('#dw-print').onclick = () => {
   const imgs = $$('#dw-stage img').filter(i => !i.complete);
   Promise.all(imgs.map(i => new Promise(r => { i.addEventListener('load', r, { once: true }); i.addEventListener('error', r, { once: true }); setTimeout(r, 8000); }))).then(() => window.print());
@@ -2033,6 +2058,7 @@ async function uploadDrawing(file) {
 }
 $('#dw-export').onclick = async () => {
   const v = curVersion(); if (!v || v.exported) return;
+  if (!needArea()) return;
   if (!confirm(`ver.${v.no}을(를) 내보낼까요?\n내보내면 글로벌사업부가 번역할 수 있어요. 고칠 게 생기면 '재업로드'로 다음 버전을 올리면 돼요.`)) return;
   const b = writeBatch(db);
   b.update(doc(db, 'drawings', dw.id, 'versions', v.id), { exported: true, exportedAt: serverTimestamp(), exportedBy: me() });
@@ -2115,7 +2141,7 @@ function renderDwStage() {
   const box = $('#dw-stage'), v = curVersion(); if (!box) return;
   if (!v) {
     box.replaceChildren(h('div', { class: 'upload-rule' }, h('b', {}, '업로드 파일은 SVG 파일'), ' · ', h('b', {}, '글씨는 윤곽선 만들기 하지 말아주세요'),
-      h('div', { class: 'mut' }, canEdit('drawing') ? "위의 '도면 파일 올리기'를 눌러 한글 도면 SVG를 올려주세요." : 'VMD실이 아직 도면을 올리지 않았어요.')));
+      h('div', { class: 'mut' }, canEdit('drawing') ? "평수를 적고, 한글 도면 SVG 파일을 여기에 끌어다 놓거나 위의 '도면 파일 올리기'를 눌러주세요." : 'VMD실이 아직 도면을 올리지 않았어요.')));
     return;
   }
   const en = dw.tab !== 'up' && !dw.showKo;
