@@ -330,7 +330,12 @@ function makeThumbs(box, scroller, onActive) {
     },
   };
 }
-const itemSig = fx => `${(fx.items || []).length}:${(fx.props || []).length}`;
+// 제품·집기가 바뀌었는지 (바뀌면 그림을 다시 그림): 개수 + 코드·위치를 짧게 줄인 값
+const itemSig = fx => {
+  const str = [...(fx.items || []).map(i => `${i.code}@${i.x},${i.y},${i.w},${i.h}`), ...(fx.props || []).map(p => `${p.x},${p.y},${p.w}`), ...(fx.panels || []).map(p => `${p.x},${p.y},${p.w},${p.h}`)].join('|');
+  let hh = 0; for (let i = 0; i < str.length; i++) hh = (hh * 31 + str.charCodeAt(i)) | 0;
+  return `${(fx.items || []).length}:${(fx.props || []).length}:${hh}`;
+};
 const slideEntries = (cover, pog, fixtures, blockOf) => [
   { id: '__cover', block: cover, name: coverTitle(pog) || '표지' },
   ...fixtures.map(fx => ({ id: fx.id, block: blockOf(fx), name: displayName(fx), fx })),
@@ -371,15 +376,10 @@ function buildPage(fx, pog, { editable, onItem }) {
     h('div', { class: 'pf1' }, 'POG 담당자 ', h('span', { class: 'pf-mgr' })),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
 
-  // 페이지 메모·사진: 편집은 오른쪽 패널에서. 여기는 온라인 POG 화면과 PDF(다음 장)에 보여주는 곳
-  const extra = h('div', { class: 'page-extra' },
-    h('div', { class: 'pe-title' }, h('b', { class: 'pe-name' })),
-    h('div', { class: 'pe-memo' }),
-    h('div', { class: 'photos' }));
-  return finishBlock(fx, pog, page, extra, editable);
+  return finishBlock(fx, pog, page, editable);
 }
 // 페이지 블록 마무리: 메모 층(네모·글상자·화살표·사진)과 편집 막대를 붙임
-function finishBlock(fx, pog, page, extra, editable) {
+function finishBlock(fx, pog, page, editable) {
   const block = h('div', { class: 'page-block', 'data-id': fx.id });
   block._editable = editable;
   block._pog = pog.id; block._fx = fx.id;
@@ -388,7 +388,7 @@ function finishBlock(fx, pog, page, extra, editable) {
   page.append(h('div', { class: 'anno' + (editable ? ' edit' : '') }));
   block._itemSig = itemSig(fx);
   if (editable) block._bar = buildNoteBar(block); // 오른쪽 패널에 붙여서 보여줌
-  block.append(page, extra);
+  block.append(page);
   if (editable) page.addEventListener('pointerdown', e => {
     setEdActive(fx.id);
     if (e.target.closest('.nt, .nh')) return;
@@ -407,8 +407,7 @@ function buildFreePage(fx, pog, { editable, field }) {
     h('div', { class: 'pb free-body' }),
     h('div', { class: 'pf1' }, 'POG 담당자 ', h('span', { class: 'pf-mgr' })),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
-  const extra = h('div', { class: 'page-extra empty' }, h('div', { class: 'pe-title' }, h('b', { class: 'pe-name' })));
-  return finishBlock(fx, pog, page, extra, editable);
+  return finishBlock(fx, pog, page, editable);
 }
 const sortedFx = () => [...state.fixtures.values()].sort((a, b) => a.order - b.order);
 async function addFreePage(pogId, afterOrder) {
@@ -634,25 +633,12 @@ function syncPage(block, fx, pog) {
   });
   $('.pf-mgr', block).textContent = pog.manager || '';
   $('.pf-branch', block).textContent = footStore(pog);
-  $('.pe-name', block).textContent = displayName(fx);
-  const memo = $('.pe-memo', block); if (memo) memo.textContent = fx.memo || '';
   if (!pendingKey(`${fx.id}|itemZ`)) applyItemZ(block, fx);
-  renderPhotos(block, pog.id, fx);
   const typing = !!block._bar && block._bar.querySelector('.nb-text') === document.activeElement;
   if (!block._dragging && !typing && !pendingKey(`${fx.id}|notes`) && JSON.stringify(fx.notes || []) !== JSON.stringify(block._notes)) {
     block._notes = structuredClone(fx.notes || []);
     if (!block._notes.some(n => n.id === block._sel)) block._sel = null;
     renderNotes(block); renderNoteBar(block);
-  }
-  const empty = !(fx.memo || '').trim() && !(fx.photos || []).length;
-  $('.page-extra', block).classList.toggle('empty', empty);
-}
-
-function renderPhotos(block, pogId, fx) {
-  const box = $('.photos', block); if (!box) return; box.innerHTML = '';
-  for (const p of fx.photos || []) {
-    const fig = h('figure', {}, h('a', { href: p.url, target: '_blank' }, h('img', { src: p.url, alt: '' })));
-    box.append(fig);
   }
 }
 
@@ -665,26 +651,6 @@ async function resizeImage(file, max = 1600) {
     return await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
   } catch { return file; }
 }
-async function uploadPhotos(pogId, fxId, files) {
-  if (!files.length) return;
-  toast('사진 올리는 중…');
-  try {
-    for (const f of files) {
-      const blob = await resizeImage(f);
-      const path = `pogs/${pogId}/${fxId}/${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
-      await uploadBytes(sRef(st, path), blob, { contentType: blob.type || 'image/jpeg' });
-      const url = await getDownloadURL(sRef(st, path));
-      await updateDoc(doc(db, 'pogs', pogId, 'fixtures', fxId), { photos: arrayUnion({ url, path, name: f.name }) });
-    }
-    toast('사진 첨부 완료');
-  } catch (e) { toast('사진 업로드 실패: ' + e.message); }
-}
-async function removePhoto(pogId, fxId, p) {
-  if (!confirm('이 사진을 삭제할까요?')) return;
-  try { await deleteObject(sRef(st, p.path)); } catch { /* 파일이 이미 없으면 무시 */ }
-  await updateDoc(doc(db, 'pogs', pogId, 'fixtures', fxId), { photos: arrayRemove(p) });
-}
-
 /* ---------- 2.1 POG 목록 ---------- */
 $('#pog-search').addEventListener('input', renderPogList);
 function pogListItem(p, active, onClick) {
@@ -823,21 +789,10 @@ function renderSidePanel() {
         btn('선택 해제', () => selectItem(block, null), 'ghost')),
       h('p', { class: 'se-help' }, '겹친 제품 중 어느 것이 앞에 보일지만 바꿔요. 위치는 그대로예요.')));
     if (ed && block._bar) nodes.push(sec('메모 넣기', block._bar));
-    if (!free) {
-      const ta = h('textarea', { class: 'se-memo', rows: 4, placeholder: ed ? '이 매대에 대한 메모 (선택)' : '', disabled: !ed });
-      ta.value = fx.memo || '';
-      if (ed) ta.addEventListener('input', () => saveFx(pog.id, fx.id, 'memo', ta.value));
-      const photos = h('div', { class: 'se-photos' }, ...(fx.photos || []).map(p => h('figure', {},
-        h('a', { href: p.url, target: '_blank' }, h('img', { src: p.url, alt: '' })),
-        ed ? h('button', { class: 'ph-del', title: '삭제', onclick: () => removePhoto(pog.id, fx.id, p) }, '×') : null)));
-      const up = h('input', { type: 'file', accept: 'image/*', multiple: true, class: 'hidden' });
-      up.onchange = async () => { await uploadPhotos(pog.id, fx.id, [...up.files]); up.value = ''; };
-      nodes.push(sec('메모·사진', h('p', { class: 'se-help' }, 'PDF에서 이 페이지 바로 다음 장에 따로 붙어요. 페이지 위에 바로 넣으려면 위의 메모 넣기를 쓰세요.'),
-        ta, photos, ed ? h('div', { class: 'se-btns' }, btn('+ 사진 첨부', () => up.click()), up) : null));
-    }
     if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' },
       free ? btn('▲ 위로', () => moveFreePage(pog.id, fx.id, -1), 'ghost') : null,
       free ? btn('▼ 아래로', () => moveFreePage(pog.id, fx.id, 1), 'ghost') : null,
+      free ? null : btn('↻ 이 매대만 다시 가져오기', () => openRegrab(fx), 'ghost'),
       btn('+ 이 뒤에 빈 페이지 추가', () => addFreePage(pog.id, fx.order), 'ghost'),
       free ? btn('페이지 삭제', () => deleteFreePage(pog.id, fx), 'ghost danger') : null)));
   }
@@ -1009,6 +964,33 @@ function splitOutside(items, props, panels = []) {
   return { inside: items.filter(o => !out(o)), outside };
 }
 
+// 북마클릿이 읽은 매대 한 줄 → POG 페이지 목록 (칸 나누기·매대 밖 제품 빼기). 처음 가져오기·다시 가져오기에서 같이 씀
+const autoShelfPipe = (sh, pi) => [sh ? `선반 ${sh}` : '', pi ? `파이프 ${pi}` : ''].filter(Boolean).join(' / ');
+function pagesFromGrab(f, i, dropOutside) {
+  const panels = f.panels || [];
+  const { inside, outside } = dropOutside ? splitOutside(f.items || [], f.props || [], panels) : { inside: f.items || [], outside: [] };
+  const bays = splitBays(inside, f.props || [], f.bayCount ?? null, panels);
+  const shelf = f.shelfCount ?? 0, pipe = f.pipeCount ?? 0;
+  const kinds = (f.props || []).some(p => /선반|파이프/.test(p.kind || ''));
+  const base = String(f.mdidx || 'fx' + i);
+  const pages = bays.map((bay, k) => {
+    const count = (re, total) => bays.length === 1 ? total
+      : kinds ? bay.props.filter(p => re.test(p.kind || '')).length : Math.round(total / bays.length);
+    const sh = count(/선반/, shelf), pi = count(/파이프/, pipe);
+    return {
+      id: bays.length > 1 ? `${base}-${k + 1}` : base,
+      mdidx: String(f.mdidx || ''), bayNo: k + 1, bayCount: bays.length,
+      teamName: f.teamName || '', mdName: f.mdName || '',
+      shelfCount: sh, pipeCount: pi,
+      itemCount: bays.length > 1 ? bay.items.length : (f.itemCount ?? bay.items.length),
+      items: bay.items, props: bay.props, panels: bay.panels || [],
+      outsideItems: k === 0 ? outside : [], // 뺀 제품은 첫 칸에 보관 (화면엔 안 그림)
+      shelfPipe: autoShelfPipe(sh, pi),
+    };
+  });
+  return { pages, outN: outside.length };
+}
+
 async function doImport(text, { dropOutside = true } = {}) {
   let data;
   try { data = JSON.parse(text.trim()); } catch { toast('붙여넣은 내용이 올바르지 않아요'); return false; }
@@ -1020,30 +1002,12 @@ async function doImport(text, { dropOutside = true } = {}) {
     // 매대 줄마다 칸을 나눠서 페이지 목록 만들기
     const pages = [];
     let splitN = 0, outN = 0;
+    const empty = f => !(f.items || []).length && !(f.props || []).length && !(f.panels || []).length;
+    const skipped = data.fixtures.filter(empty);
     for (const [i, f] of data.fixtures.entries()) {
-      const panels = f.panels || [];
-      const { inside, outside } = dropOutside ? splitOutside(f.items || [], f.props || [], panels) : { inside: f.items || [], outside: [] };
-      outN += outside.length;
-      const bays = splitBays(inside, f.props || [], f.bayCount ?? null, panels);
-      if (bays.length > 1) splitN++;
-      const shelf = f.shelfCount ?? 0, pipe = f.pipeCount ?? 0;
-      const kinds = (f.props || []).some(p => /선반|파이프/.test(p.kind || ''));
-      bays.forEach((bay, k) => {
-        const count = (re, total) => bays.length === 1 ? total
-          : kinds ? bay.props.filter(p => re.test(p.kind || '')).length : Math.round(total / bays.length);
-        const sh = count(/선반/, shelf), pi = count(/파이프/, pipe);
-        const base = String(f.mdidx || 'fx' + i);
-        pages.push({
-          id: bays.length > 1 ? `${base}-${k + 1}` : base,
-          mdidx: String(f.mdidx || ''), bayNo: k + 1, bayCount: bays.length,
-          teamName: f.teamName || '', mdName: f.mdName || '',
-          shelfCount: sh, pipeCount: pi,
-          itemCount: bays.length > 1 ? bay.items.length : (f.itemCount ?? bay.items.length),
-          items: bay.items, props: bay.props, panels: bay.panels || [],
-          outsideItems: k === 0 ? outside : [], // 뺀 제품은 첫 칸에 보관 (화면엔 안 그림)
-          shelfPipe: [sh ? `선반 ${sh}` : '', pi ? `파이프 ${pi}` : ''].filter(Boolean).join(' / '),
-        });
-      });
+      if (empty(f)) continue; // 제품·집기가 하나도 없는 줄 (목록의 '★1차POG/리스트 전달완료★' 같은 표시 줄)
+      const r = pagesFromGrab(f, i, dropOutside);
+      pages.push(...r.pages); outN += r.outN; if (r.pages.length > 1) splitN++;
     }
     ref = await addDoc(collection(db, 'pogs'), {
       storeCode: data.storeCode || '', storeName: data.storeName || '',
@@ -1061,7 +1025,8 @@ async function doImport(text, { dropOutside = true } = {}) {
       if (++n >= 400) { await b.commit(); b = writeBatch(db); n = 0; }
     }
     await b.commit();
-    toast(`매대 ${pages.length}개를 가져왔어요` + (splitN ? ` · 칸이 여러 개인 매대 ${splitN}개는 칸마다 나눴어요` : '') + (outN ? ` · 매대 밖 제품 ${outN}개는 뺐어요` : ''));
+    toast(`매대 ${pages.length}개를 가져왔어요` + (splitN ? ` · 칸이 여러 개인 매대 ${splitN}개는 칸마다 나눴어요` : '') + (outN ? ` · 매대 밖 제품 ${outN}개는 뺐어요` : '')
+      + (skipped.length ? ` · 빈 줄 ${skipped.length}개(${skipped.map(f => f.mdName).join(', ').slice(0, 40)})는 건너뛰었어요` : ''));
     openPog(ref.id);
     return true;
   } catch (e) {
@@ -1074,6 +1039,114 @@ async function doImport(text, { dropOutside = true } = {}) {
     return false;
   }
 }
+
+/* ---------- POG 사이트에서 다시 가져오기 (POG팀이 일부 매대만 고쳤을 때) ----------
+   고유번호(mdidx)로 이 POG의 페이지를 찾아 제품·집기 모양만 최신으로 바꾼다.
+   매대명·매대 타입·고리·이외집기·메모·사진·메모 상자는 그대로. 선반/파이프 칸은 손대지 않았을 때만 새 값으로.
+   칸 수가 늘면 페이지를 그 뒤에 추가, 줄면 남는 페이지를 지움(미리보기에서 알려줌). 처음 보는 매대는 맨 뒤에 추가. */
+function openRegrab(hintFx) {
+  const pog = state.currentPog; if (!pog) return;
+  if (!state.edEditable) { toast(pog.status === 'final' ? '최종 POG예요. 잠금 해제한 뒤 다시 가져올 수 있어요' : '편집 권한이 없어요'); return; }
+  const ta = h('textarea', { class: 'import-ta', placeholder: '여기에 붙여넣기 (Ctrl+V)' });
+  const drop = h('input', { type: 'checkbox', checked: true });
+  const go = h('button', { class: 'btn primary' }, '미리보기');
+  const close = modal(h('div', {},
+    h('h3', {}, 'POG 사이트에서 다시 가져오기'),
+    h('p', { class: 'mut' }, '이미 입력한 매대명·매대 타입·고리·이외집기·메모·사진·메모 상자는 그대로 두고, 제품과 집기만 최신으로 바꿔요.'),
+    h('ol', { class: 'steps' },
+      h('li', {}, hintFx ? `POG 사이트에서 '${hintFx.mdName}' 매대 보기 화면을 열고 북마크(📥 POG 가져오기)를 누르세요.`
+        : 'POG 사이트에서 고친 매대의 보기 화면을 열고 북마크(📥 POG 가져오기)를 누르세요. 여러 개면 매대 목록에서 체크하고 누르세요.'),
+      h('li', {}, "'복사하기'를 누르고 아래 칸에 붙여넣으세요.")),
+    ta, h('label', { class: 'imp-opt' }, drop, ' 매대 밖에 놓인 제품은 빼기'),
+    h('div', { class: 'modal-act' }, go)));
+  go.onclick = () => {
+    let data;
+    try { data = JSON.parse(ta.value.trim()); } catch { toast('붙여넣은 내용이 올바르지 않아요'); return; }
+    if (!data || data.source !== 'pog.artbox.kr' || !Array.isArray(data.fixtures) || !data.fixtures.length) { toast('POG 데이터가 아니에요'); return; }
+    close(); showRegrabPreview(pog, planRegrab(pog, data, drop.checked));
+  };
+}
+const countDiff = (a, b) => { const m = new Map(); b.forEach(x => m.set(x, (m.get(x) || 0) + 1)); let n = 0; a.forEach(x => { const c = m.get(x) || 0; if (c) m.set(x, c - 1); else n++; }); return n; };
+function planRegrab(pog, data, dropOutside) {
+  const all = sortedFx();
+  const plan = { rows: [], updates: [], creates: [], deletes: [], adds: [], warn: '' };
+  if (data.storeCode && pog.storeCode && String(data.storeCode) !== String(pog.storeCode))
+    plan.warn = `매장이 달라요. 붙여넣은 데이터: ${data.storeName} (${data.storeCode}) / 이 POG: ${pog.storeName} (${pog.storeCode})`;
+  data.fixtures.forEach((f, i) => {
+    if (!(f.items || []).length && !(f.props || []).length && !(f.panels || []).length) return; // 빈 줄
+    const { pages } = pagesFromGrab(f, i, dropOutside);
+    const old = all.filter(x => x.kind !== 'free' && x.mdidx === String(f.mdidx)).sort((a, b) => (a.bayNo || 1) - (b.bayNo || 1));
+    if (!old.length) { plan.adds.push(...pages); plan.rows.push({ name: f.mdName, text: `새 매대 · 페이지 ${pages.length}장을 맨 뒤에 추가` }); return; }
+    const oc = old.flatMap(x => (x.items || []).map(it => it.code)), nc = pages.flatMap(p => p.items.map(it => it.code));
+    const add = countDiff(nc, oc), del = countDiff(oc, nc);
+    let text = `제품 ${oc.length} → ${nc.length}` + (add || del ? ` (추가 ${add} · 빠짐 ${del})` : ' (같은 제품, 위치만 새로)');
+    if (old.length !== pages.length) text += ` · 칸 ${old.length} → ${pages.length}`;
+    plan.rows.push({ name: f.mdName, text });
+    pages.forEach((pg, k) => old[k] ? plan.updates.push({ o: old[k], pg }) : plan.creates.push({ after: old[old.length - 1], pg }));
+    old.slice(pages.length).forEach(o => plan.deletes.push(o));
+  });
+  return plan;
+}
+function showRegrabPreview(pog, plan) {
+  const nothing = !plan.updates.length && !plan.creates.length && !plan.adds.length && !plan.deletes.length;
+  const go = h('button', { class: 'btn primary', disabled: nothing }, '적용하기');
+  const close = modal(h('div', {},
+    h('h3', {}, '다시 가져오기 미리보기'),
+    plan.warn ? h('p', { class: 'err' }, plan.warn) : null,
+    h('ul', { class: 'imp-sum' }, ...plan.rows.map(r => h('li', {}, h('b', {}, r.name), ` · ${r.text}`))),
+    plan.deletes.length ? h('p', { class: 'err' }, `칸이 줄어서 페이지 ${plan.deletes.length}장(${plan.deletes.map(displayName).join(', ')})을 지워요. 그 페이지의 입력 내용·메모도 함께 지워져요.`) : null,
+    h('p', { class: 'mut' }, '매대명·매대 타입·고리·이외집기·메모·사진·메모 상자는 그대로예요. 메모 상자 위치가 새 제품과 안 맞으면 옮겨주세요.'),
+    h('div', { class: 'modal-act' }, go)));
+  go.onclick = async () => {
+    go.disabled = true; go.textContent = '적용 중…';
+    try { await applyRegrab(pog, plan); close(); }
+    catch (e) { toast('다시 가져오기 실패: ' + e.message); go.disabled = false; go.textContent = '적용하기'; }
+  };
+}
+async function applyRegrab(pog, plan) {
+  const all = sortedFx(), ids = new Set(all.map(x => x.id));
+  const freeId = id => { let v = id; while (ids.has(v)) v = `${id}_${Date.now().toString(36)}`; ids.add(v); return v; };
+  const blank = { headerName: '', fixtureType: '', hookType: '', hookCount: '', otherFixtures: '', memo: '', photos: [], notes: [] };
+  let b = writeBatch(db), n = 0;
+  const flush = async () => { if (n) { await b.commit(); b = writeBatch(db); n = 0; } };
+  const put = async (fn) => { fn(); if (++n >= 400) await flush(); };
+  for (const { o, pg } of plan.updates) {
+    const keep = new Set(pg.items.map(it => String(it.id)));
+    const patch = {
+      items: pg.items, props: pg.props, panels: pg.panels, outsideItems: pg.outsideItems,
+      mdName: pg.mdName, teamName: pg.teamName, bayNo: pg.bayNo, bayCount: pg.bayCount,
+      itemCount: pg.itemCount, shelfCount: pg.shelfCount, pipeCount: pg.pipeCount,
+      itemZ: Object.fromEntries(Object.entries(o.itemZ || {}).filter(([k]) => keep.has(k))),
+      regrabbedAt: serverTimestamp(), updatedAt: serverTimestamp(), updatedBy: me(),
+    };
+    if (!o.shelfPipe || o.shelfPipe === autoShelfPipe(o.shelfCount, o.pipeCount)) patch.shelfPipe = pg.shelfPipe; // 손댄 값은 그대로
+    await put(() => b.update(doc(db, 'pogs', pog.id, 'fixtures', o.id), patch));
+  }
+  // 칸이 늘어난 매대: 그 매대 마지막 페이지 바로 뒤에 끼워 넣기
+  const lastOrder = new Map();
+  for (const { after, pg } of plan.creates) {
+    const prev = lastOrder.get(after.id) ?? after.order;
+    const next = all.find(x => x.order > prev && x.id !== after.id);
+    const order = next ? (prev + next.order) / 2 : prev + 1;
+    lastOrder.set(after.id, order);
+    const { id, ...rest } = pg;
+    await put(() => b.set(doc(db, 'pogs', pog.id, 'fixtures', freeId(id)), { order, ...rest, ...blank }));
+  }
+  let end = Math.max(0, ...all.map(x => x.order));
+  for (const pg of plan.adds) {
+    const { id, ...rest } = pg;
+    await put(() => b.set(doc(db, 'pogs', pog.id, 'fixtures', freeId(id)), { order: ++end, ...rest, ...blank }));
+  }
+  for (const o of plan.deletes) {
+    for (const ph of [...(o.photos || []), ...(o.notes || []).filter(x => x.path)]) { try { await deleteObject(sRef(st, ph.path)); } catch { } }
+    await put(() => b.delete(doc(db, 'pogs', pog.id, 'fixtures', o.id)));
+  }
+  await flush();
+  const total = plan.updates.length + plan.creates.length + plan.adds.length;
+  await updateDoc(doc(db, 'pogs', pog.id), { fixtureCount: all.length + plan.creates.length + plan.adds.length - plan.deletes.length, updatedAt: serverTimestamp() });
+  toast(`페이지 ${total}장을 최신으로 바꿨어요` + (plan.deletes.length ? ` · ${plan.deletes.length}장 삭제` : ''));
+}
+$('#ed-regrab').onclick = () => openRegrab(null);
 
 /* ---------- 2.3 온라인 POG ---------- */
 $('#on-search').addEventListener('input', renderOnlineList);
