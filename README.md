@@ -18,13 +18,22 @@
 4. 주소: `https://karrotinab.github.io/pog-global/`
 
 ## Firebase 마무리 설정
-1. Firestore Database → 규칙 탭 → `firestore.rules` 내용 붙여넣고 게시
-2. Storage → 규칙 탭 → `storage.rules` 내용 붙여넣고 게시
-3. Authentication → 설정 → 승인된 도메인 → `karrotinab.github.io` 추가
-4. Authentication → 사용자 → 사용자 추가 (POG팀, 글사부 계정)
+1. Authentication → 사용자 → 사용자 추가 (POG팀, 글사부, 매장 계정)
+2. **첫 관리자 만들기:** Firestore Database → 데이터 → 컬렉션 시작 → 컬렉션 ID `roles` → 문서 ID에 내 이메일(소문자) → 필드 `level` (문자열) = `admin` → 저장
+3. Firestore Database → 규칙 탭 → `firestore.rules` 내용 붙여넣고 게시
+4. Storage → 규칙 탭 → `storage.rules` 내용 붙여넣고 게시 (Firestore 접근 권한을 묻는 창이 뜨면 허용)
+5. Authentication → 설정 → 승인된 도메인 → `karrotinab.github.io` 추가
+6. 사이트에 관리자로 로그인 → 오른쪽 위 '계정 관리'에서 다른 계정의 레벨 지정
+
+## 계정 레벨
+| 레벨 | 할 수 있는 것 |
+|---|---|
+| 관리자 | 모든 메뉴 + 계정 관리 |
+| 편집 | 모든 메뉴 (POG 만들기·번역, 도면, 용어 사전) |
+| 제품 찾기만 | 4. 제품 찾기만. 수정 불가 (레벨을 정하지 않은 계정도 이것) |
 
 ## 사용 흐름
-1. 2.1 POG 제작 → '새 POG 가져오기' → 북마크 버튼을 북마크바로 드래그 (최초 1회)
+1. 처음 화면 → POG → POG 만들기 → '새 POG 가져오기' → 북마크 버튼을 북마크바로 드래그 (최초 1회)
 2. POG 사이트 매대 목록 화면에서 북마크 클릭 → '복사하기'
 3. 사이트로 돌아와 붙여넣기 → 매대별 페이지 생성
 4. 지점명·담당자·매대명 등 입력 (자동 저장, 실시간 공유)

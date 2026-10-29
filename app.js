@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy,
+  getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy,
   writeBatch, serverTimestamp, arrayUnion, arrayRemove, getDocs
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
@@ -22,6 +22,10 @@ const st = getStorage(fb);
 
 /* ---------- 공통 ---------- */
 const CATS = ['카테고리', '매대타입', '고리타입', '집기', '헤더문구'];
+// 계정 레벨. roles/{이메일} 문서가 없으면 'finder' (제품 찾기만)
+const LEVELS = { admin: '관리자', editor: '편집', finder: '제품 찾기만' };
+const canEdit = () => state.level === 'admin' || state.level === 'editor';
+const canSee = v => v === 'accounts' ? state.level === 'admin' : (v === 'finder' || canEdit());
 const CANVAS_W = 540, CANVAS_H = 930;
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -64,20 +68,36 @@ const displayName = fx => fx.headerName || fx.mdName || '';
 const glossaryOf = cat => state.glossary.filter(g => g.cat === cat).sort((a, b) => (a.ko || '').localeCompare(b.ko || '', 'ko'));
 
 const state = {
-  user: null, view: 'pog-make',
+  user: null, level: null, view: 'home', roles: [],
   pogs: [], managers: [], glossary: [], glCat: CATS[0],
   currentPog: null, fixtures: new Map(), pageEls: new Map(), lockKey: null, unsubPog: null, unsubFx: null,
   viewer: { unsubPog: null, unsubFx: null, pog: null, fixtures: [] },
 };
 
 /* ---------- 로그인 ---------- */
+let unsubRole = null;
 onAuthStateChanged(auth, user => {
   state.user = user;
+  unsubRole?.(); unsubRole = null;
+  stopListeners(); setLevel(null);
   $('#login').classList.toggle('hidden', !!user);
   $('#app').classList.toggle('hidden', !user);
-  if (user) { $('#me-email').textContent = user.email; startListeners(); go(state.view); }
-  else stopListeners();
+  if (!user) return;
+  $('#me-email').textContent = user.email;
+  // 내 레벨을 읽고, 관리자가 바꾸면 바로 반영
+  unsubRole = onSnapshot(doc(db, 'roles', user.email.toLowerCase()),
+    d => setLevel(LEVELS[d.data()?.level] ? d.data().level : 'finder'),
+    () => setLevel('finder'));
 });
+function setLevel(lv) {
+  if (lv === state.level) return;
+  state.level = lv;
+  document.body.dataset.level = lv || '';
+  $('#me-level').textContent = lv ? LEVELS[lv] : '';
+  if (!lv) return;
+  stopListeners(); startListeners();
+  go(state.view);
+}
 $('#login-form').addEventListener('submit', async e => {
   e.preventDefault();
   $('#login-err').textContent = '';
@@ -94,6 +114,11 @@ function startListeners() {
     state.pogs = s.docs.map(d => ({ id: d.id, ...d.data() }));
     renderPogList(); renderOnlineList();
   }));
+  if (state.level === 'admin') unsubs.push(onSnapshot(collection(db, 'roles'), s => {
+    state.roles = s.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderAccounts();
+  }));
+  if (!canEdit()) return; // 제품 찾기만: 사전·담당자는 필요 없음
   unsubs.push(onSnapshot(query(collection(db, 'managers'), orderBy('name')), s => {
     state.managers = s.docs.map(d => ({ id: d.id, ...d.data() }));
     refreshManagerSelect();
@@ -107,11 +132,17 @@ function stopListeners() { unsubs.forEach(u => u()); unsubs = []; closePog(); cl
 
 /* ---------- 메뉴 이동 ---------- */
 function go(v) {
+  if (!$('#v-' + v)) v = 'home';
+  if (!canSee(v)) v = canEdit() ? 'home' : 'finder';
   state.view = v;
-  $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+  $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.view === v || (!!b.dataset.group && v.startsWith(b.dataset.group))));
+  $('#subnav').classList.toggle('on', v.startsWith('pog-') && v !== 'pog-home');
   $$('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + v));
+  window.scrollTo(0, 0);
 }
 $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
+$$('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
+$('#btn-accounts').onclick = () => go('accounts');
 
 /* ---------- 저장 (디바운스) ---------- */
 const timers = {}; let pending = 0;
@@ -443,8 +474,9 @@ async function doImport(text) {
   if (!data || data.source !== 'pog.artbox.kr' || !Array.isArray(data.fixtures) || !data.fixtures.length) {
     toast('POG 데이터가 아니에요'); return false;
   }
+  let ref = null;
   try {
-    const ref = await addDoc(collection(db, 'pogs'), {
+    ref = await addDoc(collection(db, 'pogs'), {
       storeCode: data.storeCode || '', storeName: data.storeName || '',
       branchName: '', manager: '', status: 'draft', fixtureCount: data.fixtures.length,
       grabbedAt: data.grabbedAt || '', createdAt: serverTimestamp(), createdBy: state.user.email, updatedAt: serverTimestamp(),
@@ -466,7 +498,15 @@ async function doImport(text) {
     toast(`매대 ${data.fixtures.length}개를 가져왔어요`);
     openPog(ref.id);
     return true;
-  } catch (e) { toast('가져오기 실패: ' + e.message); return false; }
+  } catch (e) {
+    if (ref) { try { await deleteDoc(ref); } catch { } } // 반쯤 만들어진 POG는 지움
+    if (e.code === 'permission-denied') {
+      alert('저장 권한이 없어요 (Missing or insufficient permissions).\n\n' +
+        'Firebase 콘솔 → Firestore Database → 규칙 탭에서 firestore.rules 내용이 게시돼 있는지 확인해주세요.\n' +
+        '(처음 만들 때 고른 기본 규칙이 남아 있거나, 테스트 모드 기간이 끝나면 이 오류가 나요.)');
+    } else toast('가져오기 실패: ' + e.message);
+    return false;
+  }
 }
 
 /* ---------- 2.3 온라인 POG ---------- */
@@ -514,41 +554,137 @@ function showItem(it, fx) {
 }
 
 /* ---------- 3. 용어 사전 ---------- */
+const norm = t => (t || '').toLowerCase().replace(/\s+/g, ''); // 띄어쓰기·대소문자 무시
+const catOrder = c => { const i = CATS.indexOf(c); return i < 0 ? CATS.length : i; };
+function glSearch(q) {
+  const n = norm(q);
+  return state.glossary.filter(g => norm(g.ko).includes(n) || norm(g.en).includes(n))
+    .sort((a, b) => catOrder(a.cat) - catOrder(b.cat) || (a.ko || '').localeCompare(b.ko || '', 'ko'));
+}
 let glDirty = false;
 function refreshGlossaryLists() {
   const dl = $('#dl-fixtureType'); dl.innerHTML = '';
   glossaryOf('매대타입').forEach(g => dl.append(h('option', { value: g.ko })));
   $$('select.hook-sel').forEach(sel => fillHookSelect(sel, sel.value));
 }
+function setGlCat(c) {
+  state.glCat = c;
+  $('#gl-add-cat').value = c;
+}
 function renderGlossary() {
   const body = $('#gl-body');
   if (body.contains(document.activeElement)) { glDirty = true; return; }
   glDirty = false;
+  const q = $('#gl-q').value.trim();
+  $('#gl-q-clear').classList.toggle('hidden', !q);
+
   const tabs = $('#gl-tabs'); tabs.innerHTML = '';
-  CATS.forEach(c => tabs.append(h('button', { class: c === state.glCat ? 'on' : '', onclick: () => { state.glCat = c; renderGlossary(); } },
+  tabs.classList.toggle('dim', !!q);
+  CATS.forEach(c => tabs.append(h('button', { class: !q && c === state.glCat ? 'on' : '', onclick: () => { $('#gl-q').value = ''; setGlCat(c); renderGlossary(); } },
     `${c} `, h('span', { class: 'cnt' }, glossaryOf(c).length))));
+
+  const rows = q ? glSearch(q) : glossaryOf(state.glCat);
+  $('#gl-info').textContent = q ? `'${q}' 검색 결과 ${rows.length}개 · 전체 분류에서 찾았어요` : '';
+  $('#gl-head').innerHTML = '';
+  $('#gl-head').append(h('tr', {}, q ? h('th', { class: 'gl-cat-col' }, '분류') : null, h('th', {}, '한국어'), h('th', {}, 'English'), h('th', {})));
+
   body.innerHTML = '';
-  const rows = glossaryOf(state.glCat);
-  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 3, class: 'mut pad' }, '등록된 단어가 없어요.')));
+  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: q ? 4 : 3, class: 'mut pad' },
+    q ? '저장된 단어가 없어요. 위 칸에서 바로 추가할 수 있어요.' : '등록된 단어가 없어요.')));
   rows.forEach(g => {
     const inp = (f) => {
       const el = h('input', { value: g[f] || '' });
-      el.addEventListener('change', () => updateDoc(doc(db, 'glossary', g.id), { [f]: el.value.trim(), updatedAt: serverTimestamp() }));
+      el.addEventListener('change', async () => {
+        await updateDoc(doc(db, 'glossary', g.id), { [f]: el.value.trim(), updatedAt: serverTimestamp() });
+        toast('수정했어요');
+      });
       return el;
     };
-    body.append(h('tr', {}, h('td', {}, inp('ko')), h('td', {}, inp('en')),
+    let catCell = null;
+    if (q) {
+      const sel = h('select', { class: 'gl-cat-sel' }, ...CATS.map(c => h('option', { value: c }, c)));
+      sel.value = g.cat;
+      sel.addEventListener('change', async () => {
+        await updateDoc(doc(db, 'glossary', g.id), { cat: sel.value, updatedAt: serverTimestamp() });
+        toast(`'${sel.value}'(으)로 옮겼어요`);
+      });
+      catCell = h('td', {}, sel);
+    }
+    body.append(h('tr', {}, catCell, h('td', {}, inp('ko')), h('td', {}, inp('en')),
       h('td', { class: 'tc' }, h('button', { class: 'btn ghost danger small', onclick: async () => {
         if (confirm(`'${g.ko}'를 삭제할까요?`)) await deleteDoc(doc(db, 'glossary', g.id));
       } }, '삭제'))));
   });
+  renderGlHint();
 }
+// 추가하려는 한국어가 이미 있으면 알려주기
+function renderGlHint() {
+  const ko = $('#gl-add').ko.value.trim(), box = $('#gl-hint');
+  box.innerHTML = '';
+  if (!ko) return;
+  const same = state.glossary.filter(g => norm(g.ko) === norm(ko));
+  if (!same.length) return;
+  box.append('이미 저장돼 있어요: ',
+    ...same.map(g => h('span', { class: 'gl-hit' }, `[${g.cat}] ${g.ko} → ${g.en || '(영문 없음)'}`)),
+    h('button', { class: 'link', type: 'button', onclick: () => { $('#gl-q').value = ko; renderGlossary(); } }, '찾아서 수정하기'));
+}
+$('#gl-add-cat').append(...CATS.map(c => h('option', { value: c }, c)));
+$('#gl-add-cat').addEventListener('change', e => { if (!$('#gl-q').value.trim()) { state.glCat = e.target.value; renderGlossary(); } });
+$('#gl-add').ko.addEventListener('input', renderGlHint);
+$('#gl-q').addEventListener('input', renderGlossary);
+$('#gl-q-clear').onclick = () => { $('#gl-q').value = ''; renderGlossary(); $('#gl-q').focus(); };
 $('#gl-body').addEventListener('focusout', () => setTimeout(() => { if (glDirty) renderGlossary(); }, 50));
 $('#gl-add').addEventListener('submit', async e => {
   e.preventDefault();
-  const f = e.target, ko = f.ko.value.trim(), en = f.en.value.trim();
+  const f = e.target, cat = f.cat.value, ko = f.ko.value.trim(), en = f.en.value.trim();
   if (!ko) return;
-  if (glossaryOf(state.glCat).some(g => g.ko === ko)) { toast('이미 있는 단어예요'); return; }
-  await addDoc(collection(db, 'glossary'), { cat: state.glCat, ko, en, createdAt: serverTimestamp() });
-  f.reset(); f.ko.focus();
+  const same = state.glossary.filter(g => norm(g.ko) === norm(ko));
+  if (same.some(g => g.cat === cat)) {
+    toast(`'${cat}'에 이미 있는 단어예요. 아래에서 수정하세요`);
+    $('#gl-q').value = ko; renderGlossary(); return;
+  }
+  if (same.length && !confirm(`'${same.map(g => g.cat).join(', ')}' 분류에 같은 단어가 있어요. '${cat}'에도 추가할까요?`)) return;
+  await addDoc(collection(db, 'glossary'), { cat, ko, en, createdAt: serverTimestamp() });
+  toast('추가했어요');
+  f.ko.value = ''; f.en.value = ''; f.ko.focus(); renderGlHint();
 });
+setGlCat(state.glCat);
 renderGlossary();
+
+/* ---------- 계정 관리 (관리자만) ---------- */
+const levelSelect = v => {
+  const sel = h('select', { class: 'acc-sel' }, ...Object.entries(LEVELS).map(([k, t]) => h('option', { value: k }, t)));
+  sel.value = v; return sel;
+};
+function renderAccounts() {
+  const body = $('#acc-body'); body.innerHTML = '';
+  const me = state.user?.email.toLowerCase();
+  const rows = [...state.roles].sort((a, b) => a.id.localeCompare(b.id));
+  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 3, class: 'mut pad' }, '등록된 계정이 없어요.')));
+  rows.forEach(r => {
+    const sel = levelSelect(LEVELS[r.level] ? r.level : 'finder');
+    sel.addEventListener('change', async () => {
+      if (r.id === me && sel.value !== 'admin' && !confirm('내 계정의 관리자 권한을 내리면 계정 관리 화면에 다시 들어올 수 없어요. 계속할까요?')) { sel.value = r.level; return; }
+      try { await updateDoc(doc(db, 'roles', r.id), { level: sel.value, updatedAt: serverTimestamp(), updatedBy: me }); toast('레벨을 바꿨어요'); }
+      catch (e) { toast('저장 실패: ' + e.message); sel.value = r.level; }
+    });
+    body.append(h('tr', {},
+      h('td', {}, r.id, r.id === me ? h('span', { class: 'acc-me' }, '나') : null),
+      h('td', {}, sel),
+      h('td', { class: 'tc' }, r.id === me ? null : h('button', { class: 'btn ghost danger small', onclick: async () => {
+        if (confirm(`'${r.id}'의 레벨을 지울까요? 지우면 '제품 찾기만'으로 바뀌어요.`)) await deleteDoc(doc(db, 'roles', r.id));
+      } }, '삭제'))));
+  });
+}
+$('#acc-add-level').append(...Object.entries(LEVELS).map(([k, t]) => h('option', { value: k }, t)));
+$('#acc-add-level').value = 'editor';
+$('#acc-add').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target, email = f.email.value.trim().toLowerCase();
+  if (!email) return;
+  if (state.roles.some(r => r.id === email)) { toast('이미 있는 계정이에요. 목록에서 레벨을 바꾸세요'); return; }
+  try {
+    await setDoc(doc(db, 'roles', email), { level: f.level.value, createdAt: serverTimestamp(), updatedBy: state.user.email.toLowerCase() });
+    toast('추가했어요'); f.email.value = '';
+  } catch (e) { toast('저장 실패: ' + e.message); }
+});
