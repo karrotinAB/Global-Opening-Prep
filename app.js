@@ -28,12 +28,12 @@ const LEVELS = { admin: '관리자', pog: 'POG팀', vmd: 'VMD팀', global: '글�
 const ASSIGNABLE = ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder']; // editor는 예전 레벨: 그대로 동작하지만 새로 고를 수는 없음
 // 레벨마다 볼 수 있는 화면(views)과 편집할 수 있는 부분(edit). 진짜 차단은 firestore.rules / storage.rules가 함
 const STAFF_VIEWS = ['home', 'stores', 'barcodes', 'drawing', 'dw-up', 'dw-tr', 'dw-online', 'pog-home', 'pog-make', 'pog-trans', 'pog-online', 'glossary', 'finder'];
-const ALL_EDIT = ['stores', 'barcodes', 'drawing', 'drawing-trans', 'pog-make', 'pog-trans', 'glossary'];
+const ALL_EDIT = ['calc', 'stores', 'barcodes', 'drawing', 'drawing-trans', 'pog-make', 'pog-trans', 'glossary'];
 const ACCESS = {
   admin: { views: [...STAFF_VIEWS, 'accounts'], edit: ALL_EDIT },
   pog: { views: STAFF_VIEWS, edit: ['pog-make'] },
   vmd: { views: STAFF_VIEWS, edit: ['drawing'] },
-  global: { views: STAFF_VIEWS, edit: ['stores', 'barcodes', 'drawing-trans', 'pog-trans', 'glossary'] },
+  global: { views: STAFF_VIEWS, edit: ['calc', 'stores', 'barcodes', 'drawing-trans', 'pog-trans', 'glossary'] },
   buyer: { views: ['home', 'drawing', 'dw-online', 'pog-home', 'pog-online', 'finder'], edit: [] }, // 최종본만 (규칙에서도 막음)
   finder: { views: ['finder'], edit: [] },
   editor: { views: STAFF_VIEWS, edit: ALL_EDIT },
@@ -1414,7 +1414,7 @@ function pagesFromGrab(f, i) {
       teamName: f.teamName || '', mdName: f.mdName || '',
       shelfCount: sh, pipeCount: pi,
       itemCount: bays.length > 1 ? bay.items.length : (f.itemCount ?? bay.items.length),
-      items: bay.items, props: bay.props, panels: bay.panels || [], board: f.board || null,
+      items: bay.items, props: bay.props, panels: bay.panels || [], board: f.board || null, src: f.src || null, // src = POG 계산기용 원본 정보 (매대 크기 mm·메모 등)
       shelfPipe: autoShelfPipe(sh, pi), sp: autoSp(sh, pi),
     };
   });
@@ -1440,7 +1440,7 @@ async function doImport(text) {
       pages.push(...r.pages); outN += r.outN; if (r.pages.length > 1) splitN++;
     }
     ref = await addDoc(collection(db, 'pogs'), {
-      storeCode: data.storeCode || '', storeName: data.storeName || '', storePrefix: codePrefix(data.storeCode),
+      storeCode: data.storeCode || '', storeName: data.storeName || '', saup: data.saup || '00', storePrefix: codePrefix(data.storeCode),
       branchName: '', manager: '', status: 'draft', fixtureCount: pages.length,
       teams: [...new Set(pages.map(pg => catName(pg.teamName)).filter(Boolean))], // 사전 '팀명' 자동 추가용
       grabbedAt: data.grabbedAt || '', createdAt: serverTimestamp(), createdBy: state.user.email, updatedAt: serverTimestamp(),
@@ -1507,6 +1507,45 @@ async function exportCounts(pog, fixtures) {
 }
 $('#ed-counts').onclick = () => exportCounts(state.currentPog, [...state.fixtures.values()]);
 $('#vw-counts').onclick = () => exportCounts(state.viewer.pog, state.viewer.fixtures);
+$('#vw-calc').onclick = () => exportCalc(state.viewer.pog, state.viewer.fixtures);
+/* POG 계산기(POG-calculator2)용 파일: 계산기의 수집 파일(POG_FL_DATA)과 같은 모양. 상품 상세정보(뎁스·팩킹수량)는 비어 있고,
+   계산기에서 '상품 상세정보 채우기'로 POG 사이트에서 가져온다. 칸으로 나눈 페이지는 POG 사이트 매대(mdidx)별로 다시 합침 */
+function exportCalc(pog, fixtures) {
+  if (!pog) return;
+  const by = new Map();
+  for (const f of [...fixtures].sort((a, b) => a.order - b.order)) {
+    if (f.kind === 'free' || !f.mdidx) continue;
+    if (!by.has(f.mdidx)) by.set(f.mdidx, []);
+    by.get(f.mdidx).push(f);
+  }
+  let noSrc = 0;
+  const mds = [...by.entries()].map(([mdidx, parts]) => {
+    const f0 = parts[0], src = parts.find(p => p.src)?.src;
+    if (!src) noSrc++;
+    const seenI = new Set(), seenP = new Set(), items = [], props = [];
+    for (const p of parts) {
+      for (const it of p.items || []) if (!seenI.has(String(it.id))) {
+        seenI.add(String(it.id));
+        const gp = String(it.group || '').split('_'), dims = gp.length >= 4 && gp.slice(-3).every(x => /^\d+(\.\d+)?$/.test(x)) ? { w: +gp.at(-3), h: +gp.at(-2), d: +gp.at(-1) } : null;
+        items.push({ objidx: String(it.id), code: it.code, name: it.name, price: it.price || 0, group: dims ? gp.slice(0, -3).join('_') : it.group || '', dims, image: it.img || '', x: it.x, y: it.y, w: it.w, h: it.h, z: it.z || 0 });
+      }
+      (p.props || []).forEach((pr, i) => { const key = pr.id != null && pr.id !== '' ? String(pr.id) : `${p.id}#${i}`; if (seenP.has(key)) return;
+        seenP.add(key);
+        props.push({ objidx: pr.id != null ? String(pr.id) : '', kind: pr.opt !== undefined && pr.opt !== '' ? (pr.opt === 'Y' ? '파이프' : '선반') : (/파이프/.test(pr.kind || '') ? '파이프' : '선반'), x: pr.x, y: pr.y, w: pr.w, h: pr.h });
+      });
+    }
+    return { mdidx, team: f0.teamName || '', mdname: f0.mdName || '', note: '', mdtype: src?.mdtype || '', listItem: String(items.length), url: '',
+      detail: { title: f0.mdName || '', mdidx, mdtype: src?.mdtype || '', mdcnt: src?.mdcnt || 1, bays: src?.bays || [], bodies: src?.bodies || [], items, props, memos: src?.memos || [] } };
+  });
+  if (!mds.length) { alert('계산기로 보낼 매대가 없어요.'); return; }
+  if (noSrc && !confirm(`매대 ${noSrc}개는 예전에 가져와서 계산기용 정보(매대 크기 mm 등)가 없어요.\n계산기에서 매대 모양·추천 수량이 정확하지 않을 수 있어요. 정확하게 하려면 POG 만들기에서 '↻ 다시 가져오기'를 한 번 해주세요.\n그래도 받을까요?`)) return;
+  const payload = { type: 'POG_FL_DATA', version: 1, source: 'global-pog', collectedAt: pog.grabbedAt || new Date().toISOString(),
+    store: { code: pog.storeCode || '', name: pog.storeName || '', saup: pog.saup || '00' }, mds, products: {} };
+  const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(payload)], { type: 'application/json' })),
+    download: `pog_${(pog.storeName || pog.storeCode || 'store').replace(/[^\w가-힣]+/g, '_')}_${new Date().toISOString().slice(0, 10)}.json` });
+  a.click();
+  toast('계산기용 파일을 받았어요. POG 계산기에 올린 뒤 \'상품 상세정보 채우기\'를 눌러주세요');
+}
 
 /* ---------- POG 사이트에서 다시 가져오기 (POG팀이 일부 매대만 고쳤을 때) ----------
    고유번호(mdidx)로 이 POG의 페이지를 찾아 제품·집기 모양만 최신으로 바꾼다.
@@ -1581,7 +1620,7 @@ async function applyRegrab(pog, plan) {
   for (const { o, pg } of plan.updates) {
     const keep = new Set(pg.items.map(it => String(it.id)));
     const patch = {
-      items: pg.items, props: pg.props, panels: pg.panels, board: pg.board || null, outsideItems: [],
+      items: pg.items, props: pg.props, panels: pg.panels, board: pg.board || null, src: pg.src || null, outsideItems: [],
       mdName: pg.mdName, teamName: pg.teamName, bayNo: pg.bayNo, bayCount: pg.bayCount,
       itemCount: pg.itemCount, shelfCount: pg.shelfCount, pipeCount: pg.pipeCount,
       itemZ: Object.fromEntries(Object.entries(o.itemZ || {}).filter(([k]) => keep.has(k))),
@@ -2677,10 +2716,11 @@ $('#bc-file').addEventListener('change', async e => {
     const all = await getDocs(collection(db, 'barcodes'));
     exBc = new Map(all.docs.map(d => [d.id, d.data().code])); exCode = new Map(all.docs.map(d => [String(d.data().code), d.id]));
   } catch (err) { alert('등록된 바코드를 읽지 못했어요: ' + (err.code || err.message)); return; }
-  const map = new Map(), skip = [], seenBc = new Map(), seenCode = new Map();
+  const map = new Map(), skip = [], seenBc = new Map(), seenCode = new Map(); let sameN = 0;
   rows.slice(1).forEach((r, i) => {
     const line = i + 2, bc = cellText(r[iBc]), code = code8(cellText(r[iCode])), name = iName >= 0 ? String(r[iName] ?? '').trim() : '';
     if (!bc && !code) return;
+    if (bc && code && exBc.get(bc) === code) { sameN++; return; } // 이미 똑같이 등록된 줄은 문제가 아님 (세기만)
     const why = !bc ? '바코드 없음' : !code ? '제품코드 없음' : bc.includes('/') ? '바코드에 / 있음'
       : exBc.has(bc) ? `이미 있는 바코드 (등록된 제품코드 ${exBc.get(bc)})`
       : exCode.has(code) ? `이미 있는 제품코드 (등록된 바코드 ${exCode.get(code)})`
@@ -2692,11 +2732,16 @@ $('#bc-file').addEventListener('change', async e => {
   });
   const kinds = {};
   skip.forEach(x => { const k = x.why.replace(/ \(.*\)$/, ''); kinds[k] = (kinds[k] || 0) + 1; });
-  if (!map.size) { bcReport(skip, file.name, 0); alert('새로 올릴 줄이 없어요. 건너뛴 줄은 화면 아래 목록에서 볼 수 있어요.'); return; }
+  if (!map.size) {
+    bcReport(skip, file.name, 0, sameN);
+    alert(skip.length ? `새로 올릴 줄이 없어요.${sameN ? `\n(${sameN.toLocaleString()}줄은 이미 똑같이 등록돼 있어요)` : ''}\n건너뛴 줄은 화면 아래 목록에서 볼 수 있어요.` : `파일의 ${sameN.toLocaleString()}줄이 모두 이미 똑같이 등록돼 있어요. 새로 올릴 것이 없어요.`);
+    return;
+  }
   const go = h('button', { class: 'btn primary' }, `${map.size.toLocaleString()}개 올리기`);
   const close = modal(h('div', {}, h('h3', {}, '바코드 엑셀 올리기'),
     h('ul', { class: 'steps' },
       h('li', {}, `새로 올릴 바코드 ${map.size.toLocaleString()}개`),
+      sameN ? h('li', { class: 'mut' }, `이미 똑같이 등록된 줄 ${sameN.toLocaleString()}개 (그대로 둬요)`) : null,
       skip.length ? h('li', { class: 'warn' }, `건너뛰는 줄 ${skip.length.toLocaleString()}개 (이미 있는 것은 바꾸지 않아요)`,
         h('div', { class: 'mut' }, Object.entries(kinds).map(([k, n]) => `${k} ${n}`).join(' · '))) : null,
       iName < 0 ? h('li', { class: 'mut' }, '제품명 열이 없어요 (괜찮아요)') : null),
@@ -2712,12 +2757,12 @@ $('#bc-file').addEventListener('change', async e => {
         await b.commit(); done = Math.min(list.length, i + 400); go.textContent = `올리는 중… ${done.toLocaleString()} / ${list.length.toLocaleString()}`;
       }
       close(); toast(`바코드 ${list.length.toLocaleString()}개를 올렸어요` + (skip.length ? ` · ${skip.length}개는 건너뜀` : '')); bcCount();
-      bcReport(skip, file.name, list.length);
+      bcReport(skip, file.name, list.length, sameN);
     } catch (err) { alert(`올리다가 멈췄어요 (${done.toLocaleString()}개까지 저장됨): ${err.code || err.message}`); go.disabled = false; go.textContent = '다시 올리기'; }
   };
 });
 // 건너뛴 줄 알림: 이 화면에만, 한 번만 (다른 화면으로 가거나 닫으면 사라지고 저장하지 않음)
-function bcReport(skip, fileName, okN) {
+function bcReport(skip, fileName, okN, sameN = 0) {
   const box = $('#bc-report'); if (!box) return;
   if (!skip.length) { box.replaceChildren(); box.classList.add('hidden'); return; }
   const dl = h('button', { class: 'btn small ghost', onclick: async () => {
@@ -2729,11 +2774,11 @@ function bcReport(skip, fileName, okN) {
     } catch (e) { alert(e.message); }
   } }, '엑셀로 받기');
   box.replaceChildren(
-    h('div', { class: 'bc-rep-head' }, h('b', {}, `'${fileName}' 에서 건너뛴 줄 ${skip.length.toLocaleString()}개`), h('span', { class: 'mut' }, ` · 올린 줄 ${okN.toLocaleString()}개`),
+    h('div', { class: 'bc-rep-head' }, h('b', {}, `'${fileName}' 에서 건너뛴 줄 ${skip.length.toLocaleString()}개`), h('span', { class: 'mut' }, ` · 올린 줄 ${okN.toLocaleString()}개${sameN ? ` · 이미 똑같이 등록된 줄 ${sameN.toLocaleString()}개` : ''}`),
       h('span', { class: 'sp' }), dl, h('button', { class: 'modal-x bc-rep-x', title: '닫기', onclick: () => bcReport([], '', 0) }, '×')),
     h('p', { class: 'mut' }, '이미 있는 바코드·제품코드는 바꾸지 않았어요. 바꾸려면 아래 찾기에서 지우고 다시 올려주세요. 이 목록은 다른 화면으로 가면 사라져요.'),
     h('div', { class: 'bc-rep-wrap' }, h('table', { class: 'gl-table' },
-      h('thead', {}, h('tr', {}, h('th', {}, '줄'), h('th', {}, '바코드'), h('th', {}, '제품코드'), h('th', {}, '이유'))),
+      h('thead', {}, h('tr', {}, h('th', { style: 'width:56px' }, '줄'), h('th', { style: 'width:150px' }, '바코드'), h('th', { style: 'width:100px' }, '제품코드'), h('th', {}, '이유'))),
       h('tbody', {}, ...skip.slice(0, 500).map(x => h('tr', {}, h('td', {}, x.line), h('td', {}, x.bc), h('td', {}, x.code), h('td', {}, x.why)))))),
     ...(skip.length > 500 ? [h('p', { class: 'mut' }, `앞의 500개만 보여요. 전부는 '엑셀로 받기'로 보세요.`)] : []));
   box.classList.remove('hidden');

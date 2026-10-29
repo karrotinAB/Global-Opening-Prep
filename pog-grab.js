@@ -55,6 +55,7 @@
       ...extra(el),
       id: el.id.slice(4),
       kind: (el.getAttribute('title') || '').split('#')[0].trim(),
+      opt: el.getAttribute('data-propoption') || '', // POG 계산기는 'Y'를 파이프로 봄
       cls: (el.className || '').split(' ')[0],
       color: win.getComputedStyle(el).backgroundColor,
       x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight,
@@ -88,7 +89,23 @@
       const bg = bgOf(win.getComputedStyle(el));
       if (bg) { const r = el.getBoundingClientRect(), br = box.getBoundingClientRect(); board = { ...bg, x: Math.round(r.left - br.left), y: Math.round(r.top - br.top), w: Math.round(r.width), h: Math.round(r.height) }; }
     }
-    return { items, props, panels, board };
+    // POG 계산기용 (계산기 수집기와 같은 방식): 매대 연 크기(mm 포함)·매대 몸통 위치·POG 사이트 메모·매대 타입
+    const gv = id => { const e = doc.getElementById(id); return e ? e.value : ''; };
+    const mdcnt = +gv('gv-mdcnt') || 1;
+    const suf = [['', ''], ['Two', '2'], ['Three', '3'], ['Four', '4']];
+    const bays = suf.slice(0, mdcnt).map(([a, b], i) => ({ no: i + 1, left: +gv('mgLeft' + a), top: +gv('mgTop' + a), w: +gv('gv-md' + b + 'width'), h: +gv('gv-md' + b + 'height'), wmm: +gv('gv-md' + b + 'widthmm'), hmm: +gv('gv-md' + b + 'heightmm') }));
+    const r1 = v => Math.round((parseFloat(v) || 0) * 10) / 10;
+    let bodies = [];
+    try {
+      const ref = doc.querySelector('div.item01') || doc.querySelector('div[id^="prop"]');
+      if (ref) {
+        const rr = ref.getBoundingClientRect(), dx = rr.left - (parseFloat(ref.style.left) || 0), dy = rr.top - (parseFloat(ref.style.top) || 0);
+        bodies = [...doc.querySelectorAll('[id^="md-body"]')].map(b => { const r = b.getBoundingClientRect(); return { id: b.id, left: r1(r.left - dx), top: r1(r.top - dy), w: r1(r.width), h: r1(r.height) }; }).filter(b => b.w > 0 && b.h > 0);
+      }
+    } catch (e) { }
+    const memos = [...doc.querySelectorAll('[id^="memo"]')].map(e => ({ text: (e.textContent || '').replace(/\s+/g, ' ').trim(), x: r1(e.style.left), y: r1(e.style.top), w: r1(e.style.width), h: r1(e.style.height) })).filter(m => m.text);
+    const src = { mdtype: gv('gv-mdtype'), mdcnt, bays, bodies, memos };
+    return { items, props, panels, board, src };
   }
 
   /* 숨은 창으로 매대 보기 화면을 열어 다 그려질 때까지 기다린 뒤 읽기.
@@ -238,12 +255,12 @@
         shelfCount: t.shelfCount ?? countKind(d.props, /선반/),
         pipeCount: t.pipeCount ?? countKind(d.props, /파이프/),
         itemCount: t.itemCount ?? d.items.length,
-        items: d.items, props: d.props, panels: d.panels || [], board: d.board || null, error: d.error || '',
+        items: d.items, props: d.props, panels: d.panels || [], board: d.board || null, src: d.src || null, error: d.error || '',
       };
     });
     const show = () => {
       const fixtures = build();
-      const json = JSON.stringify({ source: 'pog.artbox.kr', ver: 1, storeCode: store.code, storeName: store.name, grabbedAt: new Date().toISOString(), fixtures });
+      const json = JSON.stringify({ source: 'pog.artbox.kr', ver: 1, storeCode: store.code, storeName: store.name, saup: store.saup || '00', grabbedAt: new Date().toISOString(), fixtures });
       const warn = targets.filter(isShort);
       $msg.innerHTML = `<b>${esc(store.name)} (${esc(store.code)})</b> · 매대 ${fixtures.length}개 완료` + (warn.length ? ` · <span class="w">확인 필요 ${warn.length}개</span>` : '');
       $bar.style.width = '100%';

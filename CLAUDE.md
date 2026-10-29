@@ -167,6 +167,7 @@ pogs/{pogId}/fixtures/{id}      // 매대(칸) 하나 = POG 페이지 하나. id
   extras: [{ id, name, qty }]   // 이외집기: 사전 '집기'에서 고르고 × 수량 (여러 줄)
   otherFixtures                 // 이외집기 칸 아래 '기타 메모' (자유 글)
   manager                       // 이 페이지만 다른 POG 담당자 (비우면 POG의 manager)
+  src: { mdtype, mdcnt, bays:[{no,left,top,w,h,wmm,hmm}], bodies, memos }   // POG 계산기용 원본 (북마클릿이 gv-* 값·md-body·memo를 읽음). props[].opt = data-propoption
   memo, photos: [{ url, path, name }]
   notes: [{ id, t, ... }]       // 페이지 위 메모. 좌표는 A4 페이지 안의 px (794×1123 기준)
                                 //  box:   x,y,w,h, color(테두리), fill(채우기 여부), alpha(채우기 진하기), bw(굵기)
@@ -273,6 +274,7 @@ glossary/{id}    cat, ko, en, code, tr, auto, createdBy, updatedBy, updatedAt //
 
 ### 2.3 온라인 POG
 - `final`인 POG만 목록에 나온다. 읽기 전용.
+- **POG 계산기용 파일 받기** (툴바, 글사부·관리자만 · 편집 영역 `calc`, `exportCalc`): POG-calculator2의 수집 파일과 같은 모양(`POG_FL_DATA`, `source:'global-pog'`). 칸으로 나눈 페이지를 `mdidx`별로 다시 합치고, 집기 종류는 계산기 규칙(`data-propoption` 'Y' = 파이프). 매대 크기 mm·몸통·메모는 fixture `src`. `products`는 비어 있음 → 계산기에서 '상품 상세정보 채우기'. `src`가 없는 예전 POG는 경고 후 받기 (다시 가져오기 권장).
 - 제품을 클릭하면 팝업: 사진, 제품명, 제품코드, 가격, **바코드(바코드 등록에서 제품코드로 찾음)**, 매대, 진열 그룹.
 - 언어는 툴바의 알약 버튼(한국어 | English)으로 바로 바꾼다.
 
@@ -361,6 +363,10 @@ glossary/{id}    cat, ko, en, code, tr, auto, createdBy, updatedBy, updatedAt //
   - 도면 위치: 연결된 도면 매대 강조
 - 같은 제품 DB로 2.3 제품 팝업의 바코드 칸도 채운다.
 - 필요한 것: 제품 DB 시트 URL과 열 구성 (바코드, 제품코드, 제품명). **아직 받지 못했다.**
+
+### E. POG 계산기(karrotinAB/POG-calculator2) 연결 — 구현됨
+- 흐름: POG팀은 Global POG로 가져옴 → 글사부가 온라인 POG에서 'POG 계산기용 파일 받기' → 계산기에 끌어다 놓기 → 계산기 상단 **'상품 상세정보 채우기 (n종)'** → POG 사이트 창이 열림 → 거기서 계산기 즐겨찾기('초도리스트 POG 수집')를 누르면 **매대는 다시 안 읽고 빠진 상품 정보(뎁스·팩킹수량·분류)만** 가져와 계산기로 보냄.
+- 계산기 수집기: 창을 연 계산기(opener)에게 `POG_FL_ASK` → 계산기가 기다리는 중이면 `POG_FL_NEED {codes}` → 상품만 읽고 `POG_FL_PRODUCTS`. 대답이 없으면(POG 사이트를 직접 연 경우) 예전처럼 전체 수집. 계산기는 artbox.kr에서 온 메시지만 받음.
 
 ## 10. 사용자에게 받아야 하는 것
 
