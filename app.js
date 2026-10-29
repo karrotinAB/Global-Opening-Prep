@@ -83,7 +83,7 @@ function modal(content, { wide = false } = {}) {
 const catName = t => (t || '').replace(/^\d+\s*/, '');
 const fmtDate = ts => {
   const d = ts?.toDate ? ts.toDate() : (ts ? new Date(ts) : null);
-  return d ? `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}` : '';
+  return d && !isNaN(d) ? `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}` : '';
 };
 // POG 원본 이름. 칸이 여러 개인 매대는 '(1/2)'처럼 몇 번째 칸인지 붙임
 const origName = fx => (fx.mdName || '') + (fx.bayCount > 1 ? ` (${fx.bayNo}/${fx.bayCount})` : '');
@@ -149,7 +149,7 @@ function startListeners() {
   unsubs.push(onSnapshot(pq, s => {
     state.pogs = s.docs.map(d => ({ id: d.id, ...d.data() }))
       .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-    renderPogList(); renderOnlineList(); scheduleTeamSync();
+    renderPogList(); renderOnlineList(); renderTrList(); scheduleTeamSync();
   }, e => toast('POG 목록을 읽지 못했어요: ' + e.code)));
   if (state.level === 'admin') unsubs.push(onSnapshot(collection(db, 'roles'), s => {
     state.roles = s.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -163,10 +163,10 @@ function startListeners() {
   unsubs.push(onSnapshot(collection(db, 'glossary'), s => {
     state.glossary = s.docs.map(d => ({ id: d.id, ...d.data() }));
     glLoaded = true;
-    refreshGlossaryLists(); renderGlossary(); scheduleTeamSync();
+    refreshGlossaryLists(); renderGlossary(); scheduleTeamSync(); renderTr();
   }));
 }
-function stopListeners() { unsubs.forEach(u => u()); unsubs = []; closePog(); closeViewer(); }
+function stopListeners() { unsubs.forEach(u => u()); unsubs = []; closePog(); closeViewer(); closeTr(); }
 
 /* ---------- 메뉴 이동 ---------- */
 function go(v) {
@@ -185,8 +185,7 @@ $('#btn-accounts').onclick = () => go('accounts');
 /* ---------- 저장 (디바운스) ---------- */
 const timers = {}; let pending = 0;
 function setSaving() {
-  const el = $('#ed-saving'); if (!el) return;
-  el.textContent = pending > 0 ? '저장 중…' : '저장됨';
+  for (const el of [$('#ed-saving'), $('#tr-saving')]) if (el) el.textContent = pending > 0 ? '저장 중…' : '저장됨';
 }
 function queueWrite(key, fn) {
   if (!timers[key]) { pending++; setSaving(); }
@@ -255,7 +254,7 @@ const autoCoverTitle = pog => (pog.branchName || pog.storeName || '').trim().rep
 // 페이지 왼쪽 아래 매장명: 지점명, 없으면 POG 사이트의 매장명
 const footStore = pog => pog.branchName || pog.storeName || '';
 const coverTitle = pog => pog.coverTitle || autoCoverTitle(pog);
-function buildCover(pog, { editable }) {
+function buildCover(pog, { editable, L = LABELS_KO }) {
   const title = h('input', { class: 'f cover-title' });
   if (!editable) title.disabled = true;
   else title.addEventListener('input', () => savePog(pog.id, 'coverTitle', title.value));
@@ -263,7 +262,7 @@ function buildCover(pog, { editable }) {
     h('div', { class: 'ph' }),
     h('div', { class: 'cover-gap' }),
     h('div', { class: 'cover-body' }, title, h('div', { class: 'cover-pog' }, 'POG')),
-    h('div', { class: 'pf1' }, 'POG 담당자 ', h('span', { class: 'pf-mgr' })),
+    h('div', { class: 'pf1' }, L.mgr + ' ', h('span', { class: 'pf-mgr' })),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
   return h('div', { class: 'page-block cover-block', 'data-id': '__cover' }, page);
 }
@@ -345,7 +344,7 @@ vwThumbs = makeThumbs($('#vw-thumbs'), $('#vw-pages'));
 $$('.list-toggle').forEach(b => b.onclick = () => b.closest('.split').classList.toggle('list-off'));
 
 /* ---------- POG 페이지 (A4 한 장 = 매대 하나) ---------- */
-function buildPage(fx, pog, { editable, onItem }) {
+function buildPage(fx, pog, { editable, onItem, L = LABELS_KO }) {
   const pid = pog.id;
   const field = (f, el) => {
     el.dataset.f = f; el.classList.add('f');
@@ -358,25 +357,45 @@ function buildPage(fx, pog, { editable, onItem }) {
   };
   const box = (label, ...c) => h('div', { class: 'sbox' }, h('div', { class: 'sbox-l' }, label), h('div', { class: 'sbox-c' }, ...c));
 
-  if (fx.kind === 'free') return buildFreePage(fx, pog, { editable, field });
+  if (fx.kind === 'free') return buildFreePage(fx, pog, { editable, field, L });
   const page = h('div', { class: 'page' },
     h('div', { class: 'ph' },
       field('headerName', h('input', { class: 'ph-name', placeholder: origName(fx) || '매대명' })),
-      h('div', { class: 'ph-cat' }, catName(fx.teamName))),
+      h('div', { class: 'ph-cat' }, fx._cat ?? catName(fx.teamName))),
     h('div', { class: 'pb' },
       h('div', { class: 'pcanvas' }, buildCanvas(fx, CANVAS_W, CANVAS_H, onItem)),
       h('div', { class: 'pside' },
-        box('매대 타입', field('fixtureType', h('input', { list: 'dl-fixtureType', placeholder: '예: 벽매대1000' }))),
-        box('고리타입/갯수', h('div', { class: 'hook-row' },
+        box(L.type, field('fixtureType', h('input', { list: 'dl-fixtureType', placeholder: '예: 벽매대1000' }))),
+        box(L.hook, h('div', { class: 'hook-row' },
           field('hookType', h('select', { class: 'hook-sel' })),
           h('span', { class: 'x' }, '×'),
           field('hookCount', h('input', { type: 'number', min: 0, class: 'hook-cnt', placeholder: '0' })))),
-        box('선반/파이프여부', field('shelfPipe', h('input', { placeholder: '예: 선반 3 / 파이프 12' }))),
-        box('이외집기(8코드포함)', field('otherFixtures', h('textarea', { rows: 6, placeholder: '예: 아크릴선반 8' }))))),
-    h('div', { class: 'pf1' }, 'POG 담당자 ', h('span', { class: 'pf-mgr' })),
+        box(L.sp, field('shelfPipe', h('input', { placeholder: '예: 선반 3 / 파이프 12' }))),
+        box(L.other, h('div', { class: 'ex-list' }), field('otherFixtures', h('textarea', { rows: 2, class: 'ex-memo', placeholder: editable ? '기타 메모 (선택)' : '' }))))),
+    h('div', { class: 'pf1' }, L.mgr + ' ', h('span', { class: 'pf-mgr' })),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
 
-  return finishBlock(fx, pog, page, editable);
+  const block = finishBlock(fx, pog, page, editable);
+  block._extras = structuredClone(fx.extras || []);
+  renderExtras(block);
+  return block;
+}
+
+/* 이외집기: 사전 '집기'에서 고르고 × 수량 (여러 줄). fixture.extras = [{ id, name, qty }]
+   사전에 없는 이름을 직접 쓰면 2.2 번역에서 빨간 ! 로 표시됨 */
+function renderExtras(block) {
+  const box = block.querySelector('.page .ex-list'); if (!box) return;
+  const ed = block._editable, list = block._extras;
+  const save = () => saveFx(block._pog, block._fx, 'extras', structuredClone(list));
+  box.replaceChildren(...list.map(x => {
+    const name = h('input', { class: 'f ex-name', list: 'dl-extras', placeholder: '집기 고르기', disabled: !ed });
+    const qty = h('input', { class: 'f ex-qty', type: 'number', min: 0, placeholder: '0', disabled: !ed });
+    name.value = x.name || ''; qty.value = x.qty ?? '';
+    name.addEventListener('input', () => { x.name = name.value; save(); });
+    qty.addEventListener('input', () => { x.qty = qty.value === '' ? '' : Number(qty.value); save(); });
+    return h('div', { class: 'ex-row' }, name, h('span', { class: 'x' }, '×'), qty,
+      ed ? h('button', { class: 'ex-del no-print', title: '삭제', onclick: () => { block._extras = list.filter(y => y !== x); save(); renderExtras(block); } }, '×') : null);
+  }), ...(ed ? [h('button', { class: 'ex-add no-print', onclick: () => { list.push({ id: uid(), name: '', qty: '' }); save(); renderExtras(block); block.querySelector('.page .ex-row:last-of-type .ex-name')?.focus(); } }, '+ 집기 추가')] : []));
 }
 // 페이지 블록 마무리: 메모 층(네모·글상자·화살표·사진)과 편집 막대를 붙임
 function finishBlock(fx, pog, page, editable) {
@@ -401,11 +420,11 @@ function finishBlock(fx, pog, page, editable) {
 }
 
 /* ---------- 추가 페이지 (POG 없이 사진·글·메모만) ---------- */
-function buildFreePage(fx, pog, { editable, field }) {
+function buildFreePage(fx, pog, { editable, field, L = LABELS_KO }) {
   const page = h('div', { class: 'page free' },
     h('div', { class: 'ph' }, field('headerName', h('input', { class: 'ph-name', placeholder: '제목 (예: 3단 각고리 참고사진)' }))),
     h('div', { class: 'pb free-body' }),
-    h('div', { class: 'pf1' }, 'POG 담당자 ', h('span', { class: 'pf-mgr' })),
+    h('div', { class: 'pf1' }, L.mgr + ' ', h('span', { class: 'pf-mgr' })),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
   return finishBlock(fx, pog, page, editable);
 }
@@ -634,6 +653,10 @@ function syncPage(block, fx, pog) {
   $('.pf-mgr', block).textContent = pog.manager || '';
   $('.pf-branch', block).textContent = footStore(pog);
   if (!pendingKey(`${fx.id}|itemZ`)) applyItemZ(block, fx);
+  const exBox = block.querySelector('.page .ex-list');
+  if (exBox && !exBox.contains(document.activeElement) && !pendingKey(`${fx.id}|extras`) && JSON.stringify(fx.extras || []) !== JSON.stringify(block._extras)) {
+    block._extras = structuredClone(fx.extras || []); renderExtras(block);
+  }
   const typing = !!block._bar && block._bar.querySelector('.nb-text') === document.activeElement;
   if (!block._dragging && !typing && !pendingKey(`${fx.id}|notes`) && JSON.stringify(fx.notes || []) !== JSON.stringify(block._notes)) {
     block._notes = structuredClone(fx.notes || []);
@@ -700,7 +723,6 @@ function openPog(id) {
 function applyPogDoc() {
   const p = state.currentPog;
   $('#ed-title').textContent = `${p.storeName || ''} ${p.storeCode ? '(' + p.storeCode + ')' : ''}`;
-  const br = $('#ed-branch'); if (br !== document.activeElement) br.value = p.branchName || '';
   refreshManagerSelect();
   const final = p.status === 'final';
   const editable = !final && canEdit('pog-make'); // POG팀·관리자만 편집, 나머지는 보기
@@ -709,7 +731,7 @@ function applyPogDoc() {
   $('#ed-status').className = 'badge ' + (final ? 'final' : canEdit('pog-make') ? 'draft' : 'ro');
   $('#ed-final').textContent = final ? '잠금 해제 (다시 수정)' : '최종 POG 내보내기';
   $('#ed-final').classList.toggle('primary', !final);
-  br.disabled = !editable; $('#ed-manager').disabled = !editable;
+  $('#ed-manager').disabled = !editable;
   const key = editable ? 'rw' : 'ro';
   if (state.lockKey !== key) {
     state.lockKey = key;
@@ -808,12 +830,6 @@ async function restoreOutside(pogId, fx) {
   toast(`${out.length}개를 되살렸어요`);
 }
 
-$('#ed-branch').addEventListener('input', e => {
-  const p = state.currentPog; if (!p) return;
-  p.branchName = e.target.value; savePog(p.id, 'branchName', e.target.value);
-  state.pageEls.forEach(el => $('.pf-branch', el).textContent = footStore(p));
-  if (state.coverEl) syncCover(state.coverEl, p);
-});
 function refreshManagerSelect() {
   const sel = $('#ed-manager'); if (!sel) return;
   const cur = state.currentPog?.manager || '';
@@ -843,7 +859,6 @@ $('#ed-final').onclick = async () => {
     return;
   }
   const miss = [];
-  if (!p.branchName) miss.push('지점명');
   if (!p.manager) miss.push('담당자');
   const noName = [...state.fixtures.values()].filter(f => f.kind !== 'free' && !f.headerName).length;
   if (noName) miss.push(`매대명 미입력 ${noName}개 (POG 원본 이름으로 표시돼요)`);
@@ -1148,6 +1163,272 @@ async function applyRegrab(pog, plan) {
 }
 $('#ed-regrab').onclick = () => openRegrab(null);
 
+/* ---------- 2.2 POG 번역 ----------
+   AI 번역 없음: 용어 사전에서 찾아 자동으로 채우고(통째 → 낱말 단위), 못 찾은 것만 사람이 입력.
+   저장: pogs/{id}/translations/{언어}
+     fx:  { fxId: { 항목: 사람이 고친 번역 } }   (__labels = 페이지 고정 문구, __pog = 표지·매장명)
+     out: '온라인 POG에 반영'을 누른 순간의 최종 번역 (사전 자동 + 사람이 고친 것). 바이어는 사전을 못 읽으므로 이걸로 보여줌 */
+const LABELS_KO = { type: '매대 타입', hook: '고리타입/갯수', sp: '선반/파이프여부', other: '이외집기(8코드포함)', mgr: 'POG 담당자' };
+const LABELS_EN = { type: 'Fixture Type', hook: 'Hook Type / Qty', sp: 'Shelf / Pipe', other: 'Other Fixtures (incl. 8-code)', mgr: 'POG Manager' };
+const trOf = (g, lang) => lang === 'English' ? (g.en || '') : (g.tr?.[lang] || '');
+const hasKo = t => /[가-힣]/.test(t || '');
+function findWord(ko, lang, cats) {
+  const n = norm(ko); if (!n) return '';
+  const pool = state.glossary.filter(g => norm(g.ko) === n && trOf(g, lang));
+  if (!pool.length) return '';
+  const rank = g => { const i = (cats || []).indexOf(g.cat); return i < 0 ? 99 : i; };
+  pool.sort((a, b) => rank(a) - rank(b));
+  return trOf(pool[0], lang);
+}
+// 사전으로 번역: 통째로 있으면 그것, 없으면 '/'·','·줄바꿈 등으로 나눠 낱말마다 (띄어쓰기는 긴 것부터 맞춰봄)
+function autoTranslate(text, lang, cats) {
+  const t = (text || '').trim();
+  if (!t || !hasKo(t)) return { text: t, missing: [] };
+  const whole = findWord(t, lang, cats); if (whole) return { text: whole, missing: [] };
+  const missing = [];
+  const word = w => {
+    if (!hasKo(w)) return w;
+    const f = findWord(w, lang, cats); if (f) return f;
+    const m = w.match(/^(.*[가-힣])(\d+\S*)$/); // '선반3' → '선반' + '3'
+    if (m) { const f2 = findWord(m[1], lang, cats); if (f2) return `${f2} ${m[2]}`; }
+    missing.push(w); return w;
+  };
+  const out = t.split(/(\s*[\/,·+&()\[\]×xX\n]\s*)/).map((seg, i) => {
+    if (i % 2 || !hasKo(seg)) return seg;
+    const s2 = seg.trim(), hit = findWord(s2, lang, cats);
+    if (hit) return seg.replace(s2, hit);
+    const ws = s2.split(/\s+/), res = [];
+    for (let a = 0; a < ws.length;) {
+      let b = ws.length, got = '';
+      for (; b > a + 1; b--) { got = findWord(ws.slice(a, b).join(' '), lang, cats); if (got) break; }
+      if (!got) { b = a + 1; got = word(ws[a]); }
+      res.push(got); a = b;
+    }
+    return seg.replace(s2, res.join(' '));
+  }).join('');
+  return { text: out, missing: [...new Set(missing)] };
+}
+// 비슷한 단어 (사전에 넣기 전에 확인용): 같음 / 포함 / 두 글자씩 겹치는 정도
+function similarWords(ko) {
+  const n = norm(ko), bi = x => { const a = []; for (let i = 0; i < x.length - 1; i++) a.push(x.slice(i, i + 2)); return a; }, A = bi(n);
+  return state.glossary.map(g => {
+    const m = norm(g.ko); let sc = 0;
+    if (!m) return { g, sc };
+    if (m === n) sc = 1;
+    else if (m.length >= 2 && n.length >= 2 && (m.includes(n) || n.includes(m))) sc = 0.8;
+    else { const B = bi(m), inter = A.filter(x => B.includes(x)).length; sc = A.length + B.length ? 2 * inter / (A.length + B.length) : 0; }
+    return { g, sc };
+  }).filter(x => x.sc >= 0.4).sort((a, b) => b.sc - a.sc).slice(0, 6);
+}
+// 페이지 하나에서 번역할 항목들. dict = 사전 분류에서 고르는 칸(그 분류에 없는 값이면 '직접 입력'), addCat = 사전에 넣을 때 기본 분류
+function trFields(fx) {
+  const notes = (fx.notes || []).filter(n => n.t === 'text' && (n.text || '').trim())
+    .map((n, i) => ({ key: 'n_' + n.id, label: `글상자 ${i + 1}`, ko: n.text, addCat: '카테고리' }));
+  if (fx.kind === 'free') return [{ key: 'headerName', label: '제목', ko: fx.headerName, addCat: '카테고리' }, ...notes].filter(r => (r.ko || '').trim());
+  return [
+    { key: 'cat', label: '카테고리(팀명)', ko: catName(fx.teamName), cats: ['팀명'], dict: '팀명' },
+    { key: 'headerName', label: '매대명', ko: fx.headerName || origName(fx), cats: ['카테고리'], addCat: '카테고리',
+      hint: fx.headerName ? '' : 'POG 원본 이름이에요 (매대명을 아직 안 넣음)' },
+    { key: 'fixtureType', label: LABELS_KO.type, ko: fx.fixtureType, cats: ['매대타입'], dict: '매대타입' },
+    { key: 'hookType', label: '고리타입', ko: fx.hookType, cats: ['고리타입'], dict: '고리타입' },
+    { key: 'shelfPipe', label: LABELS_KO.sp, ko: fx.shelfPipe, cats: ['집기'], addCat: '집기',
+      custom: !!fx.shelfPipe && fx.shelfPipe !== autoShelfPipe(fx.shelfCount, fx.pipeCount) },
+    ...(fx.extras || []).filter(x => (x.name || '').trim()).map((x, i) => ({ key: 'x_' + x.id, label: `이외집기 ${i + 1}`, ko: x.name, cats: ['집기'], dict: '집기', qty: x.qty })),
+    { key: 'otherFixtures', label: LABELS_KO.other + ' (메모)', ko: fx.otherFixtures, cats: ['집기'], addCat: '집기' },
+    ...notes,
+  ].filter(r => (r.ko || '').trim());
+}
+function trState(r, saved, lang) {
+  const a = autoTranslate(r.ko, lang, r.cats);
+  const custom = r.dict ? !state.glossary.some(g => g.cat === r.dict && norm(g.ko) === norm(r.ko)) : !!r.custom;
+  const need = !saved && (a.missing.length > 0 || custom); // 빨간 ! : 사전에 없는 말이 있거나 직접 입력한 값인데, 아직 번역을 안 넣음
+  return { a, custom, need, value: saved || (a.missing.length ? '' : a.text), status: saved ? 'saved' : a.missing.length ? 'missing' : 'auto' };
+}
+
+const tr = { pog: null, fixtures: [], lang: 'English', doc: {}, unsubs: [], dirty: false };
+$('#tr-search').addEventListener('input', renderTrList);
+function renderTrList() {
+  const list = $('#tr-list'); if (!list) return;
+  const q = $('#tr-search').value.trim().toLowerCase();
+  list.innerHTML = '';
+  const rows = state.pogs.filter(p => p.status === 'final' && (!q || [p.storeName, p.branchName, p.storeCode, p.manager].join(' ').toLowerCase().includes(q)));
+  if (!rows.length) list.append(h('div', { class: 'mut pad' }, '최종 POG가 없어요.'));
+  rows.forEach(p => list.append(pogListItem(p, tr.pog?.id === p.id, () => openTr(p.id))));
+}
+function closeTr() {
+  tr.unsubs.forEach(u => u()); tr.unsubs = []; tr.pog = null; tr.fixtures = []; tr.doc = {};
+  $('#tr-body')?.classList.add('hidden'); $('#tr-empty')?.classList.remove('hidden');
+  $('#v-pog-trans .split')?.classList.remove('list-off');
+}
+function trLangs() { return ['English', ...glLangs()]; }
+function openTr(id) {
+  closeTr();
+  tr.pog = { id };
+  $('#tr-empty').classList.add('hidden'); $('#tr-body').classList.remove('hidden');
+  $('#v-pog-trans .split').classList.add('list-off');
+  $('#tr-cards').innerHTML = '<div class="mut pad">불러오는 중…</div>';
+  renderTrList();
+  tr.unsubs.push(onSnapshot(doc(db, 'pogs', id), d => { if (!d.exists()) { closeTr(); return; } tr.pog = { id: d.id, ...d.data() }; renderTr(); }));
+  tr.unsubs.push(onSnapshot(query(collection(db, 'pogs', id, 'fixtures'), orderBy('order')), s => { tr.fixtures = s.docs.map(d => ({ id: d.id, ...d.data() })); renderTr(); }));
+  subTrDoc();
+}
+function subTrDoc() {
+  tr.unsubDoc?.();
+  const id = tr.pog.id, lang = tr.lang;
+  tr.unsubDoc = onSnapshot(doc(db, 'pogs', id, 'translations', lang), d => {
+    if (tr.lang !== lang) return;
+    const data = d.exists() ? d.data() : {};
+    // 저장 대기 중인 내 입력은 지키기
+    tr.doc = { ...data, fx: { ...(data.fx || {}) } };
+    for (const [k, v] of Object.entries(tr.local || {})) if (pendingKey(k)) { const [, , , f, key] = k.split('|'); (tr.doc.fx[f] ||= {})[key] = v; }
+    renderTr();
+  });
+}
+$('#tr-lang').addEventListener('change', e => { tr.lang = e.target.value; tr.doc = {}; subTrDoc(); renderTr(); });
+$('#tr-only').addEventListener('change', () => renderTr(true));
+$('#tr-view').onclick = () => { const id = tr.pog?.id; if (!id) return; state.viewer.wantLang = tr.lang; go('pog-online'); openViewer(id); };
+function saveTr(fxId, key, v) {
+  const pogId = tr.pog.id, lang = tr.lang, k = `tr|${pogId}|${lang}|${fxId}|${key}`;
+  ((tr.doc.fx ||= {})[fxId] ||= {})[key] = v;
+  (tr.local ||= {})[k] = v;
+  queueWrite(k, () => setDoc(doc(db, 'pogs', pogId, 'translations', lang), { lang, fx: { [fxId]: { [key]: v } }, updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true }));
+}
+// 한 POG의 번역 줄 전체 (고정 문구 → 표지 → 페이지들)
+function trSections() {
+  const pog = tr.pog, lang = tr.lang, fxs = tr.fixtures;
+  const sections = [];
+  const labelDefault = k => lang === 'English' ? LABELS_EN[k] : '';
+  sections.push({ id: '__labels', title: '페이지 고정 문구', sub: '모든 페이지에 똑같이 들어가는 글자',
+    rows: Object.keys(LABELS_KO).map(k => ({ key: k, label: LABELS_KO[k], ko: LABELS_KO[k], fixed: labelDefault(k) })) });
+  const pr = [];
+  if (hasKo(coverTitle(pog))) pr.push({ key: 'cover', label: '표지 매장명', ko: coverTitle(pog), addCat: '카테고리' });
+  if (hasKo(footStore(pog))) pr.push({ key: 'store', label: '페이지 아래 매장명', ko: footStore(pog), addCat: '카테고리' });
+  if (pr.length) sections.push({ id: '__pog', title: '표지·매장명', rows: pr });
+  fxs.forEach((fx, i) => sections.push({ id: fx.id, no: i + 2, title: displayName(fx), sub: fx.kind === 'free' ? '추가 페이지' : catName(fx.teamName), rows: trFields(fx), fx }));
+  return sections;
+}
+function rowState(sec, r) {
+  const saved = tr.doc.fx?.[sec.id]?.[r.key] || '';
+  if (r.fixed !== undefined) { // 고정 문구: 영어는 기본값이 있음
+    return { a: { text: r.fixed, missing: r.fixed ? [] : [r.ko] }, custom: false, need: !saved && !r.fixed, value: saved || r.fixed, status: saved ? 'saved' : r.fixed ? 'auto' : 'missing' };
+  }
+  return trState(r, saved, tr.lang);
+}
+function renderTr(force) {
+  const box = $('#tr-cards'), pog = tr.pog;
+  if (!box || !pog?.status) return;
+  const langs = trLangs(), lsel = $('#tr-lang');
+  if (!langs.includes(tr.lang)) tr.lang = 'English';
+  lsel.replaceChildren(...langs.map(l => h('option', { value: l }, l))); lsel.value = tr.lang;
+  $('#tr-title').textContent = `${footStore(pog)} · 최종 ${fmtDate(pog.finalizedAt)}`;
+  $('#tr-pub').textContent = tr.doc.publishedAt ? `반영: ${fmtTime(tr.doc.publishedAt)}` : '아직 반영 안 함';
+  const a = document.activeElement;
+  if (!force && box.contains(a) && a.tagName === 'INPUT') { tr.dirty = true; return; } // 입력 중이면 다시 그리지 않음
+  tr.dirty = false;
+  const only = $('#tr-only').checked, ed = canEdit('pog-trans'), canGl = canEdit('glossary');
+  let needN = 0;
+  const cards = [];
+  for (const sec of trSections()) {
+    const rows = [];
+    for (const r of sec.rows) {
+      const st = rowState(sec, r);
+      if (st.need) needN++;
+      if (only && !st.need) continue;
+      const inp = h('input', { class: 'tr-in' + (st.need ? ' need' : ''), placeholder: st.a.missing.length ? st.a.text : '', disabled: !ed });
+      inp.value = st.value;
+      inp.addEventListener('input', () => saveTr(sec.id, r.key, inp.value.trim()));
+      // 사전에 없던 값을 번역했으면 사전에도 넣을지 물어봄
+      if (canGl && r.fixed === undefined) inp.addEventListener('change', () => {
+        const v = inp.value.trim();
+        if (v && (st.custom || st.a.missing.length)) askGlossary(sec, r, v);
+      });
+      const why = st.a.missing.length ? `사전에 없는 말: ${st.a.missing.join(', ')}` : st.custom ? '기존 선택지가 아니라 직접 입력한 값이에요. 번역을 확인해주세요' : '';
+      rows.push(h('div', { class: 'tr-row' + (st.need ? ' need' : '') + (!st.need && why ? ' done' : '') },
+        h('div', { class: 'tr-l' }, r.label),
+        h('div', { class: 'tr-ko' }, r.ko + (r.qty ? ` × ${r.qty}` : ''), r.hint ? h('div', { class: 'tr-hint' }, r.hint) : null),
+        h('div', { class: 'tr-v' }, inp, why ? h('div', { class: 'tr-why' }, why) : null),
+        h('div', { class: 'tr-s' },
+          st.need ? h('span', { class: 'tr-bang', title: why }, '!') : st.status === 'saved' ? h('span', { class: 'tr-ok', title: '직접 저장한 번역' }, '✓') : h('span', { class: 'tr-auto', title: '사전에서 자동' }, '사전'),
+          st.need && ed && st.custom && !st.a.missing.length ? h('button', { class: 'btn small ghost', onclick: () => saveTr(sec.id, r.key, st.a.text) || renderTr(true) }, '확인') : null,
+          canGl && r.fixed === undefined && (st.custom || st.a.missing.length) ? h('button', { class: 'btn small ghost', onclick: () => askGlossary(sec, r, inp.value.trim()) }, '사전에 추가') : null)));
+    }
+    if (!rows.length) continue;
+    cards.push(h('section', { class: 'tr-card' },
+      h('div', { class: 'tr-head' }, sec.no ? h('span', { class: 'tr-no' }, sec.no) : null, h('b', {}, sec.title), sec.sub ? h('span', { class: 'mut' }, sec.sub) : null),
+      h('div', { class: 'tr-row tr-th' }, h('div', {}, '항목'), h('div', {}, '한국어'), h('div', {}, tr.lang), h('div', {})), ...rows));
+  }
+  const nb = $('#tr-need'); nb.textContent = needN ? `확인 필요 ${needN}` : '모두 번역됨'; nb.className = 'badge tr-need ' + (needN ? 'warn' : 'final');
+  box.replaceChildren(...(cards.length ? cards : [h('div', { class: 'mut pad' }, only ? '확인이 필요한 칸이 없어요.' : '번역할 글자가 없어요.')]));
+}
+$('#tr-cards').addEventListener('focusout', () => setTimeout(() => { if (tr.dirty) renderTr(); }, 60));
+
+// 사전에 추가: 넣기 전에 비슷한 단어를 보여줘서 이미 있는 말을 또 만들지 않게
+function askGlossary(sec, r, value) {
+  const lang = tr.lang, st = rowState(sec, r);
+  const entries = r.dict || !st.a.missing.length || (st.a.missing.length === 1 && norm(st.a.missing[0]) === norm(r.ko))
+    ? [{ ko: r.ko.trim(), cat: r.dict || r.addCat || '카테고리', val: value }]
+    : st.a.missing.map(w => ({ ko: w, cat: r.addCat || '카테고리', val: '' }));
+  const blocks = entries.map(en => {
+    const inp = h('input', { class: 'tr-in', placeholder: `${lang} 번역` }); inp.value = en.val || '';
+    const cat = h('select', { class: 'nb-sel' }, ...CATS.map(c => h('option', { value: c }, c))); cat.value = en.cat;
+    const sims = similarWords(en.ko);
+    en.inp = inp; en.sel = cat;
+    return h('div', { class: 'ag-entry' },
+      h('div', { class: 'ag-top' }, h('b', {}, en.ko), cat, inp),
+      sims.length ? h('div', { class: 'ag-sim' }, h('div', { class: 'mut' }, '비슷한 단어가 이미 있어요. 같은 뜻이면 그 번역을 쓰세요:'),
+        ...sims.map(({ g }) => h('div', { class: 'ag-s' }, h('span', {}, `[${catLabel(g.cat)}] ${g.ko} → ${trOf(g, lang) || '(번역 없음)'}`),
+          trOf(g, lang) ? h('button', { class: 'btn small ghost', onclick: () => { inp.value = trOf(g, lang); } }, '이 번역 쓰기') : null)))
+        : h('div', { class: 'ag-sim mut' }, '비슷한 단어 없음'));
+  });
+  const add = h('button', { class: 'btn primary' }, '사전에 추가');
+  const skip = h('button', { class: 'btn' }, entries.length === 1 ? '번역에만 쓰기 (사전엔 안 넣음)' : '사전에 안 넣기');
+  const close = modal(h('div', {},
+    h('h3', {}, '용어 사전에도 저장할까요?'),
+    h('p', { class: 'mut' }, `'${r.label}' 칸의 ${entries.length === 1 ? '값' : '사전에 없는 말'}이에요. 사전에 넣어두면 다음부터 자동으로 번역돼요.`),
+    ...blocks, h('div', { class: 'modal-act' }, skip, add)), { wide: true });
+  const single = entries.length === 1 && entries[0].ko === r.ko.trim();
+  skip.onclick = () => { if (single && entries[0].inp.value.trim()) saveTr(sec.id, r.key, entries[0].inp.value.trim()); close(); renderTr(true); };
+  add.onclick = async () => {
+    add.disabled = true;
+    try {
+      let n = 0;
+      for (const en of entries) {
+        const v = en.inp.value.trim(), cat = en.sel.value; if (!v) continue;
+        const ex = state.glossary.find(g => g.cat === cat && norm(g.ko) === norm(en.ko));
+        if (ex) { // 같은 분류에 이미 있으면 이 언어 번역만 채움
+          if (lang === 'English') await updateDoc(doc(db, 'glossary', ex.id), { en: v, updatedAt: serverTimestamp(), updatedBy: me() });
+          else await updateDoc(doc(db, 'glossary', ex.id), new FieldPath('tr', lang), v, 'updatedAt', serverTimestamp(), 'updatedBy', me());
+          glLog(ex, 'edit', [{ f: lang === 'English' ? 'en' : 'tr.' + lang, from: trOf(ex, lang), to: v }]);
+        } else {
+          const data = { cat, ko: en.ko, en: lang === 'English' ? v : '', createdAt: serverTimestamp(), createdBy: me() };
+          if (lang !== 'English') data.tr = { [lang]: v };
+          const ref = await addDoc(collection(db, 'glossary'), data);
+          glLog({ id: ref.id, cat, ko: en.ko }, 'add', [{ f: lang === 'English' ? 'en' : 'tr.' + lang, from: '', to: v }]);
+        }
+        n++;
+      }
+      if (single && entries[0].inp.value.trim()) saveTr(sec.id, r.key, entries[0].inp.value.trim());
+      toast(n ? `사전에 ${n}개 저장했어요` : '저장할 번역이 없어요');
+      close();
+    } catch (e) { toast('저장 실패: ' + e.message); add.disabled = false; }
+  };
+}
+// 온라인 POG에 반영: 지금 보이는 최종 번역(사전 자동 + 직접 고친 것)을 out에 고정 저장
+$('#tr-publish').onclick = async () => {
+  if (!tr.pog) return;
+  let need = 0; const out = {};
+  for (const sec of trSections()) for (const r of sec.rows) {
+    const st = rowState(sec, r); if (st.need) need++;
+    const v = st.value || st.a.text; if (v) (out[sec.id] ||= {})[r.key] = v;
+  }
+  if (need && !confirm(`확인 필요한 칸이 ${need}개 남아 있어요. 그래도 지금 상태로 온라인 POG에 반영할까요?`)) return;
+  try {
+    // out은 통째로 바꿈 (지난번 반영에만 있던 항목이 남지 않게). fx(직접 고친 번역)는 그대로
+    await setDoc(doc(db, 'pogs', tr.pog.id, 'translations', tr.lang), { lang: tr.lang, out, publishedAt: serverTimestamp(), publishedBy: me() }, { mergeFields: ['lang', 'out', 'publishedAt', 'publishedBy'] });
+    toast(`${tr.lang} 번역을 온라인 POG에 반영했어요`);
+  } catch (e) { toast('반영 실패: ' + e.message); }
+};
+
 /* ---------- 2.3 온라인 POG ---------- */
 $('#on-search').addEventListener('input', renderOnlineList);
 function renderOnlineList() {
@@ -1158,8 +1439,8 @@ function renderOnlineList() {
   rows.forEach(p => list.append(pogListItem(p, state.viewer.pog?.id === p.id, () => openViewer(p.id))));
 }
 function closeViewer() {
-  const v = state.viewer; v.unsubPog?.(); v.unsubFx?.();
-  v.unsubPog = v.unsubFx = null; v.pog = null; v.fixtures = [];
+  const v = state.viewer; v.unsubPog?.(); v.unsubFx?.(); v.unsubTr?.();
+  v.unsubPog = v.unsubFx = v.unsubTr = null; v.pog = null; v.fixtures = []; v.trs = {}; v.lang = v.wantLang || 'ko'; v.wantLang = null;
   vwThumbs.clear();
   $('#viewer-body')?.classList.add('hidden'); $('#viewer-empty')?.classList.remove('hidden');
   $('#v-pog-online .split')?.classList.remove('list-off');
@@ -1174,14 +1455,34 @@ function openViewer(id) {
   renderOnlineList();
   v.unsubPog = onSnapshot(doc(db, 'pogs', id), d => { if (!d.exists()) { closeViewer(); return; } v.pog = { id: d.id, ...d.data() }; renderViewer(); });
   v.unsubFx = onSnapshot(query(collection(db, 'pogs', id, 'fixtures'), orderBy('order')), s => { v.fixtures = s.docs.map(d => ({ id: d.id, ...d.data() })); renderViewer(); });
+  // 번역본: 2.2에서 '온라인 POG에 반영'한 언어만 고를 수 있음
+  v.unsubTr = onSnapshot(collection(db, 'pogs', id, 'translations'), s => {
+    v.trs = Object.fromEntries(s.docs.map(d => [d.id, d.data()]).filter(([, d]) => d.out));
+    const sel = $('#vw-lang');
+    sel.replaceChildren(h('option', { value: 'ko' }, '한국어'), ...Object.keys(v.trs).map(l => h('option', { value: l }, l)));
+    if (v.lang !== 'ko' && !v.trs[v.lang]) v.lang = 'ko';
+    sel.value = v.lang;
+    renderViewer();
+  }, () => { });
 }
+$('#vw-lang').addEventListener('change', e => { state.viewer.lang = e.target.value; renderViewer(); });
 function renderViewer() {
   const v = state.viewer; if (!v.pog?.status) return;
   $('#vw-title').textContent = `${v.pog.branchName || v.pog.storeName || ''} · 최종 ${fmtDate(v.pog.finalizedAt)}${v.pog.manager ? ' · ' + v.pog.manager : ''}`;
   const wrap = $('#vw-pages'); wrap.innerHTML = '';
-  const cover = buildCover(v.pog, { editable: false }); syncCover(cover, v.pog); wrap.append(cover);
+  // 번역본이면 반영된 번역(out)으로 글자를 바꿔서 그림
+  const out = v.lang !== 'ko' ? v.trs?.[v.lang]?.out : null;
+  const L = out ? { ...LABELS_KO, ...(out.__labels || {}) } : LABELS_KO;
+  const pogV = out ? { ...v.pog, coverTitle: out.__pog?.cover || coverTitle(v.pog), branchName: out.__pog?.store || footStore(v.pog) } : v.pog;
+  const fxV = fx => {
+    const o = out?.[fx.id]; if (!o) return fx;
+    return { ...fx, ...Object.fromEntries(['headerName', 'fixtureType', 'hookType', 'shelfPipe', 'otherFixtures'].filter(k => o[k]).map(k => [k, o[k]])),
+      _cat: o.cat || undefined, notes: (fx.notes || []).map(n => o['n_' + n.id] ? { ...n, text: o['n_' + n.id] } : n),
+      extras: (fx.extras || []).map(x => o['x_' + x.id] ? { ...x, name: o['x_' + x.id] } : x) };
+  };
+  const cover = buildCover(pogV, { editable: false, L }); syncCover(cover, pogV); wrap.append(cover);
   const blocks = new Map();
-  v.fixtures.forEach(fx => { const el = buildPage(fx, v.pog, { editable: false, onItem: showItem }); syncPage(el, fx, v.pog); wrap.append(el); blocks.set(fx.id, el); });
+  v.fixtures.forEach(f => { const fx = fxV(f); const el = buildPage(fx, pogV, { editable: false, onItem: showItem, L }); syncPage(el, fx, pogV); wrap.append(el); blocks.set(fx.id, el); });
   vwThumbs.sync(slideEntries(cover, v.pog, v.fixtures, fx => blocks.get(fx.id)));
 }
 $('#vw-pdf').onclick = () => printPages($('#vw-pages'), state.viewer.pog);
@@ -1220,6 +1521,8 @@ let glDirty = false;
 function refreshGlossaryLists() {
   const dl = $('#dl-fixtureType'); dl.innerHTML = '';
   glossaryOf('매대타입').forEach(g => dl.append(h('option', { value: g.ko })));
+  const dx = $('#dl-extras'); dx.innerHTML = '';
+  glossaryOf('집기').forEach(g => dx.append(h('option', { value: g.ko })));
   $$('select.hook-sel').forEach(sel => fillHookSelect(sel, sel.value));
 }
 function setGlCat(c) {
