@@ -193,6 +193,7 @@ drawings/{storeId}/translations/{언어}   // 글사부만 씀
   v: { vId: { gid: { ko, text, dx, dy, sc } } }   // 번역·위치 이동·글자 크기
 pogs/{pogId}/fixtures/{id}.drawingRef = { storeId, vId, vNo, gid, ko }   // POG 헤더에서 고른 도면 매대
 barcodes/{바코드} code(제품코드), name?(제품명, 바코드 화면에서만), updatedAt, updatedBy   // 바코드 등록. 엑셀 머리글 제품코드·바코드(·제품명). 제품코드는 늘 8자리: 숫자로만 된 코드가 짧으면 앞에 0 채움(`code8`, 엑셀·한 개 추가·찾기·제품 찾기)
+                 // 화면을 열면 등록된 바코드 목록(제품코드 순, 100개씩 더 보기 `bcList`), 찾으면 그 결과
                  // 이미 있는 바코드·제품코드, 파일 안 중복은 바꾸지 않고 건너뜀 → 건너뛴 줄은 그 화면에만 한 번 표시(#bc-report, 저장 안 함, 엑셀로 받기)
 managers/{id}    name            // 담당자 드롭다운 목록
 roles/{email}    level, prefix(바이어: 매장코드 앞 4자리), createdAt, updatedAt, updatedBy   // 계정 레벨 (admin | pog | vmd | global | buyer | finder | 예전 editor)
