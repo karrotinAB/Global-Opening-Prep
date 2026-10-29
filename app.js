@@ -2631,8 +2631,7 @@ function showItem(it, fx) {
         h('tr', {}, h('th', {}, '제품코드'), h('td', {}, it.code)),
         h('tr', {}, h('th', {}, '가격'), h('td', {}, it.price ? '₩' + Number(it.price).toLocaleString() : '-')),
         h('tr', {}, h('th', {}, '바코드'), bcCell(it.code)),
-        h('tr', {}, h('th', {}, '매대'), h('td', {}, displayName(fx))),
-        h('tr', {}, h('th', {}, '진열 그룹'), h('td', {}, it.group || '-'))))));
+        h('tr', {}, h('th', {}, '매대'), h('td', {}, displayName(fx)))))));
 }
 
 /* ---------- 바코드 등록 ----------
