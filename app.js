@@ -655,7 +655,10 @@ const slideEntries = (cover, pog, fixtures, blockOf) => [
   { id: '__cover', block: cover, name: coverTitle(pog) || '표지' },
   ...fixtures.map(fx => ({ id: fx.id, block: blockOf(fx), name: displayName(fx), fx })),
 ];
-edThumbs = makeThumbs($('#ed-thumbs'), $('#ed-pages'), id => { state.edActive = id; renderSidePanel(); }, {
+edThumbs = makeThumbs($('#ed-thumbs'), $('#ed-pages'), id => {
+  if (state.edPin && Date.now() < state.edPin.t && id !== state.edPin.id) return; // ▲▼로 옮기는 중: 옮긴 페이지를 그대로 '지금 페이지'로
+  state.edActive = id; renderSidePanel();
+}, {
   can: () => !!state.edEditable,
   del: id => { const fx = state.fixtures.get(id); if (fx) deletePage(state.currentPog.id, fx); },
   move: (ids, dir) => movePage(state.currentPog.id, ids, dir),
@@ -1209,6 +1212,14 @@ function moveItemZ(pogId, fx, id, dir) {
 }
 
 /* ---------- 오른쪽 편집 패널: 지금 보고 있는 페이지의 메모 도구·메모·사진·페이지 버튼 ---------- */
+// 오른쪽 패널 ▲▼: 옮긴 페이지를 계속 따라감 (화면이 그 페이지로 같이 움직이고, 패널도 그 페이지 그대로).
+// 예전엔 화면은 제자리라 그 자리에 새로 온 페이지가 '지금 페이지'가 돼서, 다시 누르면 다른 페이지가 움직였음 (사용자)
+async function moveFollow(pogId, id, dir) {
+  state.edPin = { id, t: Date.now() + 2500 };
+  await movePage(pogId, id, dir);
+  const go = () => { state.pageEls.get(id)?.scrollIntoView({ block: 'start' }); state.edActive = null; setEdActive(id); };
+  setTimeout(go, 250); setTimeout(go, 800);
+}
 function setEdActive(id) {
   if (state.edActive === id) return;
   state.edActive = id;
@@ -1300,8 +1311,8 @@ function renderSidePanel() {
         next ? h('div', { class: 'se-btns' }, btn(`⇣ 다음 매대 '${displayName(next)}' 붙이기`, () => mergeNext(pog.id, fx, state.fixtures.get(next.id)))) : null));
     }
     if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' },
-      btn('▲ 앞으로', () => movePage(pog.id, fx.id, -1), 'ghost'),
-      btn('▼ 뒤로', () => movePage(pog.id, fx.id, 1), 'ghost'),
+      btn('▲ 앞으로', () => moveFollow(pog.id, fx.id, -1), 'ghost'),
+      btn('▼ 뒤로', () => moveFollow(pog.id, fx.id, 1), 'ghost'),
       free ? null : btn('↻ 이 매대만 다시 가져오기', () => openRegrab(fx), 'ghost'),
       btn('+ 이 뒤에 빈 페이지 추가', () => addFreePage(pog.id, fx.order), 'ghost'),
       btn('이 페이지 삭제', () => deletePage(pog.id, fx), 'ghost danger'))));
