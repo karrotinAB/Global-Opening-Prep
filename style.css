@@ -566,3 +566,6 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .pw-form input { font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
 .acc-btns { white-space: nowrap; }
 .acc-btns .btn { margin: 2px; }
+
+/* 사진을 못 불러온 제품: 제품명 글자 */
+.cv-item .cv-noimg { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; padding: 2px; font-size: 9px; line-height: 1.15; text-align: center; color: #666; background: #f3f3f3; border: 1px dashed #c8c8c8; overflow: hidden; word-break: break-all; }

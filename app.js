@@ -350,6 +350,24 @@ function applyItemZ(block, fx) {
   const byId = new Map((fx.items || []).map(it => [String(it.id), it]));
   block.querySelectorAll('.page .cv-item').forEach(el => { const it = byId.get(el.dataset.id); if (it) el.style.zIndex = itemZ(fx, it); });
 }
+/* 제품 사진 (img.artbox.kr): 가끔 늦거나 실패함 → 자동으로 다시 불러오기 (조금 기다렸다가 2번, 그다음 referrer를 바꿔서 1번).
+   그래도 안 되면 깨진 아이콘 대신 제품명 글자 (PDF에도 글자로 나옴) */
+function prodImg(src, name = '', { lazy = false, fallback = true } = {}) {
+  const img = h('img', { src, alt: '', referrerpolicy: 'no-referrer', loading: lazy ? 'lazy' : null });
+  img.dataset.src0 = src; img.dataset.name = name; img.dataset.fb = fallback ? '1' : '';
+  img.addEventListener('error', () => imgRetry(img));
+  return img;
+}
+function imgRetry(img) {
+  const n = +(img.dataset.try || 0), src = img.dataset.src0;
+  img.dataset.try = n + 1;
+  if (n < 2) { setTimeout(() => { img.src = src + (src.includes('?') ? '&' : '?') + 'r=' + Date.now(); }, 700 * (n + 1)); return; }
+  if (n === 2) { img.referrerPolicy = 'strict-origin-when-cross-origin'; img.src = src; return; }
+  img.dataset.failed = '1';
+  if (img.dataset.fb) img.replaceWith(h('span', { class: 'cv-noimg', title: '사진을 불러오지 못했어요' }, img.dataset.name || ''));
+  else img.style.visibility = 'hidden';
+  img.dispatchEvent(new Event('gaveup'));
+}
 function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
   const items = fx.items || [];
   const wrap = h('div', { class: 'cv', style: `width:${W}px;height:${H}px` });
@@ -398,7 +416,7 @@ function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
   for (const it of items) {
     const el = h('div', { class: 'cv-item' + (onItem ? ' click' : ''), 'data-code': it.code, 'data-id': it.id, title: `[${it.code}] ${it.name}`,
       style: `left:${it.x - x0 + pad}px;top:${it.y - y0 + pad}px;width:${it.w}px;height:${it.h}px;z-index:${itemZ(fx, it)}` },
-      it.img ? h('img', { src: it.img, alt: '', referrerpolicy: 'no-referrer', loading: lazy ? 'lazy' : null }) : h('span', {}, it.name));
+      it.img ? prodImg(it.img, it.name, { lazy }) : h('span', {}, it.name));
     if (onItem) el.onclick = () => onItem(it, fx);
     inner.append(el);
   }
@@ -1237,7 +1255,7 @@ function renderSidePanel() {
       ed ? btn('되살리기', () => restoreOutside(pog.id, fx), 'ghost') : null));
     const view = state.edComposed?.get(id) || fx; // 붙인 매대까지 합친 것
     const selIt = block._selItem && (view.items || []).find(it => String(it.id) === block._selItem);
-    if (ed && selIt) nodes.push(sec('선택한 제품', h('div', { class: 'se-item' }, selIt.img ? h('img', { src: selIt.img, alt: '', referrerpolicy: 'no-referrer' }) : null,
+    if (ed && selIt) nodes.push(sec('선택한 제품', h('div', { class: 'se-item' }, selIt.img ? prodImg(selIt.img, '', { fallback: false }) : null,
       h('div', {}, h('b', {}, selIt.name), h('div', { class: 'mut' }, selIt.code))),
       h('div', { class: 'se-btns' }, btn('맨 앞으로', () => moveItemZ(pog.id, view, selIt.id, 1)), btn('맨 뒤로', () => moveItemZ(pog.id, view, selIt.id, -1)),
         btn('선택 해제', () => selectItem(block, null), 'ghost')),
@@ -1349,15 +1367,29 @@ $('#ed-delete').onclick = async () => {
 $('#ed-pdf').onclick = () => printPages($('#ed-pages'), state.currentPog);
 
 /* ---------- PDF (인쇄) ---------- */
-function printPages(container, pog) {
-  const imgs = $$('img', container).filter(i => !i.complete);
+async function printPages(container, pog) {
   const old = document.title;
   document.title = `POG_${pog?.branchName || pog?.storeName || ''}_${fmtDate(new Date())}`.replace(/[\\/:*?"<>|]/g, '');
   const done = () => { document.title = old; window.removeEventListener('afterprint', done); };
   window.addEventListener('afterprint', done);
-  if (imgs.length) toast('이미지 불러오는 중…');
-  Promise.all(imgs.map(i => new Promise(r => { i.addEventListener('load', r, { once: true }); i.addEventListener('error', r, { once: true }); setTimeout(r, 8000); })))
-    .then(() => window.print());
+  // 아직 안 불러온 사진·실패한 사진: 다시 불러오고, 끝날 때까지(최대 20초) 기다렸다가 인쇄
+  const imgs = $$('img', container);
+  imgs.forEach(i => { i.loading = 'eager'; if (i.complete && !i.naturalWidth && i.dataset.src0 && !i.dataset.failed) imgRetry(i); });
+  const wait = imgs.filter(i => !(i.complete && i.naturalWidth) && !i.dataset.failed && i.isConnected);
+  if (wait.length) {
+    let left = wait.length;
+    toast(`사진 불러오는 중… (${left}장)`);
+    await Promise.race([
+      Promise.all(wait.map(i => new Promise(r => {
+        const fin = () => { toast(`사진 불러오는 중… (${--left}장 남음)`); r(); };
+        i.addEventListener('load', fin, { once: true }); i.addEventListener('gaveup', fin, { once: true });
+      }))),
+      new Promise(r => setTimeout(r, 20000)),
+    ]);
+  }
+  const bad = $$('.cv-noimg', container).length;
+  if (bad) toast(`사진 ${bad}장은 불러오지 못해서 제품명으로 나와요`);
+  window.print();
 }
 
 /* ---------- 새 POG 가져오기 ---------- */
@@ -2689,7 +2721,7 @@ function renderViewer() {
 $('#vw-pdf').onclick = () => printPages($('#vw-pages'), state.viewer.pog);
 function showItem(it, fx) {
   modal(h('div', { class: 'item-pop' },
-    h('div', { class: 'ip-img' }, it.img ? h('img', { src: it.img, alt: '', referrerpolicy: 'no-referrer' }) : null),
+    h('div', { class: 'ip-img' }, it.img ? prodImg(it.img, '', { fallback: false }) : null),
     h('div', { class: 'ip-info' },
       h('h3', {}, it.name),
       h('table', {},
@@ -3047,7 +3079,7 @@ function fdShow({ q, code, barcode, hits }) {
   const bcTd = h('span', {}, barcode || '…');
   if (!barcode) getDocs(query(collection(db, 'barcodes'), where('code', '==', code), limit(3))).then(s => { bcTd.textContent = s.docs.map(d => d.id).join(', ') || '-'; }).catch(() => { bcTd.textContent = '-'; });
   const nodes = [h('div', { class: 'fd-card fd-prod' },
-    it0.img ? h('img', { src: it0.img, alt: '', referrerpolicy: 'no-referrer' }) : h('div', { class: 'fd-noimg' }),
+    it0.img ? prodImg(it0.img, '', { fallback: false }) : h('div', { class: 'fd-noimg' }),
     h('div', { class: 'fd-pi' }, h('b', {}, it0.name || code),
       h('div', {}, T('제품코드 ', 'Item ') + code), h('div', {}, T('바코드 ', 'Barcode '), bcTd),
       it0.price ? h('div', {}, '₩' + Number(it0.price).toLocaleString()) : null,

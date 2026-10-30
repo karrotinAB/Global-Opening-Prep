@@ -320,6 +320,7 @@ glossary/{id}    cat, ko, en, code, tr, auto, createdBy, updatedBy, updatedAt //
 
 ### PDF 저장
 - 브라우저 인쇄(`window.print`) + `@media print` A4 양식. 글자가 텍스트로 남아 선명하다.
+- **제품 사진(img.artbox.kr)이 가끔 실패함** → `prodImg`/`imgRetry`: 실패하면 0.7초·1.4초 뒤 두 번 다시(주소에 `?r=` 붙임), 그다음 referrer를 바꿔서 한 번 더, 그래도 안 되면 깨진 아이콘 대신 제품명 글자(`.cv-noimg`). PDF 저장(`printPages`)은 아직 안 온 사진·실패한 사진을 다시 불러오고 끝날 때까지(최대 20초) 기다렸다가 인쇄, 못 불러온 장수는 알림.
 - (페이지 밑 메모·사진 칸을 없애서, 다음 장에 붙는 메모 페이지도 없다.)
 
 ## 9. 앞으로 만들 것
