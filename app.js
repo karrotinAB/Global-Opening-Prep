@@ -50,6 +50,7 @@ function applyAccess() {
   $('#subnav').classList.toggle('hidden', !canSee('pog-make'));
   $('#subnav-dw').classList.toggle('hidden', !canSee('dw-up'));
   $$('[data-staff]').forEach(el => el.classList.toggle('hidden', !isStaff()));
+  $$('[data-admin]').forEach(el => el.classList.toggle('hidden', state.level !== 'admin')); // 관리자만 보이는 버튼
 }
 const CANVAS_W = 540, CANVAS_H = 930;
 
@@ -1524,6 +1525,33 @@ async function exportCounts(pog, fixtures) {
 $('#ed-counts').onclick = () => exportCounts(state.currentPog, [...state.fixtures.values()]);
 $('#vw-counts').onclick = () => exportCounts(state.viewer.pog, state.viewer.fixtures);
 $('#vw-calc').onclick = () => exportCalc(state.viewer.pog, state.viewer.fixtures);
+$('#vw-nobc').onclick = () => exportNoBarcode(state.viewer.pog, state.viewer.fixtures);
+// 관리자용: 이 POG 제품 중 바코드 등록이 안 된 제품코드만 엑셀로 (바코드 업로드 양식과 같은 열: 제품코드 · 바코드 · 제품명)
+async function exportNoBarcode(pog, fixtures) {
+  if (!pog) return;
+  const names = new Map();
+  for (const f of fixtures) if (f.kind !== 'free') for (const it of f.items || []) { const c = code8(String(it.code || '').trim()); if (c && !names.has(c)) names.set(c, it.name || ''); }
+  if (!names.size) { alert('이 POG에 제품이 없어요.'); return; }
+  const b = $('#vw-nobc'), t0 = b.textContent; b.disabled = true; b.textContent = '확인하는 중…';
+  try {
+    const codes = [...names.keys()], has = new Set();
+    for (let i = 0; i < codes.length; i += 30) { // 한 번에 30개씩 (Firestore 'in' 한도)
+      const part = codes.slice(i, i + 30);
+      const snap = await getDocs(query(collection(db, 'barcodes'), where('code', 'in', part)));
+      snap.docs.forEach(d => { const c = String(d.data().code); if (part.includes(c)) has.add(c); });
+      b.textContent = `확인하는 중… ${Math.min(codes.length, i + 30)} / ${codes.length}`;
+    }
+    const miss = codes.filter(c => !has.has(c)).sort();
+    if (!miss.length) { alert(`이 POG의 제품 ${codes.length.toLocaleString()}종 모두 바코드가 등록돼 있어요.`); return; }
+    const X = await loadXLSX(), ws = X.utils.aoa_to_sheet([['제품코드', '바코드', '제품명'], ...miss.map(c => [c, '', names.get(c)])]);
+    miss.forEach((_, i) => { const k = 'A' + (i + 2); if (ws[k]) ws[k].t = 's'; }); // 앞의 0이 안 빠지게 글자로
+    ws['!cols'] = [{ wch: 12 }, { wch: 16 }, { wch: 36 }];
+    const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, '바코드');
+    X.writeFile(wb, `바코드없음_${(pog.storeName || pog.storeCode || 'POG').replace(/[\\/:*?"<>|]/g, '')}_${fmtDate(new Date()).replace(/\./g, '')}.xlsx`);
+    toast(`바코드 없는 제품 ${miss.length.toLocaleString()}종 (전체 ${codes.length.toLocaleString()}종 중). 바코드 칸을 채워서 바코드 등록에 올리면 돼요`);
+  } catch (e) { alert('만들지 못했어요: ' + (e.code || e.message)); }
+  finally { b.disabled = false; b.textContent = t0; }
+}
 /* POG 계산기(POG-calculator2)용 파일: 계산기의 수집 파일(POG_FL_DATA)과 같은 모양. 상품 상세정보(뎁스·팩킹수량)는 비어 있고,
    계산기에서 '상품 상세정보 채우기'로 POG 사이트에서 가져온다. 칸으로 나눈 페이지는 POG 사이트 매대(mdidx)별로 다시 합침 */
 function exportCalc(pog, fixtures) {
