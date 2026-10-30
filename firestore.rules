@@ -4,24 +4,25 @@ service cloud.firestore {
     // 계정 레벨: roles/{이메일} 문서의 level
     //   admin(관리자) | pog(POG팀) | vmd(VMD팀) | global(글로벌사업부) | buyer(바이어) | finder(제품 찾기만)
     //   editor = 예전 '편집' 레벨 (모든 편집 가능, 새로 지정은 안 함)
-    // 문서가 없는 계정은 finder
+    // 문서가 없는 계정은 'none' = 아무것도 못 봄 (사이트 계정 관리에서 만든 계정만 씀). 'blocked' = 관리자가 접속을 막음
     function signedIn() { return request.auth != null && request.auth.token.email != null; }
     function myEmail() { return request.auth.token.email.lower(); }
     function level() {
       let p = /databases/$(database)/documents/roles/$(myEmail());
-      return exists(p) ? get(p).data.level : 'finder';
+      return exists(p) ? get(p).data.level : 'none';
     }
     function hasLevel(levels) { return signedIn() && level() in levels; }
     // 내부 직원: 초안까지 모두 볼 수 있음. 바이어·매장 계정은 최종본만
     function staff() { return hasLevel(['admin', 'pog', 'vmd', 'global', 'editor']); }
     // 바이어: roles 문서의 prefix(매장코드 앞 4자리)와 storePrefix가 같은 최종본만
     function myPrefix() { return get(/databases/$(database)/documents/roles/$(myEmail())).data.get('prefix', '#'); }
-    function seeFinal(d) { return signedIn() && d.status == 'final' && (level() != 'buyer' || d.get('storePrefix', '') == myPrefix()); }
+    function anyLevel() { return hasLevel(['admin', 'pog', 'vmd', 'global', 'buyer', 'finder', 'editor']); } // 레벨을 받은(막히지 않은) 계정
+    function seeFinal(d) { return anyLevel() && d.status == 'final' && (level() != 'buyer' || d.get('storePrefix', '') == myPrefix()); }
 
     match /roles/{email} {
       allow read: if signedIn() && (email == myEmail() || hasLevel(['admin']));
       allow write: if hasLevel(['admin'])
-                   && (request.resource == null || (request.resource.data.level in ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder']
+                   && (request.resource == null || (request.resource.data.level in ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder', 'blocked']
                        && request.resource.data.get('prefix', '').matches('^[0-9A-Za-z]{0,4}$')));
     }
 
@@ -71,9 +72,9 @@ service cloud.firestore {
       allow create, update: if hasLevel(['admin', 'global', 'editor']);
       allow delete: if hasLevel(['admin']); // 매장 삭제는 관리자만
     }
-    // 바코드: 문서 ID = 바코드, code = 제품코드, name = 제품명(선택). 제품 찾기에 쓰므로 로그인한 사람 모두 읽음. 올리기는 글로벌사업부
+    // 바코드: 문서 ID = 바코드, code = 제품코드, name = 제품명(선택). 제품 찾기에 쓰므로 레벨을 받은 사람 모두 읽음. 올리기는 글로벌사업부
     match /barcodes/{bc} {
-      allow read: if signedIn();
+      allow read: if anyLevel();
       allow write: if hasLevel(['admin', 'global', 'editor']);
     }
     // POG 담당자 목록

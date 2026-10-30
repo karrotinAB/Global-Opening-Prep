@@ -48,7 +48,7 @@
 | 계정 관리 | `accounts` | 관리자 | 구현됨 (상단 오른쪽 '계정 관리') |
 
 ### 계정 레벨
-Firestore `roles/{이메일(소문자)}` 문서의 `level`. **문서가 없는 계정은 `finder`** (가장 낮은 권한이 기본값).
+Firestore `roles/{이메일(소문자)}` 문서의 `level`. **문서가 없는 계정은 `none` = 아무 화면도 못 봄** (사이트에서 계정을 만들 수 있게 Firebase 가입을 열어 두므로, 관리자가 만든 계정만 쓰게 함). `blocked` = 관리자가 '삭제 (접속 막기)'한 계정, 역시 아무것도 못 봄 (`#v-noaccess`).
 
 | level | 이름 | 도면 | POG 만들기 | POG 번역 | 온라인 POG | 용어 사전 | 제품 찾기 | 계정 관리 |
 |---|---|---|---|---|---|---|---|---|
@@ -58,6 +58,7 @@ Firestore `roles/{이메일(소문자)}` 문서의 `level`. **문서가 없는 �
 | `global` | 글로벌사업부 | **번역만 편집** | 보기 | **편집** | 보기 | **편집·엑셀 올리기·기록** | ○ | |
 | `buyer` | 바이어 (매장코드 앞 4자리) | 최종본 보기 | | | 최종본 보기 (한/영) | 접근 불가 | ○ | |
 | `finder` | 제품 찾기만 | | | | | | ○ | |
+| `none` / `blocked` | 권한 없음 / 접속 막힘 | | | | | | | |
 | `editor` | 편집 (예전 레벨) | 모든 편집 가능. 새로 지정할 수 없고, 계정 관리에 '다시 골라주세요'로 표시 |
 
 - 앱: `ACCESS` 표(app.js)의 `views`(볼 수 있는 화면)·`edit`(편집 영역: `drawing`, `drawing-trans`, `pog-make`, `pog-trans`, `glossary`). `[data-view]`/`[data-go]`/`[data-edit]` 속성으로 메뉴·버튼을 숨기고, `go()`가 권한 없는 화면을 막는다. **진짜 차단은 보안 규칙**이 한다.
@@ -65,6 +66,8 @@ Firestore `roles/{이메일(소문자)}` 문서의 `level`. **문서가 없는 �
 - **바이어는 roles 문서의 `prefix`(매장코드 앞 4자리, 계정 관리에서 입력)와 `storePrefix`가 같은 최종 POG·도면만** 읽는다. 앱은 `where('status','==','final') + where('storePrefix','==',prefix)`로 조회. `storePrefix`는 POG 가져올 때·도면 올릴 때 저장하고, 예전 문서는 POG팀·VMD·관리자 화면에서 자동으로 채운다(`fillPrefixes`). 바이어는 사전을 못 읽어서 도면 번역 화면이 보이는 번역을 `translations/{lang}.pub`에 저장한다(`publishDw`).
 - 바이어·finder는 `status == 'final'`인 POG·도면만 읽을 수 있다. 그래서 앱은 이 계정에서 `where('status','==','final')`로만 조회한다 (정렬은 앱에서. 복합 색인 없이).
 - 첫 관리자는 콘솔에서 직접 만들어야 한다: Firestore → `roles` 컬렉션 → 문서 ID = 이메일(소문자), 필드 `level` = `admin`.
+- **계정 만들기 (계정 관리 화면, 관리자):** 이메일·레벨 → '계정 만들기'. 관리자 로그인을 바꾸지 않도록 따로 띄운 Firebase(`account-maker`, 메모리에만)로 `createUserWithEmailAndPassword` 후 바로 로그아웃, 그리고 `roles` 문서 저장. **처음 비밀번호 `123456`** (사용자는 1234를 원했지만 Firebase는 6자 이상만 받음). 이미 로그인 계정이 있는 이메일이면 레벨만 붙임. Firebase 콘솔 Authentication → 설정 → 사용자 작업의 '만들기(가입)'가 켜져 있어야 함.
+- **비밀번호:** 관리자에게는 안 보임. 각자 오른쪽 위 '비밀번호 바꾸기'(지금 비밀번호 확인 → `updatePassword`). 잊으면 로그인 화면 '비밀번호를 잊어버리셨나요?' → `sendPasswordResetEmail`(한국어 메일). 관리자는 목록에서 '비밀번호 재설정 메일'을 보낼 수 있음. **관리자가 남의 비밀번호를 정해진 값으로 되돌리거나, 로그인 계정 자체를 지우는 것은 서버 함수(Admin SDK) 없이는 안 됨** → '삭제'는 `level: 'blocked'`로 접속 막기 (완전 삭제는 Firebase 콘솔).
 - 레벨 문서를 읽다가 막히면(규칙 미게시 등) 알림 창으로 이유를 보여준다. 문서가 없거나 값이 틀리면 브라우저 콘솔에 경고를 남긴다.
 - **규칙 게시가 먼저, 사이트 배포는 그다음.** 새 레벨 이름이 규칙에 없으면 관리자가 지정할 수 없다.
 
@@ -197,7 +200,7 @@ barcodes/{바코드} code(제품코드), name?(제품명, 바코드 화면에서
                  // 바코드·제품코드가 이미 똑같이 등록된 줄은 제품명만 채움(`nameUpd`, 비어 있거나 다를 때). 제품명 열은 '제품명(한글)'처럼 써도 찾음
                  // 이미 있는 바코드·제품코드, 파일 안 중복은 바꾸지 않고 건너뜀 → 건너뛴 줄은 그 화면에만 한 번 표시(#bc-report, 저장 안 함, 엑셀로 받기)
 managers/{id}    name            // 담당자 드롭다운 목록
-roles/{email}    level, prefix(바이어: 매장코드 앞 4자리), createdAt, updatedAt, updatedBy   // 계정 레벨 (admin | pog | vmd | global | buyer | finder | 예전 editor)
+roles/{email}    level, prefix(바이어: 매장코드 앞 4자리), createdAt, updatedAt, updatedBy   // 계정 레벨 (admin | pog | vmd | global | buyer | finder | blocked | 예전 editor). 문서 없음 = none
 glossaryLog/{id} gid, cat, ko, action, changes:[{f, from, to}], by, at   // 용어 사전 변경 기록 (만들기만, 수정·삭제 불가)
 glossary/{id}    cat, ko, en, code, tr, auto, createdBy, updatedBy, updatedAt // cat: 카테고리 | 매대타입 | 고리타입 | 선반/파이프 | 집기 | 팀명
                                  // code: 제품코드 (고리타입·집기만, 고리·집기 수량 엑셀에 씀)

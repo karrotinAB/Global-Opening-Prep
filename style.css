@@ -558,3 +558,11 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .look summary { cursor: pointer; font-weight: 700; font-size: 13px; }
 .look > div { font-size: 12px; line-height: 1.5; margin-top: 4px; overflow-wrap: anywhere; }
 .look-row { font-family: monospace; font-size: 11px !important; color: #555; }
+
+/* 로그인: 비밀번호 잊음 · 비밀번호 바꾸기 */
+.login-forgot { display: block; text-align: center; margin-top: 12px; font-size: 13px; color: var(--mut); }
+.login-forgot:hover { color: var(--or-d); }
+.pw-form { display: flex; flex-direction: column; gap: 8px; min-width: 280px; }
+.pw-form input { font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.acc-btns { white-space: nowrap; }
+.acc-btns .btn { margin: 2px; }
