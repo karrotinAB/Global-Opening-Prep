@@ -2216,6 +2216,7 @@ const dwFinal = d => d?.finalVersion || null;
 const dwFinalNo = d => d?.finalNo || null;
 const dw = { tab: 'up', id: null, doc: null, versions: [], vId: null, lang: 'English', tr: {}, sel: null, unsubs: [], onlyNeed: false };
 // 화면: up = 도면 업로드(VMD), tr = 도면 번역(글사부), on = 온라인 도면(최종본 보기, 한/영)
+const dwf = { pog: undefined, jump: false }; // 도면 찾기 (아래 dwFindHits)
 const DW_TITLE = { up: '도면 업로드', tr: '도면 번역', on: '온라인 도면' };
 function setDwMode(m) {
   if (dw.tab === m && dw.modeSet) return;
@@ -2265,7 +2266,7 @@ function closeDw() {
 }
 function openDw(id) {
   closeDw();
-  dw.id = id;
+  dw.id = id; $('#dw-find').value = ''; dwf.pog = undefined;
   $('#dw-empty').classList.add('hidden'); $('#dw-body').classList.remove('hidden');
   $('#dw-stage').replaceChildren(h('div', { class: 'mut pad' }, '불러오는 중…'));
   renderDwList();
@@ -2317,6 +2318,7 @@ function renderDw() {
     $('#dw-seg').classList.remove('hidden');
   }
   $('#dw-side').classList.toggle('hidden', dw.tab === 'on'); // 온라인 도면은 보기만
+  $('#dw-find-box').classList.toggle('hidden', up);
   const fin = dwFinal(dw.doc);
   $('#dw-ver').textContent = v ? `ver.${v.no}${v.id === fin ? ' ★최종본' : ''}${v.exported ? '' : ' · 작성 중'}` : '도면 없음';
   $('#dw-ver').className = 'badge ' + (v?.exported ? 'final' : 'draft');
@@ -2521,7 +2523,7 @@ function saveDwTr(gid, patch) {
 }
 
 // 그림: 업로드 화면 = 원본 + 읽은 매대명 표시 / 번역 화면 = 글자 뺀 바탕 + 번역 글자
-function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, plain, ctx, only } = {}) {
+function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, plain, ctx, only, hits } = {}) {
   const wrap = h('div', { class: 'dw-canvas', style: `aspect-ratio:${v.w} / ${v.h}` }, h('img', { src: mode === 'en' ? v.baseUrl : v.url, alt: '', draggable: 'false' }));
   const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
   for (const g of v.groups || []) {
@@ -2559,6 +2561,9 @@ function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, p
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
   });
   if (only && mode === 'en') { const g = (v.groups || []).find(x => x.id === only); if (g) wrap.append(h('div', { class: 'dw-box fd-on', style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}` })); }
+  // 찾기 결과: 빨간 칸 (누르기는 그 아래 글자로 통과)
+  if (hits?.size) for (const g of v.groups || []) if (hits.has(g.id))
+    wrap.append(h('div', { class: 'dw-box fd-on dw-find', style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko }));
   return wrap;
 }
 function dragLabel(e, g, wrap, v) {
@@ -2589,8 +2594,47 @@ function renderDwStage() {
     : dw.tab === 'on' ? h('div', { class: 'dw-legend' }, `${$('#dw-ver').textContent} · ${en ? dw.lang : '한국어'}`)
     : h('div', { class: 'dw-legend' }, en ? '글자를 끌어서 옮길 수 있어요. 누르면 오른쪽에서 고쳐요. 회색 점선 = 아직 번역 안 된 글자' : '한글 원본이에요.');
   const pickable = dw.tab === 'up' && canEdit('drawing');
-  box.replaceChildren(legend, drawingView(v, en ? 'en' : 'ko', pickable ? { picks: dwPicks(), onPick: g => togglePick(g.id), onPickMany: ids => { const p = dwPicks(); ids.forEach(i => p.add(i)); renderDwStage(); renderDwSide(); } } : { selId: dw.sel, onLab: dw.tab === 'tr', plain: dw.tab !== 'up' }));
+  const hits = pickable ? null : dwFindHits(v);
+  box.replaceChildren(legend, drawingView(v, en ? 'en' : 'ko', pickable ? { picks: dwPicks(), onPick: g => togglePick(g.id), onPickMany: ids => { const p = dwPicks(); ids.forEach(i => p.add(i)); renderDwStage(); renderDwSide(); } } : { selId: dw.sel, onLab: dw.tab === 'tr', plain: dw.tab !== 'up', hits }));
+  if (hits && dwf.jump) { dwf.jump = false; setTimeout(() => $('.dw-find', box)?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }), 30); }
 }
+// 도면 찾기: 매대명(한글·번역) + 제품(그 매장 최종 POG에서 그 제품이 있는 페이지의 '도면에서 고르기' 매대)
+function dwFindHits(v) {
+  const q = findNorm($('#dw-find').value), n = $('#dw-find-n');
+  if (!q) { n.textContent = ''; return null; }
+  const hits = new Set();
+  for (const g of v.groups || []) if (findNorm(g.ko).includes(q) || findNorm(dwRowState(g).show).includes(q)) hits.add(g.id);
+  let items = 0;
+  if (dwf.pog === undefined) loadDwFindPog();
+  for (const f of dwf.pog?.fixtures || []) {
+    const its = (f.items || []).filter(it => findNorm(it.name).includes(q) || findNorm(it.code).includes(q));
+    const fxHit = findNorm([f.teamName, f.fixtureType].join('|')).includes(q);
+    if (!its.length && !fxHit) continue;
+    const r = f.drawingRef; if (!r || r.storeId !== dw.id) continue;
+    const g = (v.groups || []).find(x => r.vId === v.id ? x.id === r.gid : x.ko === r.ko);
+    if (g) { hits.add(g.id); items += its.length; }
+  }
+  n.textContent = hits.size ? `매대 ${hits.size}곳${items ? ` · 제품 ${items}개` : ''}` : (dwf.pog === null ? '없어요' : dwf.pog ? '없어요' : '찾는 중…');
+  n.classList.toggle('none', !hits.size);
+  return hits;
+}
+// 이 매장의 최종 POG 페이지를 한 번만 읽어 둠 (제품·카테고리 찾기용)
+async function loadDwFindPog() {
+  const id = dw.id, st = dwStores().find(x => x.id === id);
+  const p = state.pogs.filter(p => p.status === 'final' && (p.storeId === id || (st?.code && String(p.storeCode) === String(st.code))))
+    .sort((a, b) => (b.finalizedAt?.toMillis?.() || 0) - (a.finalizedAt?.toMillis?.() || 0))[0];
+  dwf.pog = p ? false : null;
+  if (!p) return;
+  try {
+    const s = await getDocs(query(collection(db, 'pogs', p.id, 'fixtures'), orderBy('order')));
+    if (dw.id !== id) return;
+    dwf.pog = { id: p.id, fixtures: s.docs.map(d => ({ id: d.id, ...d.data() })) };
+  } catch { dwf.pog = null; }
+  if ($('#dw-find').value.trim()) renderDwStage();
+}
+let dwFindT = 0;
+$('#dw-find').addEventListener('input', () => { clearTimeout(dwFindT); dwFindT = setTimeout(() => { dwf.jump = true; renderDwStage(); }, 250); });
+$('#dw-find').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); dwf.jump = true; renderDwStage(); } });
 function verCard(v, { canStar, onOpen }) {
   const fin = dwFinal(dw.doc) === v.id;
   return h('div', { class: 'dw-ver' + (v.id === dw.vId ? ' cur' : ''), onclick: onOpen },
@@ -2741,7 +2785,7 @@ function closeViewer() {
   $('#v-pog-online .split')?.classList.remove('list-off');
 }
 function openViewer(id) {
-  closeViewer();
+  closeViewer(); $('#vw-find').value = '';
   const v = state.viewer;
   v.pog = { id };
   $('#viewer-empty').classList.add('hidden'); $('#viewer-body').classList.remove('hidden');
@@ -2775,7 +2819,50 @@ function renderViewer() {
   const shownFx = composeFx(v.fixtures);
   shownFx.forEach(f => { const fx = fxV(f); const el = buildPage(fx, pogV, { editable: false, onItem: showItem, L }); syncPage(el, fx, pogV); wrap.append(el); blocks.set(fx.id, el); });
   vwThumbs.sync(slideEntries(cover, v.pog, shownFx, fx => blocks.get(fx.id)));
+  v.blocks = blocks; vwFind();
 }
+
+/* ---------- 찾기 (온라인 POG·온라인 도면) ----------
+   제품명·제품코드, 매대명(한글·번역)·카테고리(팀명)·매대 타입. 띄어쓰기·대소문자 무시 */
+const findNorm = s => String(s ?? '').toLowerCase().replace(/\s+/g, '');
+const vf = { hits: [], i: -1 };
+function vwFind(jump = 0) {
+  const v = state.viewer, q = findNorm($('#vw-find').value), pages = $('#vw-pages');
+  $$('.fd-dim', pages).forEach(x => x.classList.remove('fd-dim'));
+  $$('.fd-hit', pages).forEach(x => x.classList.remove('fd-hit'));
+  $$('.find-page', pages).forEach(x => x.classList.remove('find-page'));
+  $$('#vw-thumbs .thumb.find-hit').forEach(x => x.classList.remove('find-hit'));
+  const n = $('#vw-find-n'), prev = vf.hits[vf.i];
+  vf.hits = []; vf.i = -1;
+  $('#vw-find-prev').classList.toggle('hidden', !q); $('#vw-find-next').classList.toggle('hidden', !q);
+  if (!q) { n.textContent = ''; return; }
+  const out = v.lang !== 'ko' ? v.trs?.[v.lang]?.out : null;
+  let items = 0;
+  for (const f of composeFx(v.fixtures || [])) {
+    const blk = v.blocks?.get(f.id); if (!blk) continue;
+    const t = out?.[f.id] || {};
+    const fxHit = findNorm([displayName(f), f.mdName, f.teamName, f.fixtureType, t.headerName, t.cat, t.fixtureType].join('|')).includes(q);
+    const its = (f.items || []).filter(it => findNorm(it.name).includes(q) || findNorm(it.code).includes(q));
+    if (!fxHit && !its.length) continue;
+    vf.hits.push(f.id); items += its.length;
+    if (fxHit) blk.classList.add('find-page');
+    const cv = $('.pcanvas .cv', blk);
+    if (its.length && cv) { cv.classList.add('fd-dim'); its.forEach(it => cv.querySelector(`.cv-item[data-id="${CSS.escape(String(it.id))}"]`)?.classList.add('fd-hit')); }
+  }
+  $$('#vw-thumbs .thumb').forEach(t => { if (vf.hits.includes(t._fxId)) t.classList.add('find-hit'); });
+  n.textContent = vf.hits.length ? `${vf.hits.length}쪽${items ? ` · 제품 ${items}개` : ''}` : '없어요';
+  n.classList.toggle('none', !vf.hits.length);
+  vf.i = Math.max(0, vf.hits.indexOf(prev));
+  if (jump && vf.hits.length) {
+    vf.i = prev && vf.hits.includes(prev) ? (vf.hits.indexOf(prev) + jump + vf.hits.length) % vf.hits.length : 0;
+    v.blocks.get(vf.hits[vf.i])?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+let vwFindT = 0;
+$('#vw-find').addEventListener('input', () => { clearTimeout(vwFindT); vwFindT = setTimeout(() => { vf.hits = []; vwFind(1); }, 250); });
+$('#vw-find').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); vwFind(e.shiftKey ? -1 : 1); } });
+$('#vw-find-next').onclick = () => vwFind(1);
+$('#vw-find-prev').onclick = () => vwFind(-1);
 $('#vw-pdf').onclick = () => printPages($('#vw-pages'), state.viewer.pog);
 function showItem(it, fx) {
   modal(h('div', { class: 'item-pop' },
