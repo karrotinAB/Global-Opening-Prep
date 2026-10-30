@@ -423,12 +423,16 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
   .ed-main { display: block; }
 }
 
+/* 모든 화면 바닥 가운데 저작권 표시 (인쇄·PDF에는 안 나옴) */
+.copyright { position: fixed; left: 0; right: 0; bottom: 3px; z-index: 5; text-align: center; font-size: 11px; color: #8a8a8a; letter-spacing: .02em; pointer-events: none; }
+.login:not(.hidden) ~ .copyright { color: #555; }
+
 /* PDF 인쇄 */
 @media print {
   @page { size: A4; margin: 0; }
   html, body { background: #fff; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .topbar, .side-list, .toolbar, #toast, #modal-root, .no-print, .empty-state, .view:not(.on) { display: none !important; }
+  .topbar, .side-list, .toolbar, #toast, #modal-root, .copyright, .no-print, .empty-state, .view:not(.on) { display: none !important; }
   .split { display: block; height: auto; }
   .editor { overflow: visible; }
   .pages { padding: 0; gap: 0; display: block; }
