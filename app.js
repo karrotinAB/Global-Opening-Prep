@@ -26,7 +26,9 @@ const st = getStorage(fb);
 const CATS = ['카테고리', '매대타입', '고리타입', '선반/파이프', '집기', '팀명'];
 // 계정 레벨. roles/{이메일} 문서가 없으면 'finder' (제품 찾기만)
 const LEVELS = { admin: '관리자', pog: 'POG팀', vmd: 'VMD팀', global: '글로벌사업부', buyer: '바이어', finder: '제품 찾기만', editor: '편집 (예전 레벨)', none: '권한 없음', blocked: '접속 막힘' };
-const ASSIGNABLE = ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder']; // editor는 예전 레벨: 그대로 동작하지만 새로 고를 수는 없음
+const ASSIGNABLE = ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder', 'none']; // editor는 예전 레벨: 그대로 동작하지만 새로 고를 수는 없음. none = 이 사이트는 못 씀 (수출서류 사이트만 쓰는 계정)
+// 수출서류 아카이빙 사이트(ExportDocumentArchive) 권한 = roles 문서의 ex. 여기서는 보여 주기만 하고, 바꾸는 건 그 사이트의 관리자 탭에서
+const EX_LEVELS = { admin: '관리자', edit: '편집', view: '보기' };
 // 레벨마다 볼 수 있는 화면(views)과 편집할 수 있는 부분(edit). 진짜 차단은 firestore.rules / storage.rules가 함
 const STAFF_VIEWS = ['home', 'stores', 'barcodes', 'drawing', 'dw-up', 'dw-tr', 'dw-online', 'pog-home', 'pog-make', 'pog-trans', 'pog-online', 'glossary', 'finder'];
 const ALL_EDIT = ['calc', 'stores', 'barcodes', 'drawing', 'drawing-trans', 'pog-make', 'pog-trans', 'glossary'];
@@ -3646,7 +3648,7 @@ function renderAccounts() {
   const body = $('#acc-body'); body.innerHTML = '';
   const me = state.user?.email.toLowerCase();
   const rows = [...state.roles].sort((a, b) => a.id.localeCompare(b.id));
-  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 4, class: 'mut pad' }, '등록된 계정이 없어요.')));
+  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 5, class: 'mut pad' }, '등록된 계정이 없어요.')));
   rows.forEach(r => {
     const sel = levelSelect(LEVELS[r.level] ? r.level : 'finder');
     sel.addEventListener('change', async () => {
@@ -3667,6 +3669,7 @@ function renderAccounts() {
         r.level === 'blocked' ? h('span', { class: 'acc-old' }, '접속 막힘 · 레벨을 고르면 다시 열려요') : ASSIGNABLE.includes(r.level) ? null : h('span', { class: 'acc-old' }, '레벨을 다시 골라주세요')),
       h('td', {}, sel),
       h('td', {}, pf || (r.level === 'buyer' ? null : h('span', { class: 'mut' }, '—')), r.level === 'buyer' && !r.prefix ? h('div', { class: 'acc-old' }, '4자리를 넣어야 매장이 보여요') : null),
+      h('td', {}, r.level === 'admin' ? '관리자 (자동)' : EX_LEVELS[r.ex] || h('span', { class: 'mut' }, '—')),
       h('td', { class: 'tc acc-btns' },
         h('button', { class: 'btn ghost small', title: '이 사람에게 비밀번호를 새로 정하는 메일을 보내요', onclick: async () => {
           if (!confirm(`${r.id}(으)로 비밀번호 재설정 메일을 보낼까요?`)) return;
@@ -3693,7 +3696,8 @@ $('#acc-add').addEventListener('submit', async e => {
     const btn = f.querySelector('button'); btn.disabled = true;
     let made;
     try { made = await createLogin(email); } finally { btn.disabled = false; }
-    await setDoc(doc(db, 'roles', email), { level: f.level.value, ...(f.level.value === 'buyer' ? { prefix: pf } : {}), createdAt: serverTimestamp(), updatedBy: state.user.email.toLowerCase() });
+    // merge: 수출서류 사이트 권한(ex)처럼 다른 칸이 이미 있으면 남겨 둠
+    await setDoc(doc(db, 'roles', email), { level: f.level.value, ...(f.level.value === 'buyer' ? { prefix: pf } : {}), createdAt: serverTimestamp(), updatedBy: state.user.email.toLowerCase() }, { merge: true });
     f.email.value = ''; f.prefix.value = '';
     alert(made === 'new' ? `계정을 만들었어요.\n\n이메일: ${email}\n처음 비밀번호: ${NEW_PW}\n\n로그인한 뒤 오른쪽 위 '비밀번호 바꾸기'로 바꾸라고 알려주세요.`
       : `${email}은(는) 이미 로그인 계정이 있어서 레벨만 붙였어요.\n비밀번호를 모르면 목록에서 '비밀번호 재설정 메일'을 보내주세요.`);

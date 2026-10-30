@@ -70,6 +70,12 @@ Firestore `roles/{이메일(소문자)}` 문서의 `level`. **문서가 없는 �
 - **비밀번호:** 관리자에게는 안 보임. 각자 오른쪽 위 '비밀번호 바꾸기'(지금 비밀번호 확인 → `updatePassword`). 잊으면 로그인 화면 '비밀번호를 잊어버리셨나요?' → `sendPasswordResetEmail`(한국어 메일). 관리자는 목록에서 '비밀번호 재설정 메일'을 보낼 수 있음. **관리자가 남의 비밀번호를 정해진 값으로 되돌리거나, 로그인 계정 자체를 지우는 것은 서버 함수(Admin SDK) 없이는 안 됨** → '삭제'는 `level: 'blocked'`로 접속 막기 (완전 삭제는 Firebase 콘솔).
 - 레벨 문서를 읽다가 막히면(규칙 미게시 등) 알림 창으로 이유를 보여준다. 문서가 없거나 값이 틀리면 브라우저 콘솔에 경고를 남긴다.
 - **규칙 게시가 먼저, 사이트 배포는 그다음.** 새 레벨 이름이 규칙에 없으면 관리자가 지정할 수 없다.
+- **수출서류 아카이빙 사이트(karrotinAB/ExportDocumentArchive)와 계정을 같이 씀.** 같은 Firebase 프로젝트, 같은 `roles` 문서.
+  - 그 사이트 권한 = `roles` 문서의 `ex`: `admin`(계정 관리) | `edit`(사유·추가 제품코드 저장) | `view`(보기). 없으면 못 씀. 이 사이트의 `level admin`은 그 사이트에서도 자동 관리자, `blocked`는 그 사이트도 막힘.
+  - 그 사이트 관리자(`ex: admin`)는 `roles`를 읽고, **`ex`만** 바꾸거나 `level: 'none'`인 새 계정만 만들 수 있다 (규칙). 이 사이트의 레벨은 못 바꿈.
+  - 그래서 `none`(권한 없음)을 이 사이트 계정 관리에서도 고를 수 있게 했다(`ASSIGNABLE`, 그 사이트만 쓰는 계정). 계정 관리 표에 '수출서류 사이트' 칸(보기만).
+  - 이 사이트에서 계정을 만들 때 `setDoc(..., {merge:true})` — `ex`를 지우지 않게.
+  - 그 사이트의 데이터: `exReasons`, `exExtra`, `exMeta` (아래 7장). PDF 파일은 Firebase에 없음 (회사 공용폴더).
 
 ## 4. 기술 스택 / 배포
 
@@ -203,7 +209,10 @@ barcodes/{바코드} code(제품코드), name?(제품명, 바코드 화면에서
                  // 바코드·제품코드가 이미 똑같이 등록된 줄은 제품명만 채움(`nameUpd`, 비어 있거나 다를 때). 제품명 열은 '제품명(한글)'처럼 써도 찾음
                  // 이미 있는 바코드·제품코드, 파일 안 중복은 바꾸지 않고 건너뜀 → 건너뛴 줄은 그 화면에만 한 번 표시(#bc-report, 저장 안 함, 엑셀로 받기)
 managers/{id}    name            // 담당자 드롭다운 목록
-roles/{email}    level, prefix(바이어: 매장코드 앞 4자리), createdAt, updatedAt, updatedBy   // 계정 레벨 (admin | pog | vmd | global | buyer | finder | blocked | 예전 editor). 문서 없음 = none
+roles/{email}    level, prefix(바이어: 매장코드 앞 4자리), ex(수출서류 사이트 권한), createdAt, updatedAt, updatedBy   // 계정 레벨 (admin | pog | vmd | global | buyer | finder | none | blocked | 예전 editor). 문서 없음 = none
+exReasons/{코드(소문자, URL 인코딩)}  code, items: { 서류번호: {reason, memo, by, at} }   // 수출서류 사이트: 없는 서류 사유
+exExtra/{PDF 경로(소문자, URL 인코딩)} path('07_GMP\\파일.pdf'), codes[], by, at          // 수출서류 사이트: 추가 제품코드
+exMeta/report    codes[]                                                              // 수출서류 사이트: 누적 엑셀에 들어간 코드
 glossaryLog/{id} gid, cat, ko, action, changes:[{f, from, to}], by, at   // 용어 사전 변경 기록 (만들기만, 수정·삭제 불가)
 glossary/{id}    cat, ko, en, code, tr, auto, createdBy, updatedBy, updatedAt // cat: 카테고리 | 매대타입 | 고리타입 | 선반/파이프 | 집기 | 팀명
                                  // code: 제품코드 (고리타입·집기만, 고리·집기 수량 엑셀에 씀)

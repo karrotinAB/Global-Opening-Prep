@@ -19,11 +19,26 @@ service cloud.firestore {
     function anyLevel() { return hasLevel(['admin', 'pog', 'vmd', 'global', 'buyer', 'finder', 'editor']); } // 레벨을 받은(막히지 않은) 계정
     function seeFinal(d) { return anyLevel() && d.status == 'final' && (level() != 'buyer' || d.get('storePrefix', '') == myPrefix()); }
 
+    // 수출서류 아카이빙 사이트(ExportDocumentArchive) 권한: roles 문서의 ex
+    //   admin(관리자: 계정 관리) | edit(편집: 사유·추가 제품코드 저장) | view(보기) | 없음·none = 못 씀
+    //   Global POG 관리자(level admin)는 이 사이트에서도 관리자. level blocked는 이 사이트도 막힘
+    function exLv() {
+      let p = /databases/$(database)/documents/roles/$(myEmail());
+      return exists(p) ? get(p).data.get('ex', 'none') : 'none';
+    }
+    function exOk(levels) { return signedIn() && level() != 'blocked' && (level() == 'admin' || exLv() in levels); }
+    function exValid(d) { return d.get('ex', 'none') in ['admin', 'edit', 'view', 'none']; }
+
     match /roles/{email} {
-      allow read: if signedIn() && (email == myEmail() || hasLevel(['admin']));
+      allow read: if signedIn() && (email == myEmail() || hasLevel(['admin']) || exOk(['admin']));
       allow write: if hasLevel(['admin'])
-                   && (request.resource == null || (request.resource.data.level in ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder', 'blocked']
-                       && request.resource.data.get('prefix', '').matches('^[0-9A-Za-z]{0,4}$')));
+                   && (request.resource == null || (request.resource.data.level in ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder', 'blocked', 'none']
+                       && request.resource.data.get('prefix', '').matches('^[0-9A-Za-z]{0,4}$') && exValid(request.resource.data)));
+      // 수출서류 사이트 관리자: ex(이 사이트 권한)만 바꾸거나, Global POG 권한 없는(level none) 계정을 새로 만듦
+      allow create: if exOk(['admin']) && request.resource.data.level == 'none' && exValid(request.resource.data)
+                    && request.resource.data.keys().hasOnly(['level', 'ex', 'createdAt', 'updatedAt', 'updatedBy']);
+      allow update: if exOk(['admin']) && exValid(request.resource.data)
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ex', 'updatedAt', 'updatedBy']);
     }
 
     // POG: 만들기는 POG팀, 번역(translations)은 글로벌사업부
@@ -81,6 +96,20 @@ service cloud.firestore {
     match /managers/{id} {
       allow read: if staff();
       allow write: if hasLevel(['admin', 'pog', 'editor']);
+    }
+
+    // 수출서류 아카이빙: 없는 서류 사유(코드마다) · 추가 제품코드(PDF마다) · 보고서 코드 목록. PDF 파일은 여기 없음 (회사 공용폴더)
+    match /exReasons/{id} {
+      allow read: if exOk(['admin', 'edit', 'view']);
+      allow write: if exOk(['admin', 'edit']);
+    }
+    match /exExtra/{id} {
+      allow read: if exOk(['admin', 'edit', 'view']);
+      allow write: if exOk(['admin', 'edit']);
+    }
+    match /exMeta/{id} {
+      allow read: if exOk(['admin', 'edit', 'view']);
+      allow write: if exOk(['admin', 'edit']);
     }
   }
 }
