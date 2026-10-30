@@ -39,6 +39,9 @@ nav { display: flex; gap: 2px; overflow-x: auto; flex: 1; }
 nav button { background: none; border: 0; color: #fff; opacity: .82; font: inherit; font-weight: 500; padding: 7px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
 nav button:hover { opacity: 1; }
 nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700; }
+/* '3. 제품 찾기'와 '매장 등록' 사이 세로줄: 보이는 첫 번째 회색 메뉴 앞에만 */
+#nav .nav-sub:not(.hidden):not(.nav-sub:not(.hidden) ~ .nav-sub) { position: relative; margin-left: 13px; }
+#nav .nav-sub:not(.hidden):not(.nav-sub:not(.hidden) ~ .nav-sub)::before { content: ''; position: absolute; left: -8px; top: 6px; bottom: 6px; border-left: 1px solid rgba(255,255,255,.6); }
 .me { display: flex; gap: 10px; align-items: center; font-size: 12px; white-space: nowrap; }
 
 .view { display: none; }
