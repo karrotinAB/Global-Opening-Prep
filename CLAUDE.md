@@ -93,8 +93,8 @@ Firestore `roles/{이메일(소문자)}` 문서의 `level`. **문서가 없는 �
 | `app.js` | 모든 기능. Firebase 설정값 포함 |
 | `style.css` | 디자인 + A4 인쇄(PDF) 양식 |
 | `pog-grab.js` | POG 사이트에서 북마클릿이 불러와 실행하는 수집 스크립트 |
-| `img/login/c01~c16.png` | 로그인 화면 아래 아트박스 캐릭터 (사용자가 준 진열창 그림 4장에서 하나씩 오려낸 투명 PNG). 바닥 줄무늬에 가려진 발까지 살려서 오림. 주황 배경 위 횡단보도 바닥(`.login-chars::before`, 원래 그림처럼 검은 선+회색·흰 줄무늬)에 세움, 살짝 움직임, 마우스 올리면 폴짝. 로그인 카드 이름은 'ARTBOX Global Store Opening' (사용자) |
-| `img/icon.png` / `img/icon-180.png` | 브라우저 탭 아이콘(favicon)·휴대폰 홈 화면 아이콘 = 노란 병아리 (로그인 캐릭터 c12에서 오림). 바꾸면 index.html의 `?v=`도 올릴 것 |
+| `img/login/c01~c16.png` | 로그인 화면 아래 아트박스 캐릭터 (사용자가 준 진열창 그림 4장에서 하나씩 오려낸 투명 PNG). 바닥 줄무늬에 가려진 발까지 살려서 오림. 주황 배경 위 횡단보도 바닥(`.login-chars::before`, 원래 그림처럼 검은 선+회색·흰 줄무늬)에 세움, 살짝 움직임, 마우스 올리면 폴짝. 상어(c16, 사용자가 따로 준 그림)는 몸이 잘린 그림이라 화면 오른쪽 끝에 붙임(`img.edge`). 로그인 카드 이름은 'ARTBOX Global Store Opening' (사용자) |
+| `img/icon.png` / `img/icon-180.png` | 브라우저 탭 아이콘(favicon)·휴대폰 홈 화면 아이콘 = 사용자가 준 초록 별 캐릭터 그림 (남색 배경 투명하게). 바꾸면 index.html의 `?v=`도 올릴 것 |
 | `firestore.rules` / `storage.rules` | 보안 규칙 (콘솔 붙여넣기용) |
 | `README.md` | 배포·설정 방법 |
 
