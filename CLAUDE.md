@@ -93,7 +93,7 @@ Firestore `roles/{이메일(소문자)}` 문서의 `level`. **문서가 없는 �
 | `app.js` | 모든 기능. Firebase 설정값 포함 |
 | `style.css` | 디자인 + A4 인쇄(PDF) 양식 |
 | `pog-grab.js` | POG 사이트에서 북마클릿이 불러와 실행하는 수집 스크립트 |
-| `img/login/c01~c16.png` | 로그인 화면 아래 아트박스 캐릭터 (사용자가 준 진열창 그림 4장에서 하나씩 오려낸 투명 PNG). `.login-chars`에 나란히 세우고 살짝 움직임, 마우스 올리면 폴짝 |
+| `img/login/c01~c16.png` | 로그인 화면 아래 아트박스 캐릭터 (사용자가 준 진열창 그림 4장에서 하나씩 오려낸 투명 PNG). 바닥 줄무늬에 가려진 발까지 살려서 오림. 흰 띠 없이 주황 배경 위에 바로 세움(`.login-chars`), 살짝 움직임, 마우스 올리면 폴짝 |
 | `firestore.rules` / `storage.rules` | 보안 규칙 (콘솔 붙여넣기용) |
 | `README.md` | 배포·설정 방법 |
 
