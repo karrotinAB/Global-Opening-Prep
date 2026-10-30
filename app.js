@@ -1356,14 +1356,27 @@ $('#ed-final').onclick = async () => {
 $('#ed-delete').onclick = async () => {
   const p = state.currentPog; if (!p) return;
   if (!confirm(`'${p.branchName || p.storeName}' POG를 삭제할까요? 되돌릴 수 없어요.`)) return;
-  const fxs = await getDocs(collection(db, 'pogs', p.id, 'fixtures'));
-  for (const d of fxs.docs) for (const ph of [...(d.data().photos || []), ...(d.data().notes || []).filter(n => n.path)]) { try { await deleteObject(sRef(st, ph.path)); } catch { } }
-  let b = writeBatch(db), n = 0;
-  for (const d of fxs.docs) { b.delete(d.ref); if (++n >= 400) { await b.commit(); b = writeBatch(db); n = 0; } }
-  await b.commit();
-  await deleteDoc(doc(db, 'pogs', p.id));
+  try { await deletePogAll(p.id); } catch (e) { alert('삭제하지 못했어요: ' + (e.code || e.message)); return; }
   closePog(); renderPogList(); toast('삭제했어요');
 };
+// 문서 여러 개 지우기 (400개씩)
+async function deleteDocs(refs) {
+  for (let i = 0; i < refs.length; i += 400) { const b = writeBatch(db); refs.slice(i, i + 400).forEach(r => b.delete(r)); await b.commit(); }
+}
+// POG 통째로: 페이지(사진·메모 사진 파일 포함)·번역·POG 문서
+async function deletePogAll(pogId) {
+  const [fxs, trs] = await Promise.all([getDocs(collection(db, 'pogs', pogId, 'fixtures')), getDocs(collection(db, 'pogs', pogId, 'translations'))]);
+  for (const d of fxs.docs) for (const ph of [...(d.data().photos || []), ...(d.data().notes || []).filter(n => n.path)]) { if (ph.path) try { await deleteObject(sRef(st, ph.path)); } catch { } }
+  await deleteDocs([...fxs.docs.map(d => d.ref), ...trs.docs.map(d => d.ref)]);
+  await deleteDoc(doc(db, 'pogs', pogId));
+}
+// 도면 통째로: 모든 버전(SVG 파일 포함)·번역·도면 문서
+async function deleteDrawingAll(storeId) {
+  const [vs, trs] = await Promise.all([getDocs(collection(db, 'drawings', storeId, 'versions')), getDocs(collection(db, 'drawings', storeId, 'translations'))]);
+  for (const d of vs.docs) for (const pth of [d.data().path, d.data().basePath]) { if (pth) try { await deleteObject(sRef(st, pth)); } catch { } }
+  await deleteDocs([...vs.docs.map(d => d.ref), ...trs.docs.map(d => d.ref)]);
+  await deleteDoc(doc(db, 'drawings', storeId));
+}
 $('#ed-pdf').onclick = () => printPages($('#ed-pages'), state.currentPog);
 
 /* ---------- PDF (인쇄) ---------- */
@@ -2128,6 +2141,35 @@ function fillPrefixes() {
     }
   }, 1500);
 }
+// 매장 삭제: 이 매장의 POG(매장코드가 같거나 이어진 것)·도면을 모두 지움. '매장 삭제하겠습니다'를 똑같이 써야 지워짐
+const STORE_DEL_WORD = '매장 삭제하겠습니다';
+function deleteStoreAll(st) {
+  const pogs = state.pogs.filter(p => p.storeId === st.id || (st.code && String(p.storeCode || '').trim() === String(st.code).trim()));
+  const d = state.dwMap.get(st.id);
+  const inp = h('input', { class: 'del-confirm', placeholder: STORE_DEL_WORD, autocomplete: 'off' });
+  const go_ = h('button', { class: 'btn danger', disabled: true }, '모두 삭제');
+  inp.addEventListener('input', () => { go_.disabled = inp.value.trim() !== STORE_DEL_WORD; });
+  const close = modal(h('div', { class: 'del-box' },
+    h('h3', {}, `'${storeName(st)}' (${st.code}) 매장 삭제`),
+    h('p', {}, '아래가 모두 함께 지워지고 되돌릴 수 없어요.'),
+    h('ul', { class: 'steps' },
+      h('li', {}, '매장 정보'),
+      h('li', {}, pogs.length ? `POG ${pogs.length}개 (모든 페이지·번역·메모 사진): ${pogs.map(p => `${p.storeName || p.storeCode || ''}${p.status === 'final' ? ' (최종)' : ' (작성 중)'}`).join(', ')}` : 'POG 없음'),
+      h('li', {}, d?.latestNo ? `도면 (ver.${d.latestNo}까지 모든 버전·번역·파일)` : '도면 없음')),
+    h('p', {}, '지우려면 아래 칸에 ', h('b', {}, STORE_DEL_WORD), '를 똑같이 써주세요.'),
+    inp, h('div', { class: 'modal-act' }, go_)));
+  inp.focus();
+  go_.onclick = async () => {
+    if (inp.value.trim() !== STORE_DEL_WORD) return;
+    go_.disabled = true; inp.disabled = true;
+    try {
+      for (const [i, p] of pogs.entries()) { go_.textContent = `POG 지우는 중… (${i + 1}/${pogs.length})`; if (state.currentPog?.id === p.id) closePog(); await deletePogAll(p.id); }
+      if (d) { go_.textContent = '도면 지우는 중…'; if (dw.id === st.id) closeDw(); await deleteDrawingAll(st.id); }
+      await deleteDoc(doc(db, 'stores', st.id));
+      close(); toast(`매장을 삭제했어요 · POG ${pogs.length}개${d ? ' · 도면' : ''}도 함께 지웠어요`);
+    } catch (e) { alert('지우다가 멈췄어요: ' + (e.code || e.message) + '\n다시 누르면 남은 것을 이어서 지워요.'); go_.textContent = '모두 삭제'; go_.disabled = false; inp.disabled = false; }
+  };
+}
 function renderStores() {
   const body = $('#st-body'); if (!body) return;
   const ed = canEdit('stores');
@@ -2149,10 +2191,8 @@ function renderStores() {
     body.append(h('tr', {}, h('td', {}, inp('code')), h('td', {}, inp('partner')), h('td', {}, inp('branch')), h('td', {}, inp('openDate', 'date')),
       h('td', { class: 'st-dw' }, d?.latestNo ? `ver.${d.latestNo}${fin ? ` · ★ver.${fin}` : ''}${d.area ? ` · ${d.area}평` : ''}` : '없음'),
       h('td', { class: 'st-dw' }, pogs.length ? `${pogs.length}개${pogs.some(p => p.status === 'final') ? ' (최종 있음)' : ''}` : '없음'),
-      // 매장 삭제는 관리자만 (규칙도 같음), 도면이 올라간 매장은 지우지 않음
-      h('td', { class: 'tc' }, state.level === 'admin' && !d?.latestNo ? h('button', { class: 'btn ghost danger small', onclick: async () => {
-        if (confirm(`'${storeName(st)}' 매장을 지울까요?`)) try { await deleteDoc(doc(db, 'stores', st.id)); } catch (e) { alert('지우지 못했어요: ' + (e.code || e.message)); }
-      } }, '삭제') : null)));
+      // 매장 삭제는 관리자만 (규칙도 같음). 이 매장의 POG·도면도 함께 지움 (deleteStoreAll)
+      h('td', { class: 'tc' }, state.level === 'admin' ? h('button', { class: 'btn ghost danger small', onclick: () => deleteStoreAll(st) }, '삭제') : null)));
   }
 }
 $('#st-add').addEventListener('submit', async e => {
