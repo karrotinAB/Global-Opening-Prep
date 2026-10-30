@@ -1,5 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getAuth, initializeAuth, inMemoryPersistence, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword,
+  sendPasswordResetEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, where, limit,
   writeBatch, serverTimestamp, arrayUnion, arrayRemove, deleteField, getDocs, getDoc, getCountFromServer, startAfter, FieldPath
@@ -24,7 +25,7 @@ const st = getStorage(fb);
 // 헤더 매대명은 사전에 두지 않음: 매번 달라서 도면 번역(VMD 도면)에서 가져옴. 팀명은 가져온 POG에서 자동으로 채움
 const CATS = ['카테고리', '매대타입', '고리타입', '선반/파이프', '집기', '팀명'];
 // 계정 레벨. roles/{이메일} 문서가 없으면 'finder' (제품 찾기만)
-const LEVELS = { admin: '관리자', pog: 'POG팀', vmd: 'VMD팀', global: '글로벌사업부', buyer: '바이어', finder: '제품 찾기만', editor: '편집 (예전 레벨)' };
+const LEVELS = { admin: '관리자', pog: 'POG팀', vmd: 'VMD팀', global: '글로벌사업부', buyer: '바이어', finder: '제품 찾기만', editor: '편집 (예전 레벨)', none: '권한 없음', blocked: '접속 막힘' };
 const ASSIGNABLE = ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder']; // editor는 예전 레벨: 그대로 동작하지만 새로 고를 수는 없음
 // 레벨마다 볼 수 있는 화면(views)과 편집할 수 있는 부분(edit). 진짜 차단은 firestore.rules / storage.rules가 함
 const STAFF_VIEWS = ['home', 'stores', 'barcodes', 'drawing', 'dw-up', 'dw-tr', 'dw-online', 'pog-home', 'pog-make', 'pog-trans', 'pog-online', 'glossary', 'finder'];
@@ -37,8 +38,10 @@ const ACCESS = {
   buyer: { views: ['home', 'drawing', 'dw-online', 'pog-home', 'pog-online', 'finder'], edit: [] }, // 최종본만 (규칙에서도 막음)
   finder: { views: ['finder'], edit: [] },
   editor: { views: STAFF_VIEWS, edit: ALL_EDIT },
+  none: { views: [], edit: [] },    // 관리자가 만들지 않은(레벨 문서가 없는) 계정: 아무것도 못 봄
+  blocked: { views: [], edit: [] }, // 관리자가 접속을 막은 계정
 };
-const access = () => ACCESS[state.level] || ACCESS.finder;
+const access = () => ACCESS[state.level] || ACCESS.none;
 // 바이어 계정: roles 문서의 prefix(매장코드 앞 4자리)와 같은 매장의 최종 POG·도면만 봄. pogs·drawings 문서에 storePrefix를 같이 저장
 const codePrefix = code => String(code ?? '').trim().slice(0, 4);
 const canSee = v => access().views.includes(v);
@@ -120,15 +123,15 @@ onAuthStateChanged(auth, user => {
   unsubRole = onSnapshot(doc(db, 'roles', user.email.toLowerCase()),
     d => {
       const lv = d.data()?.level;
-      if (!d.exists()) console.warn(`roles/${user.email.toLowerCase()} 문서가 없어서 '제품 찾기만'으로 동작해요`);
-      else if (!LEVELS[lv]) console.warn(`roles/${user.email.toLowerCase()}의 level 값 '${lv}'을 알 수 없어서 '제품 찾기만'으로 동작해요`);
+      if (!d.exists()) console.warn(`roles/${user.email.toLowerCase()} 문서가 없어서 아무 화면도 열지 않아요 (계정 관리에서 레벨을 받아야 해요)`);
+      else if (!LEVELS[lv]) console.warn(`roles/${user.email.toLowerCase()}의 level 값 '${lv}'을 알 수 없어요`);
       const pf = String(d.data()?.prefix || '').trim();
       if (pf !== state.prefix) { state.prefix = pf; if (state.level === 'buyer') { stopListeners(); startListeners(); } }
-      setLevel(LEVELS[lv] ? lv : 'finder');
+      setLevel(LEVELS[lv] && d.exists() ? lv : 'none');
     },
     e => {
-      setLevel('finder');
-      alert(`계정 레벨을 읽지 못해서 '제품 찾기만'으로 열었어요.\n(${e.code || e.message})\n\nFirebase 콘솔 → Firestore Database → 규칙 탭에 firestore.rules 내용이 게시돼 있는지 확인해주세요.`);
+      setLevel('none');
+      alert(`계정 레벨을 읽지 못했어요.\n(${e.code || e.message})\n\nFirebase 콘솔 → Firestore Database → 규칙 탭에 firestore.rules 내용이 게시돼 있는지 확인해주세요.`);
     });
 });
 function setLevel(lv) {
@@ -138,7 +141,8 @@ function setLevel(lv) {
   $('#me-level').textContent = lv ? LEVELS[lv] : '';
   if (!lv) return;
   applyAccess();
-  stopListeners(); startListeners();
+  stopListeners(); if (access().views.length) startListeners();
+  $('#na-msg').textContent = lv === 'blocked' ? '관리자가 이 계정의 접속을 막았어요. 다시 쓰려면 관리자에게 말해주세요.' : '아직 사용 권한이 없는 계정이에요. 관리자에게 계정 관리에서 레벨을 받아주세요.';
   go(state.view);
 }
 $('#login-form').addEventListener('submit', async e => {
@@ -148,6 +152,36 @@ $('#login-form').addEventListener('submit', async e => {
   catch { $('#login-err').textContent = '로그인 실패: 이메일 또는 비밀번호를 확인해주세요.'; }
 });
 $('#logout').onclick = () => signOut(auth);
+auth.languageCode = 'ko'; // 비밀번호 재설정 메일을 한국어로
+$('#login-forgot').onclick = async e => {
+  e.preventDefault();
+  const email = (prompt('가입한 이메일을 넣어주세요. 비밀번호를 바꾸는 메일을 보내드려요.', $('#login-email').value.trim()) || '').trim();
+  if (!email) return;
+  try { await sendPasswordResetEmail(auth, email); alert(`${email}(으)로 비밀번호 재설정 메일을 보냈어요.\n메일의 링크를 눌러 새 비밀번호를 정해주세요. (안 보이면 스팸함도 확인해주세요)`); }
+  catch (err) { alert(err.code === 'auth/invalid-email' ? '이메일 형식이 맞지 않아요.' : '메일을 보내지 못했어요: ' + (err.code || err.message)); }
+};
+// 내 비밀번호 바꾸기 (지금 비밀번호 확인 → 새 비밀번호)
+$('#btn-pw').onclick = () => {
+  const cur = h('input', { type: 'password', placeholder: '지금 비밀번호', autocomplete: 'current-password' });
+  const n1 = h('input', { type: 'password', placeholder: '새 비밀번호 (6자 이상)', autocomplete: 'new-password' });
+  const n2 = h('input', { type: 'password', placeholder: '새 비밀번호 한 번 더', autocomplete: 'new-password' });
+  const err = h('div', { class: 'err' }), go_ = h('button', { class: 'btn primary', type: 'submit' }, '바꾸기');
+  const form = h('form', { class: 'pw-form' }, h('h3', {}, '비밀번호 바꾸기'), cur, n1, n2, err, h('div', { class: 'modal-act' }, go_));
+  const close = modal(form);
+  form.onsubmit = async ev => {
+    ev.preventDefault(); err.textContent = '';
+    if (n1.value.length < 6) { err.textContent = '새 비밀번호는 6자 이상이에요.'; return; }
+    if (n1.value !== n2.value) { err.textContent = '새 비밀번호 두 칸이 달라요.'; return; }
+    go_.disabled = true;
+    try {
+      const u = auth.currentUser || state.user;
+      await reauthenticateWithCredential(u, EmailAuthProvider.credential(u.email, cur.value));
+      await updatePassword(u, n1.value);
+      close(); toast('비밀번호를 바꿨어요');
+    } catch (e2) { err.textContent = /wrong-password|invalid-credential/.test(e2.code || '') ? '지금 비밀번호가 맞지 않아요.' : '바꾸지 못했어요: ' + (e2.code || e2.message); go_.disabled = false; }
+  };
+  cur.focus();
+};
 
 /* ---------- 실시간 구독 ---------- */
 let unsubs = [];
@@ -197,7 +231,7 @@ function stopListeners() { unsubs.forEach(u => u()); unsubs = []; closePog(); cl
 const secOf = v => v.startsWith('dw-') ? 'dw' : v; // 도면 업로드·번역·온라인 도면은 같은 화면(#v-dw)
 function go(v) {
   if (!$('#v-' + secOf(v))) v = 'home';
-  if (!canSee(v)) v = canSee('home') ? 'home' : 'finder';
+  if (!canSee(v)) v = canSee('home') ? 'home' : canSee('finder') ? 'finder' : 'noaccess';
   state.view = v;
   $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.view === v || (!!b.dataset.group && v.startsWith(b.dataset.group))));
   $('#subnav').classList.toggle('on', v.startsWith('pog-') && v !== 'pog-home');
@@ -316,6 +350,24 @@ function applyItemZ(block, fx) {
   const byId = new Map((fx.items || []).map(it => [String(it.id), it]));
   block.querySelectorAll('.page .cv-item').forEach(el => { const it = byId.get(el.dataset.id); if (it) el.style.zIndex = itemZ(fx, it); });
 }
+/* 제품 사진 (img.artbox.kr): 가끔 늦거나 실패함 → 자동으로 다시 불러오기 (조금 기다렸다가 2번, 그다음 referrer를 바꿔서 1번).
+   그래도 안 되면 깨진 아이콘 대신 제품명 글자 (PDF에도 글자로 나옴) */
+function prodImg(src, name = '', { lazy = false, fallback = true } = {}) {
+  const img = h('img', { src, alt: '', referrerpolicy: 'no-referrer', loading: lazy ? 'lazy' : null });
+  img.dataset.src0 = src; img.dataset.name = name; img.dataset.fb = fallback ? '1' : '';
+  img.addEventListener('error', () => imgRetry(img));
+  return img;
+}
+function imgRetry(img) {
+  const n = +(img.dataset.try || 0), src = img.dataset.src0;
+  img.dataset.try = n + 1;
+  if (n < 2) { setTimeout(() => { img.src = src + (src.includes('?') ? '&' : '?') + 'r=' + Date.now(); }, 700 * (n + 1)); return; }
+  if (n === 2) { img.referrerPolicy = 'strict-origin-when-cross-origin'; img.src = src; return; }
+  img.dataset.failed = '1';
+  if (img.dataset.fb) img.replaceWith(h('span', { class: 'cv-noimg', title: '사진을 불러오지 못했어요' }, img.dataset.name || ''));
+  else img.style.visibility = 'hidden';
+  img.dispatchEvent(new Event('gaveup'));
+}
 function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
   const items = fx.items || [];
   const wrap = h('div', { class: 'cv', style: `width:${W}px;height:${H}px` });
@@ -364,7 +416,7 @@ function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
   for (const it of items) {
     const el = h('div', { class: 'cv-item' + (onItem ? ' click' : ''), 'data-code': it.code, 'data-id': it.id, title: `[${it.code}] ${it.name}`,
       style: `left:${it.x - x0 + pad}px;top:${it.y - y0 + pad}px;width:${it.w}px;height:${it.h}px;z-index:${itemZ(fx, it)}` },
-      it.img ? h('img', { src: it.img, alt: '', referrerpolicy: 'no-referrer', loading: lazy ? 'lazy' : null }) : h('span', {}, it.name));
+      it.img ? prodImg(it.img, it.name, { lazy }) : h('span', {}, it.name));
     if (onItem) el.onclick = () => onItem(it, fx);
     inner.append(el);
   }
@@ -1203,7 +1255,7 @@ function renderSidePanel() {
       ed ? btn('되살리기', () => restoreOutside(pog.id, fx), 'ghost') : null));
     const view = state.edComposed?.get(id) || fx; // 붙인 매대까지 합친 것
     const selIt = block._selItem && (view.items || []).find(it => String(it.id) === block._selItem);
-    if (ed && selIt) nodes.push(sec('선택한 제품', h('div', { class: 'se-item' }, selIt.img ? h('img', { src: selIt.img, alt: '', referrerpolicy: 'no-referrer' }) : null,
+    if (ed && selIt) nodes.push(sec('선택한 제품', h('div', { class: 'se-item' }, selIt.img ? prodImg(selIt.img, '', { fallback: false }) : null,
       h('div', {}, h('b', {}, selIt.name), h('div', { class: 'mut' }, selIt.code))),
       h('div', { class: 'se-btns' }, btn('맨 앞으로', () => moveItemZ(pog.id, view, selIt.id, 1)), btn('맨 뒤로', () => moveItemZ(pog.id, view, selIt.id, -1)),
         btn('선택 해제', () => selectItem(block, null), 'ghost')),
@@ -1304,26 +1356,53 @@ $('#ed-final').onclick = async () => {
 $('#ed-delete').onclick = async () => {
   const p = state.currentPog; if (!p) return;
   if (!confirm(`'${p.branchName || p.storeName}' POG를 삭제할까요? 되돌릴 수 없어요.`)) return;
-  const fxs = await getDocs(collection(db, 'pogs', p.id, 'fixtures'));
-  for (const d of fxs.docs) for (const ph of [...(d.data().photos || []), ...(d.data().notes || []).filter(n => n.path)]) { try { await deleteObject(sRef(st, ph.path)); } catch { } }
-  let b = writeBatch(db), n = 0;
-  for (const d of fxs.docs) { b.delete(d.ref); if (++n >= 400) { await b.commit(); b = writeBatch(db); n = 0; } }
-  await b.commit();
-  await deleteDoc(doc(db, 'pogs', p.id));
+  try { await deletePogAll(p.id); } catch (e) { alert('삭제하지 못했어요: ' + (e.code || e.message)); return; }
   closePog(); renderPogList(); toast('삭제했어요');
 };
+// 문서 여러 개 지우기 (400개씩)
+async function deleteDocs(refs) {
+  for (let i = 0; i < refs.length; i += 400) { const b = writeBatch(db); refs.slice(i, i + 400).forEach(r => b.delete(r)); await b.commit(); }
+}
+// POG 통째로: 페이지(사진·메모 사진 파일 포함)·번역·POG 문서
+async function deletePogAll(pogId) {
+  const [fxs, trs] = await Promise.all([getDocs(collection(db, 'pogs', pogId, 'fixtures')), getDocs(collection(db, 'pogs', pogId, 'translations'))]);
+  for (const d of fxs.docs) for (const ph of [...(d.data().photos || []), ...(d.data().notes || []).filter(n => n.path)]) { if (ph.path) try { await deleteObject(sRef(st, ph.path)); } catch { } }
+  await deleteDocs([...fxs.docs.map(d => d.ref), ...trs.docs.map(d => d.ref)]);
+  await deleteDoc(doc(db, 'pogs', pogId));
+}
+// 도면 통째로: 모든 버전(SVG 파일 포함)·번역·도면 문서
+async function deleteDrawingAll(storeId) {
+  const [vs, trs] = await Promise.all([getDocs(collection(db, 'drawings', storeId, 'versions')), getDocs(collection(db, 'drawings', storeId, 'translations'))]);
+  for (const d of vs.docs) for (const pth of [d.data().path, d.data().basePath]) { if (pth) try { await deleteObject(sRef(st, pth)); } catch { } }
+  await deleteDocs([...vs.docs.map(d => d.ref), ...trs.docs.map(d => d.ref)]);
+  await deleteDoc(doc(db, 'drawings', storeId));
+}
 $('#ed-pdf').onclick = () => printPages($('#ed-pages'), state.currentPog);
 
 /* ---------- PDF (인쇄) ---------- */
-function printPages(container, pog) {
-  const imgs = $$('img', container).filter(i => !i.complete);
+async function printPages(container, pog) {
   const old = document.title;
   document.title = `POG_${pog?.branchName || pog?.storeName || ''}_${fmtDate(new Date())}`.replace(/[\\/:*?"<>|]/g, '');
   const done = () => { document.title = old; window.removeEventListener('afterprint', done); };
   window.addEventListener('afterprint', done);
-  if (imgs.length) toast('이미지 불러오는 중…');
-  Promise.all(imgs.map(i => new Promise(r => { i.addEventListener('load', r, { once: true }); i.addEventListener('error', r, { once: true }); setTimeout(r, 8000); })))
-    .then(() => window.print());
+  // 아직 안 불러온 사진·실패한 사진: 다시 불러오고, 끝날 때까지(최대 20초) 기다렸다가 인쇄
+  const imgs = $$('img', container);
+  imgs.forEach(i => { i.loading = 'eager'; if (i.complete && !i.naturalWidth && i.dataset.src0 && !i.dataset.failed) imgRetry(i); });
+  const wait = imgs.filter(i => !(i.complete && i.naturalWidth) && !i.dataset.failed && i.isConnected);
+  if (wait.length) {
+    let left = wait.length;
+    toast(`사진 불러오는 중… (${left}장)`);
+    await Promise.race([
+      Promise.all(wait.map(i => new Promise(r => {
+        const fin = () => { toast(`사진 불러오는 중… (${--left}장 남음)`); r(); };
+        i.addEventListener('load', fin, { once: true }); i.addEventListener('gaveup', fin, { once: true });
+      }))),
+      new Promise(r => setTimeout(r, 20000)),
+    ]);
+  }
+  const bad = $$('.cv-noimg', container).length;
+  if (bad) toast(`사진 ${bad}장은 불러오지 못해서 제품명으로 나와요`);
+  window.print();
 }
 
 /* ---------- 새 POG 가져오기 ---------- */
@@ -2062,6 +2141,35 @@ function fillPrefixes() {
     }
   }, 1500);
 }
+// 매장 삭제: 이 매장의 POG(매장코드가 같거나 이어진 것)·도면을 모두 지움. '매장 삭제하겠습니다'를 똑같이 써야 지워짐
+const STORE_DEL_WORD = '매장 삭제하겠습니다';
+function deleteStoreAll(st) {
+  const pogs = state.pogs.filter(p => p.storeId === st.id || (st.code && String(p.storeCode || '').trim() === String(st.code).trim()));
+  const d = state.dwMap.get(st.id);
+  const inp = h('input', { class: 'del-confirm', placeholder: STORE_DEL_WORD, autocomplete: 'off' });
+  const go_ = h('button', { class: 'btn danger', disabled: true }, '모두 삭제');
+  inp.addEventListener('input', () => { go_.disabled = inp.value.trim() !== STORE_DEL_WORD; });
+  const close = modal(h('div', { class: 'del-box' },
+    h('h3', {}, `'${storeName(st)}' (${st.code}) 매장 삭제`),
+    h('p', {}, '아래가 모두 함께 지워지고 되돌릴 수 없어요.'),
+    h('ul', { class: 'steps' },
+      h('li', {}, '매장 정보'),
+      h('li', {}, pogs.length ? `POG ${pogs.length}개 (모든 페이지·번역·메모 사진): ${pogs.map(p => `${p.storeName || p.storeCode || ''}${p.status === 'final' ? ' (최종)' : ' (작성 중)'}`).join(', ')}` : 'POG 없음'),
+      h('li', {}, d?.latestNo ? `도면 (ver.${d.latestNo}까지 모든 버전·번역·파일)` : '도면 없음')),
+    h('p', {}, '지우려면 아래 칸에 ', h('b', {}, STORE_DEL_WORD), '를 똑같이 써주세요.'),
+    inp, h('div', { class: 'modal-act' }, go_)));
+  inp.focus();
+  go_.onclick = async () => {
+    if (inp.value.trim() !== STORE_DEL_WORD) return;
+    go_.disabled = true; inp.disabled = true;
+    try {
+      for (const [i, p] of pogs.entries()) { go_.textContent = `POG 지우는 중… (${i + 1}/${pogs.length})`; if (state.currentPog?.id === p.id) closePog(); await deletePogAll(p.id); }
+      if (d) { go_.textContent = '도면 지우는 중…'; if (dw.id === st.id) closeDw(); await deleteDrawingAll(st.id); }
+      await deleteDoc(doc(db, 'stores', st.id));
+      close(); toast(`매장을 삭제했어요 · POG ${pogs.length}개${d ? ' · 도면' : ''}도 함께 지웠어요`);
+    } catch (e) { alert('지우다가 멈췄어요: ' + (e.code || e.message) + '\n다시 누르면 남은 것을 이어서 지워요.'); go_.textContent = '모두 삭제'; go_.disabled = false; inp.disabled = false; }
+  };
+}
 function renderStores() {
   const body = $('#st-body'); if (!body) return;
   const ed = canEdit('stores');
@@ -2083,10 +2191,8 @@ function renderStores() {
     body.append(h('tr', {}, h('td', {}, inp('code')), h('td', {}, inp('partner')), h('td', {}, inp('branch')), h('td', {}, inp('openDate', 'date')),
       h('td', { class: 'st-dw' }, d?.latestNo ? `ver.${d.latestNo}${fin ? ` · ★ver.${fin}` : ''}${d.area ? ` · ${d.area}평` : ''}` : '없음'),
       h('td', { class: 'st-dw' }, pogs.length ? `${pogs.length}개${pogs.some(p => p.status === 'final') ? ' (최종 있음)' : ''}` : '없음'),
-      // 매장 삭제는 관리자만 (규칙도 같음), 도면이 올라간 매장은 지우지 않음
-      h('td', { class: 'tc' }, state.level === 'admin' && !d?.latestNo ? h('button', { class: 'btn ghost danger small', onclick: async () => {
-        if (confirm(`'${storeName(st)}' 매장을 지울까요?`)) try { await deleteDoc(doc(db, 'stores', st.id)); } catch (e) { alert('지우지 못했어요: ' + (e.code || e.message)); }
-      } }, '삭제') : null)));
+      // 매장 삭제는 관리자만 (규칙도 같음). 이 매장의 POG·도면도 함께 지움 (deleteStoreAll)
+      h('td', { class: 'tc' }, state.level === 'admin' ? h('button', { class: 'btn ghost danger small', onclick: () => deleteStoreAll(st) }, '삭제') : null)));
   }
 }
 $('#st-add').addEventListener('submit', async e => {
@@ -2415,7 +2521,7 @@ function saveDwTr(gid, patch) {
 }
 
 // 그림: 업로드 화면 = 원본 + 읽은 매대명 표시 / 번역 화면 = 글자 뺀 바탕 + 번역 글자
-function drawingView(v, mode, { onPick, used, selId, picks, onLab, plain, ctx, only } = {}) {
+function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, plain, ctx, only } = {}) {
   const wrap = h('div', { class: 'dw-canvas', style: `aspect-ratio:${v.w} / ${v.h}` }, h('img', { src: mode === 'en' ? v.baseUrl : v.url, alt: '', draggable: 'false' }));
   const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
   for (const g of v.groups || []) {
@@ -2430,12 +2536,28 @@ function drawingView(v, mode, { onPick, used, selId, picks, onLab, plain, ctx, o
       wrap.append(el);
     } else if (only) { if (g.id === only) wrap.append(h('div', { class: 'dw-box fd-on', style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko }));
     } else if (!plain) {
-      const el = h('div', { class: 'dw-box' + (onPick ? ' pick' : '') + (used?.has(g.id) ? ' used' : '') + (g.id === selId || picks?.has(g.id) ? ' on' : ''),
+      const el = h('div', { 'data-gid': g.id, class: 'dw-box' + (onPick ? ' pick' : '') + (used?.has(g.id) ? ' used' : '') + (g.id === selId || picks?.has(g.id) ? ' on' : ''),
         style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko });
       if (onPick) el.onclick = () => onPick(g);
       wrap.append(el);
     }
   }
+  // 빈 곳을 끌면 네모 안에 걸친 칸을 한꺼번에 고름 (도면 업로드: 묶음 고치기)
+  if (onPickMany) wrap.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || e.target.closest('.dw-box')) return;
+    e.preventDefault();
+    const r0 = wrap.getBoundingClientRect(), sx = e.clientX, sy = e.clientY;
+    const band = h('div', { class: 'dw-band' }); wrap.append(band);
+    const box = ev => ({ l: Math.min(sx, ev.clientX), t: Math.min(sy, ev.clientY), r: Math.max(sx, ev.clientX), b: Math.max(sy, ev.clientY) });
+    const mv = ev => { const b = box(ev); Object.assign(band.style, { left: b.l - r0.left + 'px', top: b.t - r0.top + 'px', width: b.r - b.l + 'px', height: b.b - b.t + 'px' }); };
+    const up = ev => {
+      window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); band.remove();
+      const b = box(ev); if (b.r - b.l < 4 && b.b - b.t < 4) return;
+      const ids = $$('.dw-box', wrap).filter(el => { const q = el.getBoundingClientRect(); return q.right >= b.l && q.left <= b.r && q.bottom >= b.t && q.top <= b.b; }).map(el => el.dataset.gid);
+      if (ids.length) onPickMany(ids);
+    };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+  });
   if (only && mode === 'en') { const g = (v.groups || []).find(x => x.id === only); if (g) wrap.append(h('div', { class: 'dw-box fd-on', style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}` })); }
   return wrap;
 }
@@ -2462,12 +2584,12 @@ function renderDwStage() {
   }
   const en = dw.tab !== 'up' && !dw.showKo;
   const legend = dw.tab === 'up'
-    ? h('div', { class: 'dw-legend' }, `파란 칸 = 사이트가 읽은 매대명 ${v.groups?.length || 0}개. 파란 칸이 없는 글자는 윤곽선이 된 글자라 번역할 수 없어요.${canEdit('drawing') ? ' 칸을 누르면 고르고, 오른쪽에서 나누기·합치기를 할 수 있어요.' : ''}`,
+    ? h('div', { class: 'dw-legend' }, `파란 칸 = 사이트가 읽은 매대명 ${v.groups?.length || 0}개. 파란 칸이 없는 글자는 윤곽선이 된 글자라 번역할 수 없어요.${canEdit('drawing') ? ' 칸을 누르거나 빈 곳을 끌어서 여러 칸을 고르고, 오른쪽에서 합치기(한 매대로)·나누기를 해요.' : ''}`,
       !v.groups?.length ? h('span', { class: 'warn' }, ' 글자를 하나도 못 읽었어요!') : null)
     : dw.tab === 'on' ? h('div', { class: 'dw-legend' }, `${$('#dw-ver').textContent} · ${en ? dw.lang : '한국어'}`)
     : h('div', { class: 'dw-legend' }, en ? '글자를 끌어서 옮길 수 있어요. 누르면 오른쪽에서 고쳐요. 회색 점선 = 아직 번역 안 된 글자' : '한글 원본이에요.');
   const pickable = dw.tab === 'up' && canEdit('drawing');
-  box.replaceChildren(legend, drawingView(v, en ? 'en' : 'ko', pickable ? { picks: dwPicks(), onPick: g => togglePick(g.id) } : { selId: dw.sel, onLab: dw.tab === 'tr', plain: dw.tab !== 'up' }));
+  box.replaceChildren(legend, drawingView(v, en ? 'en' : 'ko', pickable ? { picks: dwPicks(), onPick: g => togglePick(g.id), onPickMany: ids => { const p = dwPicks(); ids.forEach(i => p.add(i)); renderDwStage(); renderDwSide(); } } : { selId: dw.sel, onLab: dw.tab === 'tr', plain: dw.tab !== 'up' }));
 }
 function verCard(v, { canStar, onOpen }) {
   const fin = dwFinal(dw.doc) === v.id;
@@ -2562,13 +2684,15 @@ function groupEditor(v) {
   };
   const merge = () => {
     if (sel.some(g => !g.parts)) { alert('예전에 올린 도면이라 합칠 수 없어요. 도면을 다시 올려주세요.'); return; }
-    const first = sel.slice().sort((a, b) => a.y - b.y || a.x - b.x)[0];
-    const one = { id: first.id, ...makeGroup(sel.flatMap(g => g.parts.map(p => ({ ...p })))) };
+    const ord = sel.slice().sort((a, b) => a.y - b.y || a.x - b.x), first = ord[0];
+    // 합친 묶음 = 매대 하나. 이름은 고른 칸 글자를 '/'로 이어 씀 (POG 헤더에도 'A/B'로 들어감 · 사용자)
+    const names = ord.map(g => String(g.ko || '').trim().replace(/^\/+|\/+$/g, '')).filter(Boolean);
+    const one = { id: first.id, ...makeGroup(sel.flatMap(g => g.parts.map(p => ({ ...p })))), ko: names.join('/'), lines: names };
     save([...groups.filter(x => !picks.has(x.id)), one], `${sel.length}개를 '${one.ko}'로 합쳤어요`);
   };
   const g1 = sel.length === 1 ? sel[0] : null;
   return h('section', { class: 'se-sec' }, h('h4', {}, '매대명 묶음 고치기'),
-    h('p', { class: 'se-help' }, '도면에서 파란 칸을 누르세요. 한 칸에 여러 매대가 들어갔으면 [나누기], 한 매대가 여러 칸으로 나뉘었으면 여러 칸을 눌러 [합치기].'),
+    h('p', { class: 'se-help' }, '도면에서 파란 칸을 누르거나, 빈 곳을 끌어 네모로 여러 칸을 한 번에 고르세요. 한 매대인 글자들을 골라 [합치기]하면 한 묶음(매대 하나)이 되고, POG에는 \'글자1/글자2\'처럼 /로 이어져 들어가요. 한 칸에 여러 매대가 들어갔으면 [나누기].'),
     sel.length ? h('div', { class: 'dw-glist' }, ...sel.map(g => h('div', { class: 'dw-gi on', onclick: () => togglePick(g.id) }, h('span', { class: 'ko' }, g.ko), h('span', { class: 'en' }, '×')))) : null,
     h('div', { class: 'se-btns' },
       h('button', { class: 'btn small', disabled: !(g1 && (g1.parts?.length || 0) > 1), onclick: split }, '나누기'),
@@ -2655,7 +2779,7 @@ function renderViewer() {
 $('#vw-pdf').onclick = () => printPages($('#vw-pages'), state.viewer.pog);
 function showItem(it, fx) {
   modal(h('div', { class: 'item-pop' },
-    h('div', { class: 'ip-img' }, it.img ? h('img', { src: it.img, alt: '', referrerpolicy: 'no-referrer' }) : null),
+    h('div', { class: 'ip-img' }, it.img ? prodImg(it.img, '', { fallback: false }) : null),
     h('div', { class: 'ip-info' },
       h('h3', {}, it.name),
       h('table', {},
@@ -3013,7 +3137,7 @@ function fdShow({ q, code, barcode, hits }) {
   const bcTd = h('span', {}, barcode || '…');
   if (!barcode) getDocs(query(collection(db, 'barcodes'), where('code', '==', code), limit(3))).then(s => { bcTd.textContent = s.docs.map(d => d.id).join(', ') || '-'; }).catch(() => { bcTd.textContent = '-'; });
   const nodes = [h('div', { class: 'fd-card fd-prod' },
-    it0.img ? h('img', { src: it0.img, alt: '', referrerpolicy: 'no-referrer' }) : h('div', { class: 'fd-noimg' }),
+    it0.img ? prodImg(it0.img, '', { fallback: false }) : h('div', { class: 'fd-noimg' }),
     h('div', { class: 'fd-pi' }, h('b', {}, it0.name || code),
       h('div', {}, T('제품코드 ', 'Item ') + code), h('div', {}, T('바코드 ', 'Barcode '), bcTd),
       it0.price ? h('div', {}, '₩' + Number(it0.price).toLocaleString()) : null,
@@ -3377,6 +3501,14 @@ function showImportPreview(plan) {
 }
 
 /* ---------- 계정 관리 (관리자만) ---------- */
+// 새 계정 만들기: 관리자 로그인을 바꾸지 않도록 따로 띄운 Firebase(메모리에만)로 로그인 계정을 만들고 바로 로그아웃
+const NEW_PW = '123456'; // 처음 비밀번호 (Firebase는 6자 이상만 됨). 각자 '비밀번호 바꾸기'로 바꿈
+let makerAuth = null;
+async function createLogin(email) {
+  makerAuth ||= initializeAuth(initializeApp(firebaseConfig, 'account-maker'), { persistence: inMemoryPersistence });
+  try { await createUserWithEmailAndPassword(makerAuth, email, NEW_PW); await signOut(makerAuth); return 'new'; }
+  catch (e) { if (e.code === 'auth/email-already-in-use') return 'exists'; throw e; }
+}
 const levelSelect = v => {
   const keys = ASSIGNABLE.includes(v) ? ASSIGNABLE : [v, ...ASSIGNABLE];
   const sel = h('select', { class: 'acc-sel' }, ...keys.map(k => h('option', { value: k }, LEVELS[k])));
@@ -3404,12 +3536,18 @@ function renderAccounts() {
     });
     body.append(h('tr', {},
       h('td', {}, r.id, r.id === me ? h('span', { class: 'acc-me' }, '나') : null,
-        ASSIGNABLE.includes(r.level) ? null : h('span', { class: 'acc-old' }, '레벨을 다시 골라주세요')),
+        r.level === 'blocked' ? h('span', { class: 'acc-old' }, '접속 막힘 · 레벨을 고르면 다시 열려요') : ASSIGNABLE.includes(r.level) ? null : h('span', { class: 'acc-old' }, '레벨을 다시 골라주세요')),
       h('td', {}, sel),
       h('td', {}, pf || (r.level === 'buyer' ? null : h('span', { class: 'mut' }, '—')), r.level === 'buyer' && !r.prefix ? h('div', { class: 'acc-old' }, '4자리를 넣어야 매장이 보여요') : null),
-      h('td', { class: 'tc' }, r.id === me ? null : h('button', { class: 'btn ghost danger small', onclick: async () => {
-        if (confirm(`'${r.id}'의 레벨을 지울까요? 지우면 '제품 찾기만'으로 바뀌어요.`)) await deleteDoc(doc(db, 'roles', r.id));
-      } }, '삭제'))));
+      h('td', { class: 'tc acc-btns' },
+        h('button', { class: 'btn ghost small', title: '이 사람에게 비밀번호를 새로 정하는 메일을 보내요', onclick: async () => {
+          if (!confirm(`${r.id}(으)로 비밀번호 재설정 메일을 보낼까요?`)) return;
+          try { await sendPasswordResetEmail(auth, r.id); toast('비밀번호 재설정 메일을 보냈어요'); } catch (e) { alert('보내지 못했어요: ' + (e.code || e.message)); }
+        } }, '비밀번호 재설정 메일'),
+        r.id === me ? null : r.level === 'blocked' ? null : h('button', { class: 'btn ghost danger small', onclick: async () => {
+          if (!confirm(`'${r.id}' 계정의 접속을 막을까요?\n이 계정으로 로그인해도 아무것도 볼 수 없어요. 다시 쓰게 하려면 레벨을 다시 고르면 돼요.\n(로그인 계정 자체를 완전히 지우는 건 Firebase 콘솔에서만 돼요)`)) return;
+          try { await updateDoc(doc(db, 'roles', r.id), { level: 'blocked', updatedAt: serverTimestamp(), updatedBy: me }); toast('접속을 막았어요'); } catch (e) { toast('저장 실패: ' + e.message); }
+        } }, '삭제 (접속 막기)'))));
   });
 }
 $('#acc-add-level').append(...ASSIGNABLE.map(k => h('option', { value: k }, LEVELS[k])));
@@ -3420,11 +3558,16 @@ $('#acc-add').addEventListener('submit', async e => {
   e.preventDefault();
   const f = e.target, email = f.email.value.trim().toLowerCase();
   if (!email) return;
-  if (state.roles.some(r => r.id === email)) { toast('이미 있는 계정이에요. 목록에서 레벨을 바꾸세요'); return; }
+  if (state.roles.some(r => r.id === email && r.level !== 'blocked')) { toast('이미 있는 계정이에요. 목록에서 레벨을 바꾸세요'); return; }
   try {
     const pf = f.prefix.value.trim();
     if (f.level.value === 'buyer' && !/^[0-9A-Za-z]{4}$/.test(pf)) { toast('바이어는 매장코드 앞 4자리를 넣어주세요'); return; }
+    const btn = f.querySelector('button'); btn.disabled = true;
+    let made;
+    try { made = await createLogin(email); } finally { btn.disabled = false; }
     await setDoc(doc(db, 'roles', email), { level: f.level.value, ...(f.level.value === 'buyer' ? { prefix: pf } : {}), createdAt: serverTimestamp(), updatedBy: state.user.email.toLowerCase() });
-    toast('추가했어요'); f.email.value = ''; f.prefix.value = '';
-  } catch (e) { toast('저장 실패: ' + e.message); }
+    f.email.value = ''; f.prefix.value = '';
+    alert(made === 'new' ? `계정을 만들었어요.\n\n이메일: ${email}\n처음 비밀번호: ${NEW_PW}\n\n로그인한 뒤 오른쪽 위 '비밀번호 바꾸기'로 바꾸라고 알려주세요.`
+      : `${email}은(는) 이미 로그인 계정이 있어서 레벨만 붙였어요.\n비밀번호를 모르면 목록에서 '비밀번호 재설정 메일'을 보내주세요.`);
+  } catch (e) { alert(e.code === 'auth/invalid-email' ? '이메일 형식이 맞지 않아요.' : e.code === 'auth/admin-restricted-operation' || e.code === 'auth/operation-not-allowed' ? 'Firebase에서 계정 만들기가 꺼져 있어요. Firebase 콘솔 → Authentication → 설정 → 사용자 작업에서 \'만들기(가입) 사용 설정\'을 켜주세요.' : '만들지 못했어요: ' + (e.code || e.message)); }
 });
