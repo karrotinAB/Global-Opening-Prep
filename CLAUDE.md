@@ -93,6 +93,7 @@ Firestore `roles/{이메일(소문자)}` 문서의 `level`. **문서가 없는 �
 | `app.js` | 모든 기능. Firebase 설정값 포함 |
 | `style.css` | 디자인 + A4 인쇄(PDF) 양식 |
 | `pog-grab.js` | POG 사이트에서 북마클릿이 불러와 실행하는 수집 스크립트 |
+| `img/login/1~4.png` | 로그인 화면 아래 아트박스 캐릭터 진열창 (`.login-chars`, 없는 파일은 안 보임, 하나도 없으면 띠도 숨김) |
 | `firestore.rules` / `storage.rules` | 보안 규칙 (콘솔 붙여넣기용) |
 | `README.md` | 배포·설정 방법 |
 

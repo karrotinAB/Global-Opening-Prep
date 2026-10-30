@@ -22,7 +22,7 @@ body { margin: 0; font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; back
 .link { background: none; border: 0; color: inherit; cursor: pointer; font: inherit; text-decoration: underline; opacity: .85; }
 
 /* 로그인 */
-.login { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--or); }
+.login { position: relative; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--or); overflow: hidden; padding-bottom: 180px; box-sizing: border-box; }
 .login-card { background: #fff; padding: 32px; border-radius: 14px; width: 340px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.15); }
 .login-brand { font-size: 18px; margin-bottom: 8px; }
 .login-card input { padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; font: inherit; }
@@ -576,3 +576,9 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 
 /* 도면 업로드: 끌어서 여러 칸 고르기 */
 .dw-band { position: absolute; border: 1.5px dashed var(--or); background: rgba(247,147,30,.12); pointer-events: none; z-index: 5; }
+
+/* 로그인 화면 아래: 아트박스 캐릭터 진열창 (그림이 하나도 없으면 띠도 안 보임) */
+.login-chars { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; align-items: flex-end; background: #fff; border-top: 4px solid #2b2b2b; overflow: hidden; }
+.login-chars:not(:has(img)) { display: none; }
+.login-chars img { height: 180px; width: auto; flex: none; display: block; }
+@media (max-width: 700px) { .login { padding-bottom: 120px; } .login-chars { justify-content: flex-start; } .login-chars img { height: 120px; } }
