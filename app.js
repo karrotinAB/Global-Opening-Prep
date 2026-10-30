@@ -486,9 +486,24 @@ function syncCover(block, pog) {
 }
 
 /* ---------- 슬라이드 목록 (PPT처럼 왼쪽 썸네일) ---------- */
-function makeThumbs(box, scroller, onActive, tools = null) { // tools = { can(), del(id), move(id, dir), place(id, beforeId) } : POG 만들기에서만
+function makeThumbs(box, scroller, onActive, tools = null) { // tools = { can(), del(id), move(ids, dir), place(ids, beforeId) } : POG 만들기에서만
   const els = new Map();
   let active = null;
+  // 여러 장 고르기 (POG 만들기): Shift+클릭 = 처음 누른 장부터 여기까지, Ctrl(⌘)+클릭 = 하나씩 넣고 빼기. 고른 장은 함께 끌거나 ▲▼로 옮김
+  const sel = new Set(); let anchor = null;
+  const fxIds = () => [...els.keys()].filter(k => els.get(k)._fxId);
+  const paint = () => els.forEach((t, k) => t.classList.toggle('picked', sel.has(k)));
+  const clearPick = () => { if (sel.size) { sel.clear(); paint(); } };
+  const pick = (id, range) => {
+    if (range && anchor && anchor !== id) {
+      const ids = fxIds(), a = ids.indexOf(anchor), b = ids.indexOf(id);
+      if (a >= 0 && b >= 0) { sel.clear(); ids.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(k => sel.add(k)); }
+    } else { sel.has(id) ? sel.delete(id) : sel.add(id); anchor = id; }
+    paint();
+    if (sel.size > 1) toast(`${sel.size}장 골랐어요 · 끌어서 놓거나 ▲▼로 한꺼번에 옮겨요 (Esc = 고르기 풀기)`);
+  };
+  const group = id => sel.has(id) && sel.size > 1 ? fxIds().filter(k => sel.has(k)) : [id]; // 보이는 순서대로
+  if (tools) document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && sel.size && box.isConnected && box.offsetParent) clearPick(); });
   const setActive = id => {
     els.forEach((t, k) => {
       const on = k === id;
@@ -510,11 +525,12 @@ function makeThumbs(box, scroller, onActive, tools = null) { // tools = { can(),
       if (sp) sp.t.classList.add(sp.after ? 'drop-after' : 'drop-before');
     });
     box.addEventListener('drop', ev => {
-      const id = ev.dataTransfer.getData('text/x-page'), sp = spot(ev);
+      const moving = ev.dataTransfer.getData('text/x-page').split(',').filter(Boolean), sp = spot(ev);
       $$('.thumb.drop-before, .thumb.drop-after', box).forEach(x => x.classList.remove('drop-before', 'drop-after'));
-      if (!id || !sp) return; ev.preventDefault();
-      const ids = [...els.keys()].filter(k => els.get(k)._fxId), i = ids.indexOf(sp.t._fxId);
-      tools.place(id, sp.after ? ids[i + 1] ?? null : sp.t._fxId);
+      if (!moving.length || !sp) return; ev.preventDefault();
+      // 놓을 자리 = 끌고 있지 않은 페이지 중 그 자리 바로 다음 페이지 앞 (없으면 맨 뒤)
+      const ids = fxIds(), i = ids.indexOf(sp.t._fxId) + (sp.after ? 1 : 0);
+      tools.place(moving, ids.slice(i).find(k => !moving.includes(k)) ?? null);
     });
   }
   // 스크롤하면 지금 보고 있는 페이지를 표시
@@ -543,14 +559,23 @@ function makeThumbs(box, scroller, onActive, tools = null) { // tools = { can(),
           t = h('div', { class: 'thumb', title: e.name },
             h('div', { class: 'th-no' }),
             h('div', { class: 'th-page' }, h('div', { class: 'th-head' }, h('span', { class: 'th-name' })), h('div', { class: 'th-body' }, body)));
-          t.onclick = () => { t._block?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setActive(e.id); };
+          t.onclick = ev => {
+            if (tools && e.fx && tools.can() && (ev.shiftKey || ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); pick(e.id, ev.shiftKey); return; }
+            if (tools) { clearPick(); anchor = e.fx ? e.id : null; }
+            t._block?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setActive(e.id);
+          };
           if (tools && e.fx) { // 페이지 위로·아래로·삭제 + 끌어서 순서 바꾸기
             const ab = (txt, title, fn, cls = '') => h('button', { type: 'button', class: cls, title, onclick: ev => { ev.stopPropagation(); fn(); } }, txt);
             $('.th-page', t).append(h('div', { class: 'th-act no-print' },
-              ab('▲', '앞으로', () => tools.move(e.id, -1)), ab('▼', '뒤로', () => tools.move(e.id, 1)), ab('🗑', '이 페이지 삭제', () => tools.del(e.id), 'del')));
+              ab('▲', '앞으로 (고른 장이 여럿이면 함께)', () => tools.move(group(e.id), -1)), ab('▼', '뒤로 (고른 장이 여럿이면 함께)', () => tools.move(group(e.id), 1)), ab('🗑', '이 페이지 삭제', () => tools.del(e.id), 'del')));
             t.draggable = true;
-            t.addEventListener('dragstart', ev => { if (!tools.can()) { ev.preventDefault(); return; } ev.dataTransfer.setData('text/x-page', e.id); ev.dataTransfer.effectAllowed = 'move'; t.classList.add('dragging'); });
-            t.addEventListener('dragend', () => { t.classList.remove('dragging'); $$('.thumb.drop-before, .thumb.drop-after', box).forEach(x => x.classList.remove('drop-before', 'drop-after')); });
+            t.addEventListener('dragstart', ev => {
+              if (!tools.can()) { ev.preventDefault(); return; }
+              const g = group(e.id); if (g.length === 1 && !sel.has(e.id)) clearPick();
+              ev.dataTransfer.setData('text/x-page', g.join(',')); ev.dataTransfer.effectAllowed = 'move';
+              g.forEach(k => els.get(k)?.classList.add('dragging'));
+            });
+            t.addEventListener('dragend', () => { $$('.thumb.dragging', box).forEach(x => x.classList.remove('dragging')); $$('.thumb.drop-before, .thumb.drop-after', box).forEach(x => x.classList.remove('drop-before', 'drop-after')); });
           }
           els.set(e.id, t);
         }
@@ -566,6 +591,7 @@ function makeThumbs(box, scroller, onActive, tools = null) { // tools = { can(),
         if (box.children[i] !== t) box.insertBefore(t, box.children[i] || null);
       });
       if (!box.querySelector('.thumb.on') && entries[0]) setActive(entries[0].id);
+      [...sel].forEach(k => { if (!ids.has(k)) sel.delete(k); }); if (!tools?.can()) sel.clear(); paint();
       box.classList.toggle('editing', !!tools?.can());
     },
   };
@@ -632,8 +658,8 @@ const slideEntries = (cover, pog, fixtures, blockOf) => [
 edThumbs = makeThumbs($('#ed-thumbs'), $('#ed-pages'), id => { state.edActive = id; renderSidePanel(); }, {
   can: () => !!state.edEditable,
   del: id => { const fx = state.fixtures.get(id); if (fx) deletePage(state.currentPog.id, fx); },
-  move: (id, dir) => movePage(state.currentPog.id, id, dir),
-  place: (id, beforeId) => placePage(state.currentPog.id, id, beforeId),
+  move: (ids, dir) => movePage(state.currentPog.id, ids, dir),
+  place: (ids, beforeId) => placePage(state.currentPog.id, ids, beforeId),
 });
 vwThumbs = makeThumbs($('#vw-thumbs'), $('#vw-pages'));
 trThumbs = makeThumbs($('#tr-thumbs'), $('#tr-pages'), id => { tr.active = id; renderTrSide(true); });
@@ -790,16 +816,20 @@ async function reorderPages(pogId, ids) {
   } catch (e) { alert('순서를 바꾸지 못했어요: ' + (e.code || e.message)); }
 }
 const shownIds = () => [...(state.edComposed?.keys() || [])];
-function movePage(pogId, fxId, dir) {
-  const ids = shownIds(), i = ids.indexOf(fxId), j = i + dir;
-  if (i < 0 || j < 0 || j >= ids.length) return;
-  [ids[i], ids[j]] = [ids[j], ids[i]];
+// fxIds = 페이지 하나 또는 여러 장 (썸네일에서 Shift·Ctrl로 고른 것). 여러 장이면 서로 순서는 그대로 두고 함께 움직임
+function movePage(pogId, fxIds, dir) {
+  const ids = shownIds(), mv = new Set([fxIds].flat());
+  const idx = ids.map((x, i) => mv.has(x) ? i : -1).filter(i => i >= 0);
+  if (!idx.length || (dir < 0 ? idx[0] === 0 : idx.at(-1) === ids.length - 1)) return;
+  for (const i of dir < 0 ? idx : idx.reverse()) [ids[i], ids[i + dir]] = [ids[i + dir], ids[i]];
   return reorderPages(pogId, ids);
 }
-function placePage(pogId, fxId, beforeId) { // beforeId 앞으로 (null이면 맨 뒤)
-  if (fxId === beforeId) return;
-  const ids = shownIds().filter(x => x !== fxId), k = beforeId ? ids.indexOf(beforeId) : ids.length;
-  ids.splice(k < 0 ? ids.length : k, 0, fxId);
+function placePage(pogId, fxIds, beforeId) { // beforeId 앞으로 (null이면 맨 뒤)
+  const all = shownIds(), mv = new Set([fxIds].flat()), moving = all.filter(x => mv.has(x));
+  if (!moving.length || mv.has(beforeId)) return;
+  const ids = all.filter(x => !mv.has(x)), k = beforeId ? ids.indexOf(beforeId) : ids.length;
+  ids.splice(k < 0 ? ids.length : k, 0, ...moving);
+  if (ids.every((x, i) => x === all[i])) return;
   return reorderPages(pogId, ids);
 }
 // 페이지 삭제 (매대 페이지·추가 페이지 모두). 붙여 둔 매대가 있으면 떼어서 따로 페이지로 남김
