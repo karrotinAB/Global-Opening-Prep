@@ -583,6 +583,7 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .login-chars::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; z-index: -1; height: calc(47 * var(--s) * 1px); border-top: calc(3 * var(--s) * 1px) solid #1f1f1f; box-sizing: border-box; background: repeating-linear-gradient(to bottom, #f2f2f2 0, #f2f2f2 calc(5.5 * var(--s) * 1px), #dcdcdc calc(5.5 * var(--s) * 1px), #dcdcdc calc(11 * var(--s) * 1px)); box-shadow: inset 0 calc(-3 * var(--s) * 1px) 0 #1f1f1f, 0 -2px 8px rgba(0,0,0,.12); }
 .login-chars:not(:has(img)) { display: none; }
 .login-chars img { height: calc(var(--h) * var(--s) * 1px); width: auto; flex: none; display: block; margin-bottom: calc((var(--b, 0) + 47) * var(--s) * 1px); pointer-events: auto; transform-origin: 50% 100%; animation: char-bob 2.4s ease-in-out var(--d, 0s) infinite; cursor: pointer; }
+.login-chars img.edge { position: absolute; right: 0; bottom: 0; }  /* 상어: 몸이 잘린 그림이라 화면 오른쪽 끝에 붙임 */
 .login-chars img:hover { animation: char-jump .5s ease-out; }
 @keyframes char-bob { 50% { transform: translateY(-5px); } }
 @keyframes char-jump { 30% { transform: translateY(-22px) rotate(-4deg); } 60% { transform: translateY(0) scaleY(.92); } }
