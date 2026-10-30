@@ -423,12 +423,16 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
   .ed-main { display: block; }
 }
 
+/* 모든 화면 바닥 가운데 저작권 표시 (인쇄·PDF에는 안 나옴) */
+.copyright { position: fixed; left: 0; right: 0; bottom: 3px; z-index: 5; text-align: center; font-size: 11px; color: #8a8a8a; letter-spacing: .02em; pointer-events: none; }
+.login:not(.hidden) ~ .copyright { color: #555; }
+
 /* PDF 인쇄 */
 @media print {
   @page { size: A4; margin: 0; }
   html, body { background: #fff; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .topbar, .side-list, .toolbar, #toast, #modal-root, .no-print, .empty-state, .view:not(.on) { display: none !important; }
+  .topbar, .side-list, .toolbar, #toast, #modal-root, .copyright, .no-print, .empty-state, .view:not(.on) { display: none !important; }
   .split { display: block; height: auto; }
   .editor { overflow: visible; }
   .pages { padding: 0; gap: 0; display: block; }
@@ -578,7 +582,7 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .dw-band { position: absolute; border: 1.5px dashed var(--or); background: rgba(247,147,30,.12); pointer-events: none; z-index: 5; }
 
 /* 로그인 화면 아래: 아트박스 캐릭터 진열창 (그림이 하나도 없으면 띠도 안 보임) */
-.login-chars { --s: .55; position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; align-items: flex-end; gap: 6px; pointer-events: none; overflow: hidden; isolation: isolate; }
+.login-chars { --s: .55; position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-evenly; align-items: flex-end; gap: 6px; padding: 0 calc(160 * var(--s) * 1px) 0 calc(30 * var(--s) * 1px);  /* 오른쪽은 상어 자리 */ pointer-events: none; overflow: hidden; isolation: isolate; }
 /* 원래 진열창 그림처럼 횡단보도 바닥 (위아래 검은 선 + 회색·흰 줄무늬) */
 .login-chars::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; z-index: -1; height: calc(47 * var(--s) * 1px); border-top: calc(3 * var(--s) * 1px) solid #1f1f1f; box-sizing: border-box; background: repeating-linear-gradient(to bottom, #f2f2f2 0, #f2f2f2 calc(5.5 * var(--s) * 1px), #dcdcdc calc(5.5 * var(--s) * 1px), #dcdcdc calc(11 * var(--s) * 1px)); box-shadow: inset 0 calc(-3 * var(--s) * 1px) 0 #1f1f1f, 0 -2px 8px rgba(0,0,0,.12); }
 .login-chars:not(:has(img)) { display: none; }
@@ -588,4 +592,4 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 @keyframes char-bob { 50% { transform: translateY(-5px); } }
 @keyframes char-jump { 30% { transform: translateY(-22px) rotate(-4deg); } 60% { transform: translateY(0) scaleY(.92); } }
 @media (prefers-reduced-motion: reduce) { .login-chars img { animation: none !important; } }
-@media (max-width: 700px) { .login { padding-bottom: 145px; } .login-chars { --s: .32; gap: 2px; } }
+@media (max-width: 700px) { .login { padding-bottom: 145px; } .login-chars { --s: .32; gap: 2px; justify-content: center; padding: 0; } }
