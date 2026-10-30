@@ -573,3 +573,6 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 /* 매장 삭제 확인 */
 .del-box .del-confirm { width: 100%; font: inherit; padding: 10px 12px; border: 1.5px solid var(--red); border-radius: 8px; margin-top: 6px; }
 .del-box .steps li { line-height: 1.6; }
+
+/* 도면 업로드: 끌어서 여러 칸 고르기 */
+.dw-band { position: absolute; border: 1.5px dashed var(--or); background: rgba(247,147,30,.12); pointer-events: none; z-index: 5; }

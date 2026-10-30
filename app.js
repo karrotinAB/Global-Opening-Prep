@@ -2521,7 +2521,7 @@ function saveDwTr(gid, patch) {
 }
 
 // 그림: 업로드 화면 = 원본 + 읽은 매대명 표시 / 번역 화면 = 글자 뺀 바탕 + 번역 글자
-function drawingView(v, mode, { onPick, used, selId, picks, onLab, plain, ctx, only } = {}) {
+function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, plain, ctx, only } = {}) {
   const wrap = h('div', { class: 'dw-canvas', style: `aspect-ratio:${v.w} / ${v.h}` }, h('img', { src: mode === 'en' ? v.baseUrl : v.url, alt: '', draggable: 'false' }));
   const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
   for (const g of v.groups || []) {
@@ -2536,12 +2536,28 @@ function drawingView(v, mode, { onPick, used, selId, picks, onLab, plain, ctx, o
       wrap.append(el);
     } else if (only) { if (g.id === only) wrap.append(h('div', { class: 'dw-box fd-on', style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko }));
     } else if (!plain) {
-      const el = h('div', { class: 'dw-box' + (onPick ? ' pick' : '') + (used?.has(g.id) ? ' used' : '') + (g.id === selId || picks?.has(g.id) ? ' on' : ''),
+      const el = h('div', { 'data-gid': g.id, class: 'dw-box' + (onPick ? ' pick' : '') + (used?.has(g.id) ? ' used' : '') + (g.id === selId || picks?.has(g.id) ? ' on' : ''),
         style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko });
       if (onPick) el.onclick = () => onPick(g);
       wrap.append(el);
     }
   }
+  // 빈 곳을 끌면 네모 안에 걸친 칸을 한꺼번에 고름 (도면 업로드: 묶음 고치기)
+  if (onPickMany) wrap.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || e.target.closest('.dw-box')) return;
+    e.preventDefault();
+    const r0 = wrap.getBoundingClientRect(), sx = e.clientX, sy = e.clientY;
+    const band = h('div', { class: 'dw-band' }); wrap.append(band);
+    const box = ev => ({ l: Math.min(sx, ev.clientX), t: Math.min(sy, ev.clientY), r: Math.max(sx, ev.clientX), b: Math.max(sy, ev.clientY) });
+    const mv = ev => { const b = box(ev); Object.assign(band.style, { left: b.l - r0.left + 'px', top: b.t - r0.top + 'px', width: b.r - b.l + 'px', height: b.b - b.t + 'px' }); };
+    const up = ev => {
+      window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); band.remove();
+      const b = box(ev); if (b.r - b.l < 4 && b.b - b.t < 4) return;
+      const ids = $$('.dw-box', wrap).filter(el => { const q = el.getBoundingClientRect(); return q.right >= b.l && q.left <= b.r && q.bottom >= b.t && q.top <= b.b; }).map(el => el.dataset.gid);
+      if (ids.length) onPickMany(ids);
+    };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+  });
   if (only && mode === 'en') { const g = (v.groups || []).find(x => x.id === only); if (g) wrap.append(h('div', { class: 'dw-box fd-on', style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}` })); }
   return wrap;
 }
@@ -2568,12 +2584,12 @@ function renderDwStage() {
   }
   const en = dw.tab !== 'up' && !dw.showKo;
   const legend = dw.tab === 'up'
-    ? h('div', { class: 'dw-legend' }, `파란 칸 = 사이트가 읽은 매대명 ${v.groups?.length || 0}개. 파란 칸이 없는 글자는 윤곽선이 된 글자라 번역할 수 없어요.${canEdit('drawing') ? ' 칸을 누르면 고르고, 오른쪽에서 나누기·합치기를 할 수 있어요.' : ''}`,
+    ? h('div', { class: 'dw-legend' }, `파란 칸 = 사이트가 읽은 매대명 ${v.groups?.length || 0}개. 파란 칸이 없는 글자는 윤곽선이 된 글자라 번역할 수 없어요.${canEdit('drawing') ? ' 칸을 누르거나 빈 곳을 끌어서 여러 칸을 고르고, 오른쪽에서 합치기(한 매대로)·나누기를 해요.' : ''}`,
       !v.groups?.length ? h('span', { class: 'warn' }, ' 글자를 하나도 못 읽었어요!') : null)
     : dw.tab === 'on' ? h('div', { class: 'dw-legend' }, `${$('#dw-ver').textContent} · ${en ? dw.lang : '한국어'}`)
     : h('div', { class: 'dw-legend' }, en ? '글자를 끌어서 옮길 수 있어요. 누르면 오른쪽에서 고쳐요. 회색 점선 = 아직 번역 안 된 글자' : '한글 원본이에요.');
   const pickable = dw.tab === 'up' && canEdit('drawing');
-  box.replaceChildren(legend, drawingView(v, en ? 'en' : 'ko', pickable ? { picks: dwPicks(), onPick: g => togglePick(g.id) } : { selId: dw.sel, onLab: dw.tab === 'tr', plain: dw.tab !== 'up' }));
+  box.replaceChildren(legend, drawingView(v, en ? 'en' : 'ko', pickable ? { picks: dwPicks(), onPick: g => togglePick(g.id), onPickMany: ids => { const p = dwPicks(); ids.forEach(i => p.add(i)); renderDwStage(); renderDwSide(); } } : { selId: dw.sel, onLab: dw.tab === 'tr', plain: dw.tab !== 'up' }));
 }
 function verCard(v, { canStar, onOpen }) {
   const fin = dwFinal(dw.doc) === v.id;
@@ -2668,13 +2684,15 @@ function groupEditor(v) {
   };
   const merge = () => {
     if (sel.some(g => !g.parts)) { alert('예전에 올린 도면이라 합칠 수 없어요. 도면을 다시 올려주세요.'); return; }
-    const first = sel.slice().sort((a, b) => a.y - b.y || a.x - b.x)[0];
-    const one = { id: first.id, ...makeGroup(sel.flatMap(g => g.parts.map(p => ({ ...p })))) };
+    const ord = sel.slice().sort((a, b) => a.y - b.y || a.x - b.x), first = ord[0];
+    // 합친 묶음 = 매대 하나. 이름은 고른 칸 글자를 '/'로 이어 씀 (POG 헤더에도 'A/B'로 들어감 · 사용자)
+    const names = ord.map(g => String(g.ko || '').trim().replace(/^\/+|\/+$/g, '')).filter(Boolean);
+    const one = { id: first.id, ...makeGroup(sel.flatMap(g => g.parts.map(p => ({ ...p })))), ko: names.join('/'), lines: names };
     save([...groups.filter(x => !picks.has(x.id)), one], `${sel.length}개를 '${one.ko}'로 합쳤어요`);
   };
   const g1 = sel.length === 1 ? sel[0] : null;
   return h('section', { class: 'se-sec' }, h('h4', {}, '매대명 묶음 고치기'),
-    h('p', { class: 'se-help' }, '도면에서 파란 칸을 누르세요. 한 칸에 여러 매대가 들어갔으면 [나누기], 한 매대가 여러 칸으로 나뉘었으면 여러 칸을 눌러 [합치기].'),
+    h('p', { class: 'se-help' }, '도면에서 파란 칸을 누르거나, 빈 곳을 끌어 네모로 여러 칸을 한 번에 고르세요. 한 매대인 글자들을 골라 [합치기]하면 한 묶음(매대 하나)이 되고, POG에는 \'글자1/글자2\'처럼 /로 이어져 들어가요. 한 칸에 여러 매대가 들어갔으면 [나누기].'),
     sel.length ? h('div', { class: 'dw-glist' }, ...sel.map(g => h('div', { class: 'dw-gi on', onclick: () => togglePick(g.id) }, h('span', { class: 'ko' }, g.ko), h('span', { class: 'en' }, '×')))) : null,
     h('div', { class: 'se-btns' },
       h('button', { class: 'btn small', disabled: !(g1 && (g1.parts?.length || 0) > 1), onclick: split }, '나누기'),
