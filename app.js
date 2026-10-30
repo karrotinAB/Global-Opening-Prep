@@ -2741,20 +2741,23 @@ $('#bc-file').addEventListener('change', async e => {
   } catch (err) { alert('엑셀을 읽지 못했어요: ' + err.message); return; }
   const head = (rows[0] || []).map(x => String(x).replace(/\s+/g, '').toLowerCase());
   const col = names => head.findIndex(x => names.includes(x));
-  const iCode = col(['제품코드', '상품코드', 'code', 'productcode', 'itemcode']), iBc = col(['바코드', 'barcode']), iName = col(['제품명', '상품명', 'name', 'productname']);
+  const iCode = col(['제품코드', '상품코드', 'code', 'productcode', 'itemcode']), iBc = col(['바코드', 'barcode']), iName = col(['제품명', '상품명', 'name', 'productname']) >= 0 ? col(['제품명', '상품명', 'name', 'productname']) : head.findIndex((x, i) => i !== iCode && i !== iBc && /제품명|상품명|품명|이름|name/.test(x)); // '제품명(한글)'처럼 써도 찾음
   if (iCode < 0 || iBc < 0) { alert("첫 줄(머리글)에 '제품코드'와 '바코드'가 있어야 해요.\n'빈 양식 받기'로 받은 파일에 붙여넣어 올려주세요."); return; }
   // 이미 있는 바코드·제품코드는 바꾸지 않고 건너뜀 (사용자). 건너뛴 줄은 이 화면에만 한 번 보여줌
   toast('지금 등록된 바코드를 확인하는 중…');
-  let exBc, exCode;
+  let exBc, exCode, exName;
   try {
     const all = await getDocs(collection(db, 'barcodes'));
-    exBc = new Map(all.docs.map(d => [d.id, d.data().code])); exCode = new Map(all.docs.map(d => [String(d.data().code), d.id]));
+    exBc = new Map(all.docs.map(d => [d.id, d.data().code])); exName = new Map(all.docs.map(d => [d.id, d.data().name || ''])); exCode = new Map(all.docs.map(d => [String(d.data().code), d.id]));
   } catch (err) { alert('등록된 바코드를 읽지 못했어요: ' + (err.code || err.message)); return; }
-  const map = new Map(), skip = [], seenBc = new Map(), seenCode = new Map(); let sameN = 0;
+  const map = new Map(), skip = [], seenBc = new Map(), seenCode = new Map(), nameUpd = new Map(); let sameN = 0;
   rows.slice(1).forEach((r, i) => {
     const line = i + 2, bc = cellText(r[iBc]), code = code8(cellText(r[iCode])), name = iName >= 0 ? String(r[iName] ?? '').trim() : '';
     if (!bc && !code) return;
-    if (bc && code && exBc.get(bc) === code) { sameN++; return; } // 이미 똑같이 등록된 줄은 문제가 아님 (세기만)
+    if (bc && code && exBc.get(bc) === code) { // 이미 똑같이 등록된 줄: 제품명만 새로 있으면 제품명만 채움 (바코드·제품코드는 그대로)
+      if (name && name !== exName.get(bc) && !nameUpd.has(bc)) nameUpd.set(bc, name); else sameN++;
+      return;
+    }
     const why = !bc ? '바코드 없음' : !code ? '제품코드 없음' : bc.includes('/') ? '바코드에 / 있음'
       : exBc.has(bc) ? `이미 있는 바코드 (등록된 제품코드 ${exBc.get(bc)})`
       : exCode.has(code) ? `이미 있는 제품코드 (등록된 바코드 ${exCode.get(code)})`
@@ -2766,15 +2769,16 @@ $('#bc-file').addEventListener('change', async e => {
   });
   const kinds = {};
   skip.forEach(x => { const k = x.why.replace(/ \(.*\)$/, ''); kinds[k] = (kinds[k] || 0) + 1; });
-  if (!map.size) {
+  if (!map.size && !nameUpd.size) {
     bcReport(skip, file.name, 0, sameN);
     alert(skip.length ? `새로 올릴 줄이 없어요.${sameN ? `\n(${sameN.toLocaleString()}줄은 이미 똑같이 등록돼 있어요)` : ''}\n건너뛴 줄은 화면 아래 목록에서 볼 수 있어요.` : `파일의 ${sameN.toLocaleString()}줄이 모두 이미 똑같이 등록돼 있어요. 새로 올릴 것이 없어요.`);
     return;
   }
-  const go = h('button', { class: 'btn primary' }, `${map.size.toLocaleString()}개 올리기`);
+  const go = h('button', { class: 'btn primary' }, map.size ? `${map.size.toLocaleString()}개 올리기${nameUpd.size ? ` · 제품명 ${nameUpd.size.toLocaleString()}개 채우기` : ''}` : `제품명 ${nameUpd.size.toLocaleString()}개 채우기`);
   const close = modal(h('div', {}, h('h3', {}, '바코드 엑셀 올리기'),
     h('ul', { class: 'steps' },
       h('li', {}, `새로 올릴 바코드 ${map.size.toLocaleString()}개`),
+      nameUpd.size ? h('li', {}, `이미 등록된 바코드에 제품명만 채우기 ${nameUpd.size.toLocaleString()}개 (바코드·제품코드는 그대로)`) : null,
       sameN ? h('li', { class: 'mut' }, `이미 똑같이 등록된 줄 ${sameN.toLocaleString()}개 (그대로 둬요)`) : null,
       skip.length ? h('li', { class: 'warn' }, `건너뛰는 줄 ${skip.length.toLocaleString()}개 (이미 있는 것은 바꾸지 않아요)`,
         h('div', { class: 'mut' }, Object.entries(kinds).map(([k, n]) => `${k} ${n}`).join(' · '))) : null,
@@ -2783,15 +2787,18 @@ $('#bc-file').addEventListener('change', async e => {
     h('div', { class: 'modal-act' }, go)));
   go.onclick = async () => {
     go.disabled = true;
-    const list = [...map]; let done = 0;
+    const list = [...[...map].map(([bc, r]) => ['set', bc, r]), ...[...nameUpd].map(([bc, n]) => ['name', bc, n])]; let done = 0;
     try {
       for (let i = 0; i < list.length; i += 400) {
         const b = writeBatch(db);
-        for (const [bc, r] of list.slice(i, i + 400)) b.set(doc(db, 'barcodes', bc), { code: r.code, ...(r.name ? { name: r.name } : {}), updatedAt: serverTimestamp(), updatedBy: me() });
+        for (const [op, bc, r] of list.slice(i, i + 400)) {
+          if (op === 'set') b.set(doc(db, 'barcodes', bc), { code: r.code, ...(r.name ? { name: r.name } : {}), updatedAt: serverTimestamp(), updatedBy: me() });
+          else b.update(doc(db, 'barcodes', bc), { name: r, updatedAt: serverTimestamp(), updatedBy: me() });
+        }
         await b.commit(); done = Math.min(list.length, i + 400); go.textContent = `올리는 중… ${done.toLocaleString()} / ${list.length.toLocaleString()}`;
       }
-      close(); toast(`바코드 ${list.length.toLocaleString()}개를 올렸어요` + (skip.length ? ` · ${skip.length}개는 건너뜀` : '')); bcCount(); bcList(true);
-      bcReport(skip, file.name, list.length, sameN);
+      close(); toast([map.size ? `바코드 ${map.size.toLocaleString()}개를 올렸어요` : '', nameUpd.size ? `제품명 ${nameUpd.size.toLocaleString()}개를 채웠어요` : '', skip.length ? `${skip.length}개는 건너뜀` : ''].filter(Boolean).join(' · ')); bcCount(); bcList(true);
+      bcReport(skip, file.name, map.size, sameN);
     } catch (err) { alert(`올리다가 멈췄어요 (${done.toLocaleString()}개까지 저장됨): ${err.code || err.message}`); go.disabled = false; go.textContent = '다시 올리기'; }
   };
 });
