@@ -2430,6 +2430,7 @@ function renderDw() {
   }
   $('#dw-side').classList.toggle('hidden', dw.tab === 'on'); // 온라인 도면은 보기만
   $('#dw-log').classList.toggle('hidden', dw.tab === 'on');
+  dwUndoBtns();
   $('#dw-find-box').classList.toggle('hidden', up);
   const fin = dwFinal(dw.doc);
   $('#dw-ver').textContent = v ? `ver.${v.no}${v.id === fin ? ' ★최종본' : ''}${v.exported ? '' : ' · 작성 중'}` : '도면 없음';
@@ -2443,6 +2444,7 @@ function renderDw() {
 $('#dw-area').addEventListener('input', e => {
   e.target.classList.toggle('need', !(Number(e.target.value) > 0));
   const id = dw.id, st = state.stores.find(x => x.id === id), val = e.target.value === '' ? '' : Number(e.target.value);
+  { const ref = doc(db, 'drawings', id), b0 = dw.doc?.area ?? ''; dwTrack('area|' + id, '평수', () => setDoc(ref, { area: b0 }, { merge: true }), () => setDoc(ref, { area: val }, { merge: true })); }
   queueWrite(`dw|${id}|area`, () => setDoc(doc(db, 'drawings', id), { ...dwStoreInfo(st), storeId: id, area: val, updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true }));
 });
 // 평수는 꼭 적어야 올리기·내보내기가 됨 (사용자)
@@ -2631,6 +2633,9 @@ function saveDwTr(gid, patch) {
   const id = dw.id, lang = dw.lang, vId = dw.vId, g = curVersion()?.groups.find(x => x.id === gid);
   const k = `dwtr|${id}|${lang}|${vId}|${gid}`;
   const cur = (((dw.tr.v ||= {})[vId] ||= {})[gid] ||= {});
+  { const ref = doc(db, 'drawings', id, 'translations', lang), path = new FieldPath('v', vId, gid), b0 = { ...cur }, a0 = { ...cur, ko: g?.ko || '', ...patch };
+    const put = val => { ((dw.tr.v ||= {})[vId] ||= {})[gid] = Object.keys(val).length ? { ...val } : {}; delete dw.local?.[k]; return updateDoc(ref, path, Object.keys(val).length ? val : deleteField()); };
+    dwTrack(k, `번역 '${g?.ko || ''}'`, () => put(b0), () => put(a0)); }
   logEdit(['drawings', id], k, { vId, gid, area: 'dwtr', lang, field: 'tr', what: g?.ko || '', ...(g ? { x: g.x + g.w / 2, y: g.y + g.h / 2 } : {}) }, { ...cur }, () => dw.local?.[k]);
   Object.assign(cur, { ko: g?.ko || '' }, patch);
   (dw.local ||= {})[k] = { ...cur };
@@ -2642,9 +2647,11 @@ function saveDwTr(gid, patch) {
 const dwCrop = v => { const c = v.crop; return c && c.w > 0 && c.h > 0 ? c : { x: 0, y: 0, w: v.w, h: v.h }; };
 function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, plain, ctx, only, hits, full } = {}) {
   const c = full ? { x: 0, y: 0, w: v.w, h: v.h } : dwCrop(v);
-  const wrap = h('div', { class: 'dw-full', style: `left:${-c.x / c.w * 100}%;top:${-c.y / c.h * 100}%;width:${v.w / c.w * 100}%;height:${v.h / c.h * 100}%` },
-    h('img', { src: mode === 'en' ? v.baseUrl : v.url, alt: '', draggable: 'false' }));
-  const outer = h('div', { class: 'dw-canvas' + (c.w < v.w || c.h < v.h ? ' cropped' : ''), style: `aspect-ratio:${c.w} / ${c.h}` }, wrap);
+  // 글자 칸이 도면과 꼭 같이 움직이도록 위치·크기를 직접 씀 (style.css가 예전 것이어도 어긋나지 않게)
+  const wrap = h('div', { class: 'dw-full', style: `position:absolute;container-type:inline-size;left:${-c.x / c.w * 100}%;top:${-c.y / c.h * 100}%;width:${v.w / c.w * 100}%;height:${v.h / c.h * 100}%` },
+    h('img', { src: mode === 'en' ? v.baseUrl : v.url, alt: '', draggable: 'false', style: 'display:block;width:100%;height:100%;max-width:none' }));
+  const cropped = c.w < v.w || c.h < v.h;
+  const outer = h('div', { class: 'dw-canvas' + (cropped ? ' cropped' : ''), style: `position:relative;aspect-ratio:${c.w} / ${c.h}${cropped ? ';overflow:hidden' : ''}` }, wrap);
   outer._full = wrap;
   const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
   for (const g of v.groups || []) {
@@ -2759,7 +2766,9 @@ function renderCropStage(box, v) {
   });
   const done = () => { dw.cropping = false; dw.cropDraft = null; renderDwStage(); renderDwSide(); };
   const save = async crop => {
-    try { await updateDoc(doc(db, 'drawings', dw.id, 'versions', v.id), { crop: crop ? Object.fromEntries(Object.entries(crop).map(([k2, n]) => [k2, +n.toFixed(2)])) : deleteField() }); toast(crop ? '저장 구역을 정했어요' : '전체 도면으로 되돌렸어요'); addLog(['drawings', dw.id], { vId: v.id, area: 'up', act: crop ? '저장 구역 정함' : '저장 구역 없앰 (전체)' }); done(); }
+    try { await updateDoc(doc(db, 'drawings', dw.id, 'versions', v.id), { crop: crop ? Object.fromEntries(Object.entries(crop).map(([k2, n]) => [k2, +n.toFixed(2)])) : deleteField() }); toast(crop ? '저장 구역을 정했어요' : '전체 도면으로 되돌렸어요');
+    { const ref = doc(db, 'drawings', dw.id, 'versions', v.id), b0 = v.crop ? { ...v.crop } : null, a0 = crop ? { ...crop } : null;
+      dwTrack(null, '저장 구역', () => updateDoc(ref, { crop: b0 || deleteField() }), () => updateDoc(ref, { crop: a0 || deleteField() })); } addLog(['drawings', dw.id], { vId: v.id, area: 'up', act: crop ? '저장 구역 정함' : '저장 구역 없앰 (전체)' }); done(); }
     catch (e) { toast('저장하지 못했어요: ' + (e.code || e.message)); }
   };
   dw.cropSave = save;
@@ -2807,6 +2816,42 @@ async function loadDwFindPog() {
 let dwFindT = 0;
 $('#dw-find').addEventListener('input', () => { clearTimeout(dwFindT); dwFindT = setTimeout(() => { dwf.jump = true; renderDwStage(); }, 250); });
 $('#dw-find').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); dwf.jump = true; renderDwStage(); } });
+/* ---------- 도면 되돌리기 (사용자): Ctrl+Z / Ctrl+Y, 툴바 ↶ ↷ ----------
+   도면 업로드: 매대명 묶음(합치기·나누기·지우기)·저장 구역·메모·평수 / 도면 번역: 번역 글자·위치·크기.
+   한 단계 = { key, t, undo(), redo(), label }. 같은 칸을 1.5초 안에 계속 고치면 한 단계 (처음 값으로 되돌림). 다른 도면을 열면 비움 */
+const dwu = { steps: [], redo: [], id: null };
+function dwTrack(key, label, undoFn, redoFn) {
+  if (dwu.busy) return;
+  if (dwu.id !== dw.id) { dwu.steps = []; dwu.redo = []; dwu.id = dw.id; }
+  const last = dwu.steps.at(-1), now = Date.now();
+  if (last && key && last.key === key && now - last.t < 1500) { last.t = now; last.redo = redoFn; }
+  else { dwu.steps.push({ key, t: now, label, undo: undoFn, redo: redoFn }); if (dwu.steps.length > 100) dwu.steps.shift(); }
+  dwu.redo = []; dwUndoBtns();
+}
+async function dwDoUndo(redo = false) {
+  if (dwu.busy || dwu.id !== dw.id) return;
+  const from = redo ? dwu.redo : dwu.steps, to = redo ? dwu.steps : dwu.redo;
+  const st = from.pop(); if (!st) { toast(redo ? '다시 할 것이 없어요' : '되돌릴 것이 없어요'); return; }
+  dwu.busy = true;
+  try { await flushWrites(); await (redo ? st.redo() : st.undo()); to.push(st); toast(`${redo ? '다시 했어요' : '되돌렸어요'}: ${st.label} (${redo ? 'Ctrl+Y' : 'Ctrl+Z'})`); }
+  catch (e) { from.push(st); alert('되돌리지 못했어요: ' + (e.code || e.message)); }
+  finally { dwu.busy = false; dwUndoBtns(); }
+}
+function dwUndoBtns() {
+  const ok = dw.tab === 'up' ? canEdit('drawing') : dw.tab === 'tr' && canEdit('drawing-trans');
+  $('#dw-undo').classList.toggle('hidden', !ok); $('#dw-redo').classList.toggle('hidden', !ok);
+  $('#dw-undo').disabled = !dwu.steps.length || dwu.id !== dw.id; $('#dw-redo').disabled = !dwu.redo.length || dwu.id !== dw.id;
+}
+$('#dw-undo').onclick = () => dwDoUndo(false);
+$('#dw-redo').onclick = () => dwDoUndo(true);
+document.addEventListener('keydown', e => {
+  if (!['dw-up', 'dw-tr'].includes(state.view) || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const k = e.key.toLowerCase(); if (k !== 'z' && k !== 'y') return;
+  const a = document.activeElement;
+  if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return; // 글 쓰는 중이면 그 칸의 되돌리기
+  if ($('#modal-root')?.children.length) return;
+  e.preventDefault(); dwDoUndo(k === 'y' || e.shiftKey);
+});
 // 도면 손으로 끌기: 마우스 휠(가운데 버튼)을 누른 채 움직이면 화면이 따라 움직임 (도면 위치는 그대로)
 $('#dw-stage').addEventListener('mousedown', e => {
   if (e.button !== 1) return;
@@ -2873,7 +2918,9 @@ function renderDwSide() {
       nodes.push(h('div', { class: 'se-head' }, h('b', {}, `ver.${v.no}${dwFinal(dw.doc) === v.id ? ' ★최종본' : ''}`), h('span', { class: 'mut' }, `${v.fileName || ''} · 매대명 ${v.groups?.length || 0}개 읽음`)));
       const ta = h('textarea', { class: 'se-memo', rows: 5, placeholder: ed ? (v.no > 1 ? '이번 버전에서 바뀐 것, 특이사항' : '특이사항 메모') : '', disabled: !ed });
       ta.value = v.memo || '';
-      ta.addEventListener('input', () => { logEdit(['drawings', dw.id], `dw|${dw.id}|${v.id}|memo`, { vId: v.id, area: 'up', field: 'memo' }, v.memo || '', () => ta.value);
+      ta.addEventListener('input', () => { { const ref = doc(db, 'drawings', dw.id, 'versions', v.id), b0 = v.memo || '', a0 = ta.value;
+        dwTrack('memo|' + v.id, '메모', () => updateDoc(ref, { memo: b0 }), () => updateDoc(ref, { memo: a0 })); }
+        logEdit(['drawings', dw.id], `dw|${dw.id}|${v.id}|memo`, { vId: v.id, area: 'up', field: 'memo' }, v.memo || '', () => ta.value);
         queueWrite(`dw|${dw.id}|${v.id}|memo`, () => updateDoc(doc(db, 'drawings', dw.id, 'versions', v.id), { memo: ta.value })); });
       nodes.push(sec(v.no > 1 ? '메모 (바뀐 것·특이사항)' : '특이사항 메모', ta));
       if (ed) nodes.push(sec('저장 구역', h('p', { class: 'se-help' }, v.crop ? `도면의 일부만 보여요 (가로 ${Math.round(v.crop.w / v.w * 100)}% · 세로 ${Math.round(v.crop.h / v.h * 100)}%).` : '지금은 도면 전체가 보여요. 필요 없는 가장자리가 있으면 남길 구역만 정할 수 있어요.'),
@@ -2940,7 +2987,9 @@ function groupEditor(v) {
     if (v.exported && !confirm(`이미 내보낸 버전이에요. ${msg}${linked ? '\nPOG에서 이 버전의 매대를 고른 페이지가 있으면, 나뉜 매대는 다시 골라야 할 수 있어요.' : ''}\n계속할까요?`)) return;
     list.sort((a, b) => a.y - b.y || a.x - b.x);
     try {
-      await updateDoc(doc(db, 'drawings', dw.id, 'versions', v.id), { groups: list }); dw.picks = new Set(); toast(msg);
+      const before = structuredClone(v.groups || []), after = structuredClone(list), ref = doc(db, 'drawings', dw.id, 'versions', v.id);
+      await updateDoc(ref, { groups: list }); dw.picks = new Set(); toast(msg);
+      dwTrack(null, '매대명 묶음', () => updateDoc(ref, { groups: before }), () => updateDoc(ref, { groups: after }));
       const g0 = sel[0]; addLog(['drawings', dw.id], { vId: v.id, area: 'up', act: '매대명 묶음', what: msg, ...(g0 ? { gid: g0.id, x: g0.x + g0.w / 2, y: g0.y + g0.h / 2 } : {}) });
     }
     catch (e) { alert('저장하지 못했어요: ' + (e.code || e.message)); }
