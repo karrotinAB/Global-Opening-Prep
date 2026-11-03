@@ -4001,7 +4001,8 @@ const levelSelect = v => {
 };
 // 이름 칸: 바로 고치면 저장 (화면 오른쪽 위·기록에 이메일 대신 보임)
 function accName(r) {
-  const inp = h('input', { class: 'acc-name', maxlength: 20, placeholder: r.id.split('@')[0], value: r.name || '' });
+  const inp = h('input', { class: 'acc-name', maxlength: 20, placeholder: '이름 넣기', title: '이름을 쓰고 Enter (또는 다른 곳 누르기)하면 저장돼요', value: r.name || '' });
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
   inp.addEventListener('change', async () => {
     try { await updateDoc(doc(db, 'roles', r.id), { name: inp.value.trim().slice(0, 20), updatedAt: serverTimestamp(), updatedBy: me() }); toast('이름을 바꿨어요'); }
     catch (e) { toast('저장 실패: ' + e.message); inp.value = r.name || ''; }
@@ -4052,7 +4053,7 @@ const accPf = () => $('#acc-add [name=prefix]').classList.toggle('hidden', $('#a
 $('#acc-add-level').addEventListener('change', accPf); accPf();
 $('#acc-add').addEventListener('submit', async e => {
   e.preventDefault();
-  const f = e.target, email = f.email.value.trim().toLowerCase();
+  const f = e.target, email = f.email.value.trim().toLowerCase(), name = f.name.value.trim().slice(0, 20);
   if (!email) return;
   if (state.roles.some(r => r.id === email && r.level !== 'blocked')) { toast('이미 있는 계정이에요. 목록에서 레벨을 바꾸세요'); return; }
   try {
@@ -4062,8 +4063,8 @@ $('#acc-add').addEventListener('submit', async e => {
     let made;
     try { made = await createLogin(email); } finally { btn.disabled = false; }
     // merge: 수출서류 사이트 권한(ex)처럼 다른 칸이 이미 있으면 남겨 둠
-    await setDoc(doc(db, 'roles', email), { level: f.level.value, ...(f.level.value === 'buyer' ? { prefix: pf } : {}), createdAt: serverTimestamp(), updatedBy: state.user.email.toLowerCase() }, { merge: true });
-    f.email.value = ''; f.prefix.value = '';
+    await setDoc(doc(db, 'roles', email), { level: f.level.value, ...(f.level.value === 'buyer' ? { prefix: pf } : {}), ...(name ? { name } : {}), createdAt: serverTimestamp(), updatedBy: state.user.email.toLowerCase() }, { merge: true });
+    f.email.value = ''; f.prefix.value = ''; f.name.value = '';
     alert(made === 'new' ? `계정을 만들었어요.\n\n이메일: ${email}\n처음 비밀번호: ${NEW_PW}\n\n로그인한 뒤 오른쪽 위 '비밀번호 바꾸기'로 바꾸라고 알려주세요.`
       : `${email}은(는) 이미 로그인 계정이 있어서 레벨만 붙였어요.\n비밀번호를 모르면 목록에서 '비밀번호 재설정 메일'을 보내주세요.`);
   } catch (e) { alert(e.code === 'auth/invalid-email' ? '이메일 형식이 맞지 않아요.' : e.code === 'auth/admin-restricted-operation' || e.code === 'auth/operation-not-allowed' ? 'Firebase에서 계정 만들기가 꺼져 있어요. Firebase 콘솔 → Authentication → 설정 → 사용자 작업에서 \'만들기(가입) 사용 설정\'을 켜주세요.' : '만들지 못했어요: ' + (e.code || e.message)); }

@@ -512,7 +512,9 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .bc-bar .sp { flex: 1; }
 .bc-search { width: 100%; margin: 14px 0 8px; padding: 10px 12px; font-size: 15px; }
 .acc-pf { width: 90px; }
-.acc-name { width: 110px; }
+.acc-name { width: 120px; border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; font: inherit; background: #fff; }
+.acc-name:focus { outline: none; border-color: var(--or); box-shadow: 0 0 0 2px rgba(247,147,30,.2); }
+.gl-add .acc-add-name { flex: none; width: 140px; }
 
 /* 알약 모양 언어 버튼 (한국어 | English) */
 .seg { display: inline-flex; background: #ececec; border-radius: 999px; padding: 3px; gap: 2px; flex: none; }
