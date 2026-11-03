@@ -252,6 +252,9 @@ function go(v) {
 }
 $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
 // 휴대폰: A4 페이지(794px)를 화면 폭에 맞게 줄이는 비율 (style.css의 zoom: var(--pz))
+// 상단 메뉴 실제 높이 → CSS --top (휴대폰에서는 메뉴가 두 줄이라 52px보다 큼). 화면 높이 계산에 씀
+{ const tb = document.querySelector('.topbar'); const setTop = () => { const hgt = tb && tb.offsetHeight; if (hgt) document.documentElement.style.setProperty('--top', hgt + 'px'); };
+  if (tb && window.ResizeObserver) new ResizeObserver(setTop).observe(tb); window.addEventListener('resize', setTop); setTop(); }
 const setPz = () => document.documentElement.style.setProperty('--pz', String(Math.min(1, (window.innerWidth - 16) / 794)));
 setPz(); window.addEventListener('resize', setPz);
 $$('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
