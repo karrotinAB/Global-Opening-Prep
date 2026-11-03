@@ -22,7 +22,7 @@ body { margin: 0; font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; back
 .link { background: none; border: 0; color: inherit; cursor: pointer; font: inherit; text-decoration: underline; opacity: .85; }
 
 /* 로그인 */
-.login { position: relative; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--or); overflow: hidden; padding-bottom: 230px; box-sizing: border-box; }
+.login { position: relative; min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; background: var(--or); overflow: hidden; padding-bottom: 230px; box-sizing: border-box; }
 .login-card { background: #fff; padding: 32px; border-radius: 14px; width: 340px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.15); }
 .login-brand { font-size: 18px; margin-bottom: 8px; }
 .login-card input { padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; font: inherit; }
