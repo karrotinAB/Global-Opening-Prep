@@ -189,7 +189,7 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 .dw-box.pick { cursor: pointer; }
 .dw-box.pick:hover, .dw-box.on { background: rgba(247,147,30,.25); border-color: var(--or); }
 .dw-box.used { background: rgba(46,158,91,.18); border-color: var(--green); }
-.dw-lab { position: absolute; transform: translateX(-50%); white-space: pre-wrap; overflow-wrap: break-word; box-sizing: border-box; text-align: center; line-height: 1.15; color: #d61518; font-family: Arial, 'Malgun Gothic', sans-serif; cursor: default; padding: 0 1px; }
+.dw-lab { position: absolute; transform: translateX(-50%); font-weight: 700; white-space: pre-wrap; overflow-wrap: break-word; box-sizing: border-box; text-align: center; line-height: 1.15; color: #d61518; font-family: Arial, 'Malgun Gothic', sans-serif; cursor: default; padding: 0 1px; }
 .dw-lab.edit { cursor: move; }
 .dw-lab.need { color: #888; outline: 1px dashed var(--red); }
 .dw-lab.on { outline: 2px solid #0a84ff; outline-offset: 1px; background: rgba(10,132,255,.08); }
@@ -443,6 +443,20 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .dw-stage.panning { cursor: grabbing; user-select: none; }
 .dw-crop-bar { position: sticky; top: 0; z-index: 7; background: #fff8ee; border: 1px solid #ffd8a8; border-radius: 8px; padding: 8px 10px; }
 @media print { .log-btn { display: none !important; } }
+
+/* 도면 번호 (온라인 도면 🔢) */
+.dw-box.dw-seq { border-color: rgba(120,120,120,.45); background: transparent; z-index: 4; }
+.dw-box.dw-seq.pick { cursor: pointer; border-style: dashed; }
+.dw-box.dw-seq:not(.pick) { pointer-events: none; }
+.dw-box.dw-seq.pick:hover { background: rgba(247,147,30,.18); }
+.dw-box.dw-seq.on { border: 2px solid #7a3cff; background: rgba(122,60,255,.10); border-style: solid; }
+.dw-seq-n { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); min-width: 1.6em; padding: 0 .3em; border-radius: 999px; background: #7a3cff; color: #fff; font-size: max(10px, 1.1cqw); line-height: 1.6em; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.3); pointer-events: none; }
+.dw-seq-bar { color: #5a2bd6; font-weight: 600; }
+.pdl-list { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow: auto; margin: 8px 0; }
+.pdl-row { display: grid; grid-template-columns: 36px 1fr 1fr auto; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
+.pdl-row.on { background: #f3fbf5; }
+.pdl-no { color: var(--mut); text-align: right; } .pdl-name { font-weight: 600; } .pdl-ref { color: var(--mut); font-size: 12px; }
+@media print { .dw-seq { display: none !important; } }
 
 /* 찾기 (온라인 POG·온라인 도면) */
 .find-box { display: inline-flex; align-items: center; gap: 4px; }

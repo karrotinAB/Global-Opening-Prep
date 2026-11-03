@@ -78,9 +78,13 @@ service cloud.firestore {
         allow create: if hasLevel(['admin', 'vmd', 'global', 'editor']) && request.resource.data.by == myEmail();
         allow delete: if hasLevel(['admin', 'vmd', 'editor']); // 도면을 지울 때 기록도 함께
       }
+      // 도면 번호 (온라인 도면 🔢, POG 페이지 순서용): 직원 모두 매기고 읽음
+      match /seq/{vId} {
+        allow read, write: if staff();
+      }
       match /{sub}/{rest=**} {
-        allow read: if sub != 'logs' && (staff() || drawingFinal(drawingId));
-        allow write: if sub != 'translations' && sub != 'logs' && hasLevel(['admin', 'vmd', 'editor']);
+        allow read: if sub != 'logs' && sub != 'seq' && (staff() || drawingFinal(drawingId));
+        allow write: if sub != 'translations' && sub != 'logs' && sub != 'seq' && hasLevel(['admin', 'vmd', 'editor']);
       }
     }
 

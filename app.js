@@ -1357,6 +1357,7 @@ function renderSidePanel() {
     nodes.push(h('div', { class: 'se-head' }, h('b', {}, '표지'), h('span', { class: 'mut' }, '매장명은 표지 가운데에서 바로 고칠 수 있어요')));
     nodes.push(hookPicker(pog, ed));
     if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' }, btn('+ 표지 뒤에 빈 페이지 추가', () => addFreePage(pog.id, (sortedFx()[0]?.order ?? 0) - 1)))));
+    if (ed) nodes.push(sec('도면', h('p', { class: 'se-help' }, '페이지마다 도면 매대를 한꺼번에 연결하고, 온라인 도면에서 매긴 번호 순서로 페이지를 바꿀 수 있어요.'), h('div', { class: 'se-btns' }, btn('📐 POG랑 도면 연결하기', () => openPogDwLink(pog)))));
   } else {
     const fx = state.fixtures.get(id), block = state.pageEls.get(id);
     if (!fx || !block) { box.replaceChildren(); return; }
@@ -1490,6 +1491,7 @@ async function deleteDrawingAll(storeId) {
   for (const d of vs.docs) for (const pth of [d.data().path, d.data().basePath]) { if (pth) try { await deleteObject(sRef(st, pth)); } catch { } }
   await deleteDocs([...vs.docs.map(d => d.ref), ...trs.docs.map(d => d.ref)]);
   await dropLogs(['drawings', storeId]);
+  try { const s = await getDocs(collection(db, 'drawings', storeId, 'seq')); await deleteDocs(s.docs.map(d => d.ref)); } catch { }
   await deleteDoc(doc(db, 'drawings', storeId));
 }
 // 수정 기록도 지움 (규칙상 POG팀·VMD팀 등은 못 지움 → 그냥 남김)
@@ -2384,7 +2386,7 @@ function closeDw() {
 }
 function openDw(id) {
   closeDw();
-  dw.id = id; $('#dw-find').value = ''; dwf.pog = undefined; dw.cropping = false; dw.cropDraft = null; dw.zoom = 1;
+  dw.id = id; $('#dw-find').value = ''; dwf.pog = undefined; dw.seqMode = false; $('#dw-seqbtn')?.classList.remove('primary'); dw.seqUnsub?.(); dw.seqKey = null; dw.seq = []; dw.cropping = false; dw.cropDraft = null; dw.zoom = 1;
   $('#dw-empty').classList.add('hidden'); $('#dw-body').classList.remove('hidden');
   $('#dw-stage').replaceChildren(h('div', { class: 'mut pad' }, '불러오는 중…'));
   renderDwList();
@@ -2437,6 +2439,7 @@ function renderDw() {
   }
   $('#dw-side').classList.toggle('hidden', dw.tab === 'on'); // 온라인 도면은 보기만
   $('#dw-log').classList.toggle('hidden', dw.tab === 'on');
+  $('#dw-seqbtn').classList.toggle('hidden', dw.tab !== 'on' || !isStaff() || !v);
   dwUndoBtns();
   $('#dw-find-box').classList.toggle('hidden', up);
   const fin = dwFinal(dw.doc);
@@ -2680,7 +2683,7 @@ function saveDwTr(gid, patch) {
 // 그림: 업로드 화면 = 원본 + 읽은 매대명 표시 / 번역 화면 = 글자 뺀 바탕 + 번역 글자
 // 저장 구역(v.crop, SVG 단위 {x,y,w,h}): 바깥 칸(.dw-canvas)은 그 구역 비율, 안쪽 전체 도면(.dw-full)을 밀어서 그 구역만 보이게
 const dwCrop = v => { const c = v.crop; return c && c.w > 0 && c.h > 0 ? c : { x: 0, y: 0, w: v.w, h: v.h }; };
-function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, plain, ctx, only, hits, full } = {}) {
+function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, plain, ctx, only, hits, full, seq } = {}) {
   const c = full ? { x: 0, y: 0, w: v.w, h: v.h } : dwCrop(v);
   // 글자 칸이 도면과 꼭 같이 움직이도록 위치·크기를 직접 씀 (style.css가 예전 것이어도 어긋나지 않게)
   const wrap = h('div', { class: 'dw-full', style: `position:absolute;container-type:inline-size;left:${-c.x / c.w * 100}%;top:${-c.y / c.h * 100}%;width:${v.w / c.w * 100}%;height:${v.h / c.h * 100}%` },
@@ -2724,6 +2727,15 @@ function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, p
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
   });
   if (only && mode === 'en') { const g = (v.groups || []).find(x => x.id === only); if (g) wrap.append(h('div', { class: 'dw-box fd-on', style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}` })); }
+  // 도면 번호 (온라인 도면 🔢): seq = { order: [gid…], onToggle? }. 누르면 다음 번호, 다시 누르면 빠짐
+  if (seq) for (const g of v.groups || []) {
+    const n = (seq.order || []).indexOf(g.id) + 1;
+    if (!n && !seq.onToggle) continue;
+    const el = h('div', { class: 'dw-box dw-seq' + (n ? ' on' : '') + (seq.onToggle ? ' pick' : ''), style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko },
+      n ? h('b', { class: 'dw-seq-n' }, n) : null);
+    if (seq.onToggle) el.onclick = e => { e.stopPropagation(); seq.onToggle(g); };
+    wrap.append(el);
+  }
   // 찾기 결과: 빨간 칸 (누르기는 그 아래 글자로 통과)
   if (hits?.size) for (const g of v.groups || []) if (hits.has(g.id))
     wrap.append(h('div', { class: 'dw-box fd-on dw-find', style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko }));
@@ -2759,7 +2771,13 @@ function renderDwStage() {
   const pickable = dw.tab === 'up' && canEdit('drawing');
   if (pickable && dw.cropping) { renderCropStage(box, v); return; }
   const hits = pickable ? null : dwFindHits(v);
-  box.replaceChildren(legend, drawingView(v, en ? 'en' : 'ko', pickable ? { picks: dwPicks(), onPick: g => togglePick(g.id), onPickMany: ids => { const p = dwPicks(); ids.forEach(i => p.add(i)); renderDwStage(); renderDwSide(); } } : { selId: dw.sel, onLab: dw.tab === 'tr', plain: dw.tab !== 'up', hits }));
+  // 도면 번호 (온라인 도면, 직원): 🔢 번호 매기기를 켜면 누르는 순서대로 1, 2, 3… 다시 누르면 빠짐
+  const seqOn = dw.tab === 'on' && isStaff();
+  if (seqOn) subDwSeq(v);
+  const seq = seqOn && (dw.seqMode || dw.seq?.length) ? { order: dw.seq || [], onToggle: dw.seqMode ? g => toggleSeq(v, g) : null } : null;
+  if (seq && dw.seqMode) legend.append(h('span', { class: 'dw-seq-bar' }, ` · 🔢 번호 매기는 중: 매대를 누르는 순서대로 1, 2, 3… 다시 누르면 빠져요 (지금 ${dw.seq?.length || 0}개). `,
+    dw.seq?.length ? h('button', { class: 'btn small ghost', onclick: () => { if (confirm('번호를 모두 지울까요?')) saveSeq(v, []); } }, '번호 모두 지우기') : null));
+  box.replaceChildren(legend, drawingView(v, en ? 'en' : 'ko', pickable ? { picks: dwPicks(), onPick: g => togglePick(g.id), onPickMany: ids => { const p = dwPicks(); ids.forEach(i => p.add(i)); renderDwStage(); renderDwSide(); } } : { selId: dw.sel, onLab: dw.tab === 'tr', plain: dw.tab !== 'up', hits, seq }));
   dwZoomApply();
   if (hits && dwf.jump) { dwf.jump = false; setTimeout(() => $('.dw-find', box)?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }), 30); }
 }
@@ -2814,6 +2832,22 @@ function renderCropStage(box, v) {
       h('button', { class: 'btn small ghost', onclick: done }, '취소'))), view);
   dwZoomApply();
 }
+function subDwSeq(v) {
+  const key = dw.id + '|' + v.id; if (dw.seqKey === key) return;
+  dw.seqUnsub?.(); dw.seqKey = key; dw.seq = [];
+  dw.seqUnsub = onSnapshot(doc(db, 'drawings', dw.id, 'seq', v.id), d => { if (dw.seqKey !== key || dw.seqPending) return; dw.seq = d.exists() ? (d.data().order || []) : []; renderDwStage(); }, () => { });
+}
+function saveSeq(v, order) {
+  dw.seq = order; dw.seqPending = true; renderDwStage();
+  const id = dw.id;
+  queueWrite(`dwseq|${id}|${v.id}`, async () => {
+    try { await setDoc(doc(db, 'drawings', id, 'seq', v.id), { order: dw.seq, vId: v.id, updatedAt: serverTimestamp(), updatedBy: me() }); }
+    catch (e) { alert('번호를 저장하지 못했어요: ' + (e.code || e.message) + '\n(보안 규칙이 아직 게시되지 않았을 수 있어요)'); }
+    finally { dw.seqPending = false; }
+  });
+}
+function toggleSeq(v, g) { const o = [...(dw.seq || [])], i = o.indexOf(g.id); if (i >= 0) o.splice(i, 1); else o.push(g.id); saveSeq(v, o); }
+$('#dw-seqbtn').onclick = () => { dw.seqMode = !dw.seqMode; $('#dw-seqbtn').classList.toggle('primary', dw.seqMode); renderDwStage(); };
 // 도면 찾기: 매대명(한글·번역) + 제품(그 매장 최종 POG에서 그 제품이 있는 페이지의 '도면에서 고르기' 매대)
 function dwFindHits(v) {
   const q = findNorm($('#dw-find').value), n = $('#dw-find-n');
@@ -3059,7 +3093,7 @@ function groupEditor(v) {
 $('#dw-side').addEventListener('focusout', () => setTimeout(() => renderDwSide(), 80));
 
 // POG 헤더: 이 매장의 ★최종본 도면에서 매대를 눌러 고름
-async function openHeaderPicker(pog, fx) {
+async function openHeaderPicker(pog, fx, after) {
   const st0 = storeForPog(pog);
   if (!st0) { modal(h('div', {}, h('h3', {}, '도면이 이어진 매장이 없어요'), h('p', {}, `처음 화면 → 매장 등록에서 매장코드 '${pog.storeCode}'인 매장을 등록하고, VMD실이 도면을 올리면 여기서 고를 수 있어요.`))); return; }
   const d = state.dwMap.get(st0.id);
@@ -3076,8 +3110,60 @@ async function openHeaderPicker(pog, fx) {
       const ug = undoGroup(); saveFx(pog.id, fx.id, 'headerName', g.ko, ug); saveFx(pog.id, fx.id, 'drawingRef', ref, ug);
       const blk = state.pageEls.get(fx.id), inp = blk?.querySelector('[data-f="headerName"]'); if (inp) inp.value = g.ko;
       fx.drawingRef = ref; fx.headerName = g.ko;
-      close(); toast(`헤더에 '${g.ko}'를 넣었어요`);
-    } })), { wide: true });
+      close(); toast(`헤더에 '${g.ko}'를 넣었어요`); after?.();
+    }, seq: await readSeq(st0.id, v.id) })), { wide: true });
+}
+// 이 POG 매장의 ★최종본(없으면 마지막으로 내보낸) 도면 버전
+async function pogDrawing(pog) {
+  const st0 = storeForPog(pog); if (!st0) return null;
+  let vers = [];
+  try { vers = (await getDocs(query(collection(db, 'drawings', st0.id, 'versions'), orderBy('no')))).docs.map(x => ({ id: x.id, ...x.data() })).filter(x => x.exported); } catch { }
+  const v = vers.find(x => x.id === dwFinal(state.dwMap.get(st0.id))) || vers.at(-1);
+  return v ? { st0, v } : null;
+}
+// 온라인 도면에서 매긴 매대 번호 (drawings/{매장}/seq/{버전} = { order: [gid…] }, 1번부터)
+async function readSeq(storeId, vId) {
+  try { const d = await getDoc(doc(db, 'drawings', storeId, 'seq', vId)); return d.exists() ? { order: d.data().order || [] } : null; } catch { return null; }
+}
+// 페이지 → 도면 번호 (같은 버전이면 gid, 아니면 같은 한글 이름의 칸)
+function seqNoOf(fx, v, order) {
+  const r = fx.drawingRef; if (!r || !order?.length) return 0;
+  const gid = r.vId === v.id ? r.gid : (v.groups || []).find(g => g.ko === r.ko)?.id;
+  const i = gid ? order.indexOf(gid) : -1; return i + 1;
+}
+// 표지 패널 'POG랑 도면 연결하기' (사용자): 페이지 목록에서 한꺼번에 도면 매대 연결 + 도면 번호 순서로 페이지 바꾸기
+async function openPogDwLink(pog) {
+  const pd = await pogDrawing(pog);
+  if (!pd) { modal(h('div', {}, h('h3', {}, '연결할 도면이 없어요'), h('p', {}, '매장 등록에서 이 POG 매장코드의 매장을 등록하고, VMD실이 도면을 올려 내보내면 연결할 수 있어요.'))); return; }
+  const { st0, v } = pd;
+  const body = h('div', { class: 'pdl-list' });
+  const info = h('p', { class: 'mut' });
+  const paint = async () => {
+    const seq = await readSeq(st0.id, v.id), order = seq?.order || [];
+    const pages = [...state.edComposed.values()];
+    info.textContent = `${storeName(st0)} · 도면 ver.${v.no} · 도면 번호 ${order.length ? order.length + '개 매김' : '아직 없음 (온라인 도면에서 🔢 번호 매기기)'}`;
+    body.replaceChildren(...pages.map((fx, i) => {
+      const n = seqNoOf(fx, v, order);
+      return h('div', { class: 'pdl-row' + (fx.drawingRef ? ' on' : '') },
+        h('span', { class: 'pdl-no' }, i + 2), h('span', { class: 'pdl-name' }, displayName(fx)),
+        h('span', { class: 'pdl-ref' }, fx.kind === 'free' ? '추가 페이지' : fx.drawingRef ? `📐 ${fx.drawingRef.ko}${n ? ` · 도면 ${n}번` : ''}` : '연결 안 됨'),
+        fx.kind === 'free' ? h('span') : h('button', { class: 'btn small' + (fx.drawingRef ? ' ghost' : ''), onclick: () => openHeaderPicker(pog, fx, () => setTimeout(paint, 700)) }, fx.drawingRef ? '다시 연결' : '도면 연결하기'));
+    }));
+    sortBtn.disabled = !order.length;
+  };
+  const sortBtn = h('button', { class: 'btn primary', onclick: async () => {
+    const seq = await readSeq(st0.id, v.id), order = seq?.order || [];
+    const ids = shownIds(), num = id => seqNoOf(state.edComposed.get(id), v, order);
+    const has = ids.filter(id => num(id)), rest = ids.filter(id => !num(id));
+    if (!has.length) { alert('도면 번호가 매겨진 매대와 연결된 페이지가 없어요.'); return; }
+    if (!confirm(`도면 번호 순서로 페이지를 바꿀까요?\n번호가 있는 페이지 ${has.length}장을 1번부터 앞에 놓고, 번호가 없는 ${rest.length}장은 지금 순서대로 뒤에 둬요. (Ctrl+Z로 되돌릴 수 있어요)`)) return;
+    await reorderPages(pog.id, [...has.sort((x, y) => num(x) - num(y)), ...rest]);
+    toast('도면 번호 순서로 페이지를 바꿨어요'); setTimeout(paint, 700);
+  } }, '도면순서로 POG 바꾸기');
+  modal(h('div', { class: 'pdl' }, h('h3', {}, 'POG랑 도면 연결하기'), info,
+    h('p', { class: 'se-help' }, "각 페이지 옆 '도면 연결하기'를 누르면 도면이 떠요. 매대를 누르면 그 페이지 헤더(매대명)와 연결돼요."),
+    body, h('div', { class: 'modal-act' }, sortBtn)), { wide: true });
+  paint();
 }
 
 /* ---------- 2.3 온라인 POG ---------- */
