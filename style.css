@@ -1,3 +1,6 @@
+/* 화면 높이: 휴대폰 주소창을 뺀 실제로 보이는 높이(dvh)로 계산 (사용자). --top = 상단 메뉴 실제 높이 (휴대폰은 두 줄, app.js가 잼) */
+:root { --vh: 100vh; --top: 52px; }
+@supports (height: 100dvh) { :root { --vh: 100dvh; } }
 :root {
   --or: #f7931e; --or-d: #e07f0c; --bg: #f4f5f7; --line: #e3e5e8; --ink: #222; --mut: #8a8f98;
   --red: #d64541; --green: #2e9e5b; --accent: #e8262d;
@@ -54,7 +57,7 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 .upload-rule .mut { font-size: 13px; }
 
 /* 목록 + 편집기 */
-.split { display: flex; height: calc(100vh - 52px); }
+.split { display: flex; height: calc(var(--vh) - var(--top)); }
 .side-list { width: 290px; flex: none; background: #fff; border-right: 1px solid var(--line); padding: 14px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
 .side-title { font-weight: 700; }
 .search { padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; font: inherit; }
@@ -203,7 +206,7 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 .dw-ver .m { white-space: pre-wrap; color: var(--ink); }
 .dw-star { border: 0; background: none; cursor: pointer; font-size: 16px; color: #ccc; padding: 0 2px; }
 .dw-star.on { color: #f5b301; }
-.dw-glist { display: flex; flex-direction: column; gap: 3px; max-height: 40vh; overflow: auto; }
+.dw-glist { display: flex; flex-direction: column; gap: 3px; max-height: calc(var(--vh) * .4); overflow: auto; }
 .dw-gi { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; padding: 4px 6px; border-radius: 5px; cursor: pointer; }
 .dw-gi:hover, .dw-gi.on { background: #f1f2f4; }
 .dw-gi .ko { color: var(--mut); white-space: pre-wrap; }
@@ -315,7 +318,7 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 
 /* 모달 */
 .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; }
-.modal { background: #fff; border-radius: 14px; padding: 24px 26px; width: 560px; max-width: 100%; max-height: 90vh; overflow: auto; position: relative; }
+.modal { background: #fff; border-radius: 14px; padding: 24px 26px; width: 560px; max-width: 100%; max-height: calc(var(--vh) * .9); overflow: auto; position: relative; }
 .modal.wide { width: 860px; }
 .modal h3 { margin: 0 0 12px; }
 .modal-x { position: absolute; top: 10px; right: 12px; border: 0; background: none; font-size: 24px; cursor: pointer; color: var(--mut); }
@@ -364,7 +367,7 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .log-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
 .log-tbl th { text-align: left; color: var(--mut); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #fff; }
 .log-tbl td { padding: 5px 6px; border-bottom: 1px solid #f0f1f3; vertical-align: top; }
-.log-box { max-height: 60vh; overflow: auto; margin-top: 8px; }
+.log-box { max-height: calc(var(--vh) * .6); overflow: auto; margin-top: 8px; }
 .log-ch { color: var(--mut); }
 .log-ch b { color: var(--ink); font-weight: 500; }
 .lvl { background: rgba(255,255,255,.25); border-radius: 20px; padding: 1px 8px; font-weight: 700; }
@@ -376,7 +379,7 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .acc-me { font-size: 11px; color: var(--or-d); margin-left: 6px; }
 
 /* 처음 화면 · POG 선택 (타일) */
-.home { min-height: calc(100vh - 52px); background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 40px 16px; }
+.home { min-height: calc(var(--vh) - var(--top)); background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 40px 16px; }
 .home-title { font-size: 20px; font-weight: 700; }
 .tiles { display: grid; grid-template-columns: repeat(2, 170px); gap: 16px; }
 .tiles.three { grid-template-columns: repeat(3, 170px); }
@@ -427,7 +430,7 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 /* 화면이 좁을 때 */
 @media (max-width: 900px) {
   .split { flex-direction: column; height: auto; }
-  .side-list { width: auto; border-right: 0; border-bottom: 1px solid var(--line); max-height: 40vh; }
+  .side-list { width: auto; border-right: 0; border-bottom: 1px solid var(--line); max-height: calc(var(--vh) * .4); }
   .pages { align-items: flex-start; overflow-x: auto; }
   .thumbs, .side-edit { display: none; }
   .ed-body { height: auto; }
@@ -453,7 +456,7 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .dw-seq-n { position: absolute; left: 0; top: 0; transform: translate(-40%, -55%); min-width: 1.5em; padding: 0 .25em; border-radius: 999px; background: #7a3cff; color: #fff; font-size: max(9px, .55cqw); font-weight: 700; line-height: 1.5em; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,.3); pointer-events: none; opacity: .92; }
 .dw-seq-bar { color: #5a2bd6; font-weight: 600; }
 .pdl .modal-act { display: flex; justify-content: space-between; }
-.pdl-list { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow: auto; margin: 8px 0; }
+.pdl-list { display: flex; flex-direction: column; gap: 4px; max-height: calc(var(--vh) * .6); overflow: auto; margin: 8px 0; }
 .pdl-row { display: grid; grid-template-columns: 36px 1.1fr 1.1fr 1fr auto; gap: 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
 .pdl-row.on { background: #f3fbf5; }
 .pdl-no { color: var(--mut); text-align: right; } .pdl-orig { color: #7a6a55; font-size: 12px; } .pdl-name { font-weight: 600; } .pdl-ref { color: var(--mut); font-size: 12px; }
@@ -564,7 +567,7 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .bc-rep-wrap { max-height: 300px; overflow: auto; background: #fff; border-radius: 6px; }
 
 /* 3. 제품 찾기 (휴대폰 우선) */
-#v-finder { background: #f4f5f7; min-height: calc(100vh - 52px); }
+#v-finder { background: #f4f5f7; min-height: calc(var(--vh) - var(--top)); }
 .fd { max-width: 560px; margin: 0 auto; padding: 16px 16px 40px; display: flex; flex-direction: column; gap: 12px; }
 .fd-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .fd-title { flex: 1; min-width: 0; font-size: 18px; font-weight: 800; line-height: 1.25; overflow-wrap: anywhere; }
@@ -693,7 +696,7 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
   .tile small { font-size: 11px; }
 
   /* 목록 + 화면: 위아래로 */
-  .side-list { max-height: 34vh; }
+  .side-list { max-height: calc(var(--vh) * .34); }
 
   /* A4 페이지(온라인 POG·POG 번역)는 화면 폭에 맞게 줄여서 */
   #v-pog-online .pages, #v-pog-trans .pages { padding: 8px; gap: 12px; align-items: center; overflow-x: hidden; }
