@@ -3776,7 +3776,7 @@ function fdStep(n) {
   fd.step = n;
   $('#fd-step1').classList.toggle('hidden', n !== 1); $('#fd-step2').classList.toggle('hidden', n !== 2);
   $('#fd-back').classList.toggle('hidden', n !== 2);
-  if (n === 1) { fd.pogId = null; fd.fixtures = null; fd.last = null; $('#fd-result').replaceChildren(); $('#fd-q').value = ''; renderFdStores(); }
+  if (n === 1) { fd.pogId = null; fd.fixtures = null; fd.last = null; $('#fd-result').replaceChildren(); $('#fd-q').value = ''; $('#fd-step2').classList.remove('has-result'); renderFdStores(); }
   else renderFdSeg();
   window.scrollTo(0, 0);
 }
@@ -3884,6 +3884,7 @@ function fdPos(fx, it) {
 }
 function fdShow({ q, code, barcode, hits }) {
   const box = $('#fd-result'), out = fd.lang !== 'ko' ? fd.trs[fd.lang]?.out : null;
+  $('#fd-step2').classList.add('has-result'); // 휴대폰: 찾은 뒤에는 위쪽 찍기 칸을 한 줄로 줄여서 결과가 한 화면에 (사용자)
   if (!hits.length) {
     box.replaceChildren(h('div', { class: 'fd-card fd-err' }, h('b', {}, q), h('div', {}, barcode
       ? T(`제품코드 ${code} · 이 매장 POG에 없는 제품이에요.`, `Item code ${code} · not in this store's POG.`)
@@ -3899,6 +3900,13 @@ function fdShow({ q, code, barcode, hits }) {
       h('div', {}, T('제품코드 ', 'Item ') + code), h('div', {}, T('바코드 ', 'Barcode '), bcTd),
       it0.price ? h('div', {}, '₩' + Number(it0.price).toLocaleString()) : null,
       hits.length > 1 ? h('div', { class: 'fd-many' }, T(`이 매장에 ${hits.length}곳 있어요`, `${hits.length} locations in this store`)) : null))];
+  // 여러 곳이면 휴대폰에서는 탭으로 한 곳씩 (PC는 모두 펼침)
+  if (hits.length > 1) {
+    const tabs = h('div', { class: 'fd-tabs' }, ...hits.map((x, n) => h('button', { type: 'button', class: 'fd-tab' + (n ? '' : ' on'),
+      onclick: () => { $$('#fd-result .fd-tab').forEach((t, i) => t.classList.toggle('on', i === n)); $$('#fd-result .fd-loc').forEach((c, i) => c.classList.toggle('on', i === n)); } },
+      `📍${n + 1} `, displayName((x.fx._parts || [x.fx])[x.it._g || 0] || x.fx))));
+    nodes.push(tabs);
+  }
   hits.forEach(({ fx, it }, n) => {
     const part = (fx._parts || [fx])[it._g || 0] || fx, fxT = applyTr(fx, out?.[part.id] || out?.[fx.id]);
     const name = (out?.[part.id]?.headerName) || displayName(part), pos = fdPos(fx, it);
@@ -3909,7 +3917,7 @@ function fdShow({ q, code, barcode, hits }) {
     cv.classList.add('fd-dim');
     cv.querySelector(`.cv-item[data-id="${CSS.escape(String(it.id))}"]`)?.classList.add('fd-hit');
     const dwBox = h('div', { class: 'fd-dw' }, h('div', { class: 'mut' }, T('도면 불러오는 중…', 'Loading floor plan…')));
-    nodes.push(h('div', { class: 'fd-card' },
+    nodes.push(h('div', { class: 'fd-card fd-loc' + (n ? '' : ' on') },
       h('div', { class: 'fd-h' }, h('span', { class: 'fd-no' }, hits.length > 1 ? n + 1 : '📍'), h('div', {}, h('b', {}, name), h('div', { class: 'fd-pos' }, posTxt))),
       h('div', { class: 'fd-two' }, // 휴대폰: 도면 먼저, 그다음 POG · PC: 양옆 나란히 (사용자)
         h('div', { class: 'fd-col' }, h('div', { class: 'fd-sub' }, T('도면', 'Floor plan')), dwBox),
@@ -3917,7 +3925,8 @@ function fdShow({ q, code, barcode, hits }) {
     fdDrawing(dwBox, part.drawingRef);
   });
   box.replaceChildren(...nodes);
-  box.querySelector('.fd-card:nth-child(2)')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (window.innerWidth <= 700) window.scrollTo({ top: 0, behavior: 'smooth' }); // 휴대폰: 한 화면에 다 보이게 맨 위부터
+  else box.querySelector('.fd-loc')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 // 제품 찾기 POG 그림 높이: 매대 모양(가로:세로)에 맞춰서 아래 빈 곳이 크게 남지 않게
 function fdCanvasH(fx, W) {
@@ -3926,7 +3935,8 @@ function fdCanvasH(fx, W) {
   const x0 = Math.min(...all.map(o => o.x)), x1 = Math.max(...all.map(o => o.x + o.w));
   const y0 = Math.min(...all.map(o => o.y)), y1 = Math.max(...all.map(o => o.y + Math.max(o.h || 0, 4)));
   const r = (y1 - y0) / Math.max(1, x1 - x0);
-  return Math.round(Math.max(W * 0.35, Math.min(W * 1.6, W * r + 24)));
+  const maxH = window.innerWidth <= 700 ? Math.max(170, window.innerHeight * 0.3) : W * 1.6; // 휴대폰: 화면 높이의 30%까지만
+  return Math.round(Math.max(Math.min(W * 0.35, maxH), Math.min(maxH, W * r + 24)));
 }
 const ordinal = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
 async function fdDrawing(box, ref) {
