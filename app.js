@@ -3175,6 +3175,7 @@ async function openPogDwLink(pog) {
       const n = seqNoOf(fx, v, order);
       return h('div', { class: 'pdl-row' + (fx.drawingRef ? ' on' : '') },
         h('span', { class: 'pdl-no' }, i + 2), h('span', { class: 'pdl-name' }, displayName(fx)),
+        h('span', { class: 'pdl-orig', title: 'POG 사이트의 원래 매대 이름' }, fx.kind === 'free' ? '' : origName(fx)),
         h('span', { class: 'pdl-ref' }, fx.kind === 'free' ? '추가 페이지' : fx.drawingRef ? `📐 ${fx.drawingRef.ko}${n ? ` · 도면 ${n}번` : ''}` : '연결 안 됨'),
         fx.kind === 'free' ? h('span') : h('button', { class: 'btn small' + (fx.drawingRef ? ' ghost' : ''), onclick: () => openHeaderPicker(pog, fx, () => setTimeout(paint, 700)) }, fx.drawingRef ? '다시 연결' : '도면 연결하기'));
     }));
@@ -3189,9 +3190,21 @@ async function openPogDwLink(pog) {
     await reorderPages(pog.id, [...has.sort((x, y) => num(x) - num(y)), ...rest]);
     toast('도면 번호 순서로 페이지를 바꿨어요'); setTimeout(paint, 700);
   } }, '도면순서로 POG 바꾸기');
+  // 처음부터: 모든 페이지의 도면 연결을 풀고, 도면에서 넣은 매대명(연결한 이름 그대로인 헤더)도 비움. Ctrl+Z로 되돌릴 수 있음
+  const resetBtn = h('button', { class: 'btn ghost danger', onclick: () => {
+    const linked = [...state.edComposed.values()].filter(f => f.drawingRef);
+    if (!linked.length) { toast('연결된 페이지가 없어요'); return; }
+    if (!confirm(`도면 연결 ${linked.length}개를 모두 풀까요?\n도면에서 넣은 매대명(헤더)도 비워져서, POG 사이트 원래 이름이 보여요. (Ctrl+Z로 되돌릴 수 있어요)`)) return;
+    const ug = undoGroup();
+    for (const f of linked) {
+      if ((f.headerName || '') === f.drawingRef.ko) { saveFx(pog.id, f.id, 'headerName', '', ug); f.headerName = ''; const inp = state.pageEls.get(f.id)?.querySelector('[data-f="headerName"]'); if (inp) inp.value = ''; }
+      saveFx(pog.id, f.id, 'drawingRef', null, ug); f.drawingRef = null;
+    }
+    toast('도면 연결을 모두 풀었어요'); setTimeout(paint, 700);
+  } }, '처음부터');
   modal(h('div', { class: 'pdl' }, h('h3', {}, 'POG랑 도면 연결하기'), info,
     h('p', { class: 'se-help' }, "각 페이지 옆 '도면 연결하기'를 누르면 도면이 떠요. 매대를 누르면 그 페이지 헤더(매대명)와 연결돼요."),
-    body, h('div', { class: 'modal-act' }, sortBtn)), { wide: true });
+    body, h('div', { class: 'modal-act' }, resetBtn, sortBtn)), { wide: true });
   paint();
 }
 
