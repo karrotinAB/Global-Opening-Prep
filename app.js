@@ -241,6 +241,7 @@ function go(v) {
   if (!canSee(v)) v = canSee('home') ? 'home' : canSee('finder') ? 'finder' : 'noaccess';
   state.view = v;
   $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.view === v || (!!b.dataset.group && v.startsWith(b.dataset.group))));
+  if (window.innerWidth <= 700) { const on = [...$$('#nav button.on')].pop(), nav = $('#nav'); if (on && nav) nav.scrollLeft = Math.max(0, on.offsetLeft - nav.clientWidth / 2 + on.offsetWidth / 2); }
   $('#subnav').classList.toggle('on', v.startsWith('pog-') && v !== 'pog-home');
   $('#subnav-dw').classList.toggle('on', v.startsWith('dw-'));
   $$('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + secOf(v)));
@@ -250,6 +251,9 @@ function go(v) {
   if (v === 'barcodes') { bcCount(); bcList(true); } else bcReport([], '', 0); // 건너뛴 줄 알림은 이 화면을 나가면 사라짐
 }
 $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
+// 휴대폰: A4 페이지(794px)를 화면 폭에 맞게 줄이는 비율 (style.css의 zoom: var(--pz))
+const setPz = () => document.documentElement.style.setProperty('--pz', String(Math.min(1, (window.innerWidth - 16) / 794)));
+setPz(); window.addEventListener('resize', setPz);
 $$('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
 $('#btn-accounts').onclick = () => go('accounts');
 
@@ -3896,18 +3900,27 @@ function fdShow({ q, code, barcode, hits }) {
     const posTxt = !pos ? T('위치를 계산하지 못했어요 (집기 정보 없음)', 'Position unknown')
       : FD_EN() ? `${pos.pipe ? 'Pipe' : 'Shelf'} ${pos.row} from top${pos.col ? ` · ${ordinal(pos.col)} from left` : ''}`
       : `위에서 ${pos.row}번째 ${pos.pipe ? '파이프' : '선반'}${pos.col ? ` · 왼쪽에서 ${pos.col}번째` : ''}`;
-    const W = Math.min(window.innerWidth - 56, 520), cv = buildCanvas(fxT, W, Math.round(W * 1.15));
+    const W = Math.min(window.innerWidth - 56, 520), cv = buildCanvas(fxT, W, fdCanvasH(fxT, W));
     cv.classList.add('fd-dim');
     cv.querySelector(`.cv-item[data-id="${CSS.escape(String(it.id))}"]`)?.classList.add('fd-hit');
     const dwBox = h('div', { class: 'fd-dw' }, h('div', { class: 'mut' }, T('도면 불러오는 중…', 'Loading floor plan…')));
     nodes.push(h('div', { class: 'fd-card' },
       h('div', { class: 'fd-h' }, h('span', { class: 'fd-no' }, hits.length > 1 ? n + 1 : '📍'), h('div', {}, h('b', {}, name), h('div', { class: 'fd-pos' }, posTxt))),
-      h('div', { class: 'fd-sub' }, 'POG'), h('div', { class: 'fd-cv' }, cv),
-      h('div', { class: 'fd-sub' }, T('도면', 'Floor plan')), dwBox));
+      h('div', { class: 'fd-sub' }, T('도면', 'Floor plan')), dwBox,
+      h('div', { class: 'fd-sub' }, 'POG'), h('div', { class: 'fd-cv' }, cv))); // 도면 먼저, 그다음 POG (사용자)
     fdDrawing(dwBox, part.drawingRef);
   });
   box.replaceChildren(...nodes);
   box.querySelector('.fd-card:nth-child(2)')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+// 제품 찾기 POG 그림 높이: 매대 모양(가로:세로)에 맞춰서 아래 빈 곳이 크게 남지 않게
+function fdCanvasH(fx, W) {
+  const all = [...(fx.items || []), ...(fx.props || []), ...(fx.panels || [])].filter(o => o.w > 0);
+  if (!all.length) return Math.round(W * 0.6);
+  const x0 = Math.min(...all.map(o => o.x)), x1 = Math.max(...all.map(o => o.x + o.w));
+  const y0 = Math.min(...all.map(o => o.y)), y1 = Math.max(...all.map(o => o.y + Math.max(o.h || 0, 4)));
+  const r = (y1 - y0) / Math.max(1, x1 - x0);
+  return Math.round(Math.max(W * 0.35, Math.min(W * 1.6, W * r + 24)));
 }
 const ordinal = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
 async function fdDrawing(box, ref) {
