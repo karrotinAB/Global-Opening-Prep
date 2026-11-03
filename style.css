@@ -800,5 +800,9 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 
 /* 매대 나누기 묶음은 그림 칸 밖으로 튀어나와도 보이게 (사용자) */
 .cv.has-blk { overflow: visible; }
-.cv.has-blk .cv-bgrp { z-index: 6; }
+/* 묶음 층은 쌓임 순서를 따로 만들지 않음 → 손잡이(.cv-blk z-index 9000)가 다른 묶음에 가려지지 않게 */
 .pb:has(.cv.has-blk) .pcanvas { z-index: 3; }
+
+/* 묶음·원래 매대 크기 조절 손잡이 (오른쪽 아래 네모) */
+.cv-blk-r { position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px; background: #fff; border: 2px solid #1e6fd9; border-radius: 2px; cursor: nwse-resize; pointer-events: auto; }
+.cv-blk.on .cv-blk-r { background: #1e6fd9; }

@@ -477,14 +477,15 @@ function buildCanvas(fx, W, H, onItem, { lazy = false, blockUI = false } = {}) {
   if (hasBlocks) {
     const sets = [{ id: null }, ...fx._blocks];
     for (const b of sets) {
-      const mem = [...props, ...items].filter(o => (o._b || null) === b.id);
+      const mem = [...panels, ...props, ...items].filter(o => (o._b || null) === b.id);
       if (b.id) { const gEl = h('div', { class: 'cv-bgrp', 'data-b': b.id }); grpOf.set(b.id, gEl); inner.append(gEl); }
       if (!mem.length) continue;
       const bx0 = Math.min(...mem.map(o => o.x)), by0 = Math.min(...mem.map(o => o.y)), bx1 = Math.max(...mem.map(o => o.x + o.w)), by1 = Math.max(...mem.map(o => o.y + Math.max(o.h || 0, 4)));
       const back = h('div', { class: 'cv-back', style: `left:${bx0 - x0 + pad - 4}px;top:${by0 - y0 + pad - 4}px;width:${bx1 - bx0 + 8}px;height:${by1 - by0 + 8}px` });
       (b.id ? grpOf.get(b.id) : inner).append(back);
       if (b.id && blockUI) grpOf.get(b.id).append(h('div', { class: 'cv-blk no-print', 'data-b': b.id, style: `left:${bx0 - x0 + pad - 4}px;top:${by0 - y0 + pad - 4}px;width:${bx1 - bx0 + 8}px;height:${by1 - by0 + 8}px` },
-        h('span', { class: 'cv-blk-h', 'data-b': b.id, title: '끌어서 옮기기 · 누르면 선택 (Ctrl+X로 잘라내기)' }, `✥ 묶음 ${fx._blocks.indexOf(b) + 1}`)));
+        h('span', { class: 'cv-blk-h', 'data-b': b.id, title: b.base ? '끌어서 원래 매대 옮기기 · 누르면 선택' : '끌어서 옮기기 · 누르면 선택 (Ctrl+X로 잘라내기)' }, b.base ? '✥ 매대' : `✥ 묶음 ${fx._blocks.filter(x => !x.base).indexOf(b) + 1}`),
+        h('span', { class: 'cv-blk-r', 'data-b': b.id, title: '끌어서 크기 조절' })));
     }
   }
   // 매대 뒤 회색 바탕: 선반·파이프·배경판의 가로 범위 × 전체 높이 (붙인 매대는 매대마다 따로)
@@ -501,7 +502,7 @@ function buildCanvas(fx, W, H, onItem, { lazy = false, blockUI = false } = {}) {
     // 배경판은 POG 사이트 색과 상관없이 연한 회색 (진하게 칠하면 선반·파이프와 구분이 안 됨 · 사용자). 무늬(타공판)가 있으면 그 간격대로 구멍
     const pe = h('div', { class: 'cv-panel', style: `left:${p.x - x0 + pad}px;top:${p.y - y0 + pad}px;width:${p.w}px;height:${p.h}px` });
     if (p.bg) holesOn(pe, bgPitch(p.bg), 0, 0, p.bg);
-    inner.append(pe);
+    layer(p).append(pe);
   }
   for (const p of props) {
     const color = p.color && !/rgba\(0, 0, 0, 0\)|transparent/.test(p.color) ? p.color : '#7d7d7d';
@@ -696,20 +697,28 @@ function makeThumbs(box, scroller, onActive, tools = null) { // tools = { can(),
 const itemSig = fx => {
   const str = [...(fx.items || []).map(i => `${i.code}@${i.x},${i.y},${i.w},${i.h}`), ...(fx.props || []).map(p => `${p.x},${p.y},${p.w}`), ...(fx.panels || []).map(p => `${p.x},${p.y},${p.w},${p.h}`)].join('|');
   let hh = 0; for (let i = 0; i < str.length; i++) hh = (hh * 31 + str.charCodeAt(i)) | 0;
-  return `${(fx.items || []).length}:${(fx.props || []).length}:${hh}:${JSON.stringify(fx.blocks || [])}`;
+  return `${(fx.items || []).length}:${(fx.props || []).length}:${hh}:${JSON.stringify(fx.blocks || [])}:${JSON.stringify(fx.base || null)}`;
 };
 /* 매대 붙이기: 얇은 매대(스페이스월 등) 두 개를 한 페이지에. 붙인 쪽 fixture.merged = [id…], 붙여진 쪽 .mergedInto = id.
    붙여진 페이지는 따로 안 나오고, 붙인 페이지 그림 오른쪽에 나란히 그린다 (입력칸·번역은 붙인 페이지 것) */
 /* ---------- 매대 나누기 (사용자): fx.blocks = [{ id, items: [제품 id], props: [집기 id], dx, dy }]
    고른 제품(과 그 안의 집기)을 '묶음'으로 떼어 따로 회색 바탕을 칠하고, 끌어서 옮기거나(dx, dy = POG 사이트 px) 다른 페이지로 잘라 붙임.
    묶음에 없는 것 = 나머지. 그림은 withBlocks로 위치를 옮긴 복사본으로 그림 (원래 좌표는 그대로) */
+// 매대 나누기 묶음 + 원래 매대(BASE) 옮기기·크기. 묶음 = fx.blocks[{id,items,props,dx,dy,s}], 원래 매대 = fx.base{dx,dy,s} (사용자)
+// 크기(s)는 그 묶음의 왼쪽 위 모서리를 기준으로 키우거나 줄임. 묶음도 base도 없으면 그대로
+const BASE = '__base';
 function withBlocks(fx) {
+  if (fx._blocks) return fx;
   const bl = (fx.blocks || []).filter(b => (b.items || []).length || (b.props || []).length);
-  if (!bl.length || fx._blocks) return fx;
+  if (!bl.length && !fx.base) return fx;
   const ofI = new Map(), ofP = new Map();
   bl.forEach(b => { (b.items || []).forEach(id => ofI.set(String(id), b)); (b.props || []).forEach(id => ofP.set(String(id), b)); });
-  const sh = (o, b) => b ? { ...o, x: o.x + (b.dx || 0), y: o.y + (b.dy || 0), _b: b.id } : o;
-  return { ...fx, items: (fx.items || []).map(o => sh(o, ofI.get(String(o.id)))), props: (fx.props || []).map(o => sh(o, ofP.get(String(o.id)))), _blocks: bl };
+  const base = { id: BASE, base: true, dx: fx.base?.dx || 0, dy: fx.base?.dy || 0, s: fx.base?.s || 1 };
+  const raw = new Map(), add = (g, o) => { const r = raw.get(g.id) || { x0: Infinity, y0: Infinity }; r.x0 = Math.min(r.x0, o.x); r.y0 = Math.min(r.y0, o.y); raw.set(g.id, r); };
+  const gI = o => ofI.get(String(o.id)) || base, gP = o => ofP.get(String(o.id)) || base;
+  (fx.items || []).forEach(o => add(gI(o), o)); (fx.props || []).forEach(o => add(gP(o), o)); (fx.panels || []).forEach(o => add(base, o));
+  const tr = (o, g) => { const r = raw.get(g.id), k = g.s || 1; return { ...o, x: r.x0 + (o.x - r.x0) * k + (g.dx || 0), y: r.y0 + (o.y - r.y0) * k + (g.dy || 0), w: o.w * k, h: (o.h || 0) * k, _b: g.id }; };
+  return { ...fx, items: (fx.items || []).map(o => tr(o, gI(o))), props: (fx.props || []).map(o => tr(o, gP(o))), panels: (fx.panels || []).map(o => tr(o, base)), _blocks: [base, ...bl] };
 }
 // 매대 그림의 범위 (제품·집기·판, 묶음 위치 반영). 묶음을 처음 만들거나 붙여넣기 직전에 fx.frame으로 기억해 두고,
 // 그 뒤에는 이 틀로만 그림 크기를 정함 → 묶음을 옮기거나 붙여넣어 매대 밖으로 튀어나와도 원래 매대가 작아지지 않음 (사용자)
@@ -890,6 +899,8 @@ function finishBlock(fx, pog, page, editable) {
     setEdActive(fx.id);
     if (e.target.closest('.nt, .nh')) return;
     if (state.split?.id === fx.id && e.target.closest('.pcanvas')) { splitBand(e, block); return; }
+    const rz = e.target.closest('.cv-blk-r');
+    if (rz) { resizeBlock(e, block, rz.dataset.b); return; }
     const hd = e.target.closest('.cv-blk-h');
     if (hd) { dragBlock(e, block, hd.dataset.b); return; }
     selectNote(block, null);
@@ -1349,16 +1360,23 @@ function splitSection(pog, fx, block) {
   const btn = (t, fn, cls = '') => h('button', { class: 'btn small ' + cls, onclick: fn }, t);
   const sec = (t, ...k) => h('section', { class: 'se-sec' }, h('h4', {}, t), ...k);
   if (fx.merged?.length) return sec('매대 나누기', h('p', { class: 'se-help' }, '매대를 붙인 페이지는 나눌 수 없어요. 붙이기를 취소하고 나눠 주세요.'));
-  const bl = fx.blocks || [], sel = block._selBlock && bl.find(b => b.id === block._selBlock);
+  const bl = fx.blocks || [], selBase = block._selBlock === BASE && (bl.length || fx.base), sel = !selBase && block._selBlock && bl.find(b => b.id === block._selBlock);
+  const pct = s => `${Math.round((s || 1) * 100)}%`;
   if (state.split?.id === fx.id) {
     const n = state.split.items.size;
     return sec('매대 나누기', h('p', { class: 'se-help' }, '매대 그림 위를 끌어서 떼어낼 제품을 네모로 고르세요 (여러 번 끌면 더해져요). 고른 제품과 그 안의 선반·파이프가 한 묶음이 되고, 나머지는 그대로 남아요.'),
       h('div', { class: 'se-btns' }, btn(`✂ 고른 ${n}개를 묶음으로 나누기`, () => makeBlock(pog.id, fx, block), 'primary'), btn('다시 고르기', () => { state.split.items.clear(); state.split.props.clear(); paintSplit(block); renderSidePanel(); }, 'ghost'), btn('취소', () => { state.split = null; paintSplit(block); renderSidePanel(); }, 'ghost')));
   }
   return sec('매대 나누기', h('p', { class: 'se-help' }, '제품 일부를 떼어 따로 묶음으로 만들어요. 묶음은 회색 바탕을 따로 칠하고, ✥를 끌어 옮기거나 Ctrl+X → 다른 페이지에서 Ctrl+V로 옮길 수 있어요.'),
-    h('div', { class: 'se-btns' }, btn('✂ 매대 나누기', () => { state.split = { id: fx.id, items: new Set(), props: new Set() }; block._selBlock = null; paintSplit(block); renderSidePanel(); })),
-    sel ? h('div', { class: 'se-kid' }, h('span', {}, '선택한 묶음: ', h('b', {}, `묶음 ${bl.indexOf(sel) + 1}`), ` · 제품 ${(sel.items || []).length}개`)) : (bl.length ? h('p', { class: 'se-help' }, `묶음 ${bl.length}개 · 그림의 '✥ 묶음' 표시를 누르면 골라져요.`) : null),
-    sel ? h('div', { class: 'se-btns' }, btn('✂ 잘라내기 (Ctrl+X)', () => cutBlock(pog.id, fx, sel)), btn('제자리로', () => saveBlocks(pog.id, fx, bl.map(b => b.id === sel.id ? { ...b, dx: 0, dy: 0 } : b)), 'ghost'),
+    h('div', { class: 'se-btns' }, btn('✂ 매대 나누기', () => { state.split = { id: fx.id, items: new Set(), props: new Set() }; block._selBlock = null; paintSplit(block); renderSidePanel(); }),
+      !bl.length && !fx.base ? btn('↔ 매대 위치·크기 조정', () => saveGroup(pog.id, fx, BASE, {}), 'ghost') : null),
+    bl.length || fx.base ? h('p', { class: 'se-help' }, "그림의 '✥' 표시를 끌면 옮겨지고, 오른쪽 아래 작은 네모를 끌면 크기가 바뀌어요. 누르면 골라져요.") : null,
+    selBase ? h('div', { class: 'se-kid' }, h('span', {}, '선택: ', h('b', {}, '원래 매대'), ` · 크기 ${pct(fx.base?.s)}`)) : null,
+    selBase ? h('div', { class: 'se-btns' }, btn('제자리로', () => saveGroup(pog.id, fx, BASE, { dx: 0, dy: 0 }), 'ghost'), btn('원래 크기', () => saveGroup(pog.id, fx, BASE, { s: 1 }), 'ghost'),
+      fx.base ? btn('처음 상태로', () => resetBase(pog.id, fx), 'ghost') : null) : null,
+    sel ? h('div', { class: 'se-kid' }, h('span', {}, '선택한 묶음: ', h('b', {}, `묶음 ${bl.indexOf(sel) + 1}`), ` · 제품 ${(sel.items || []).length}개 · 크기 ${pct(sel.s)}`)) : null,
+    sel ? h('div', { class: 'se-btns' }, btn('✂ 잘라내기 (Ctrl+X)', () => cutBlock(pog.id, fx, sel)), btn('제자리로', () => saveGroup(pog.id, fx, sel.id, { dx: 0, dy: 0 }), 'ghost'),
+      btn('원래 크기', () => saveGroup(pog.id, fx, sel.id, { s: 1 }), 'ghost'),
       btn('묶음 풀기', () => saveBlocks(pog.id, fx, bl.filter(b => b.id !== sel.id), sel), 'ghost')) : null);
 }
 // 나누기: 끌어서 네모 → 걸친 제품(과 완전히 들어간 선반·파이프)을 고름
@@ -1386,10 +1404,10 @@ function paintSplit(block) {
 }
 function saveBlocks(pogId, fx, list, unbake, keepSel = null) {
   const ug = undoGroup();
-  if (unbake && (unbake.dx || unbake.dy)) { // 묶음 풀기: 옮긴 자리 그대로 두기
-    const ids = new Set((unbake.items || []).map(String)), pids = new Set((unbake.props || []).map(String));
-    const items = (fx.items || []).map(o => ids.has(String(o.id)) ? { ...o, x: o.x + unbake.dx, y: o.y + unbake.dy } : o);
-    const props = (fx.props || []).map(o => pids.has(String(o.id)) ? { ...o, x: o.x + unbake.dx, y: o.y + unbake.dy } : o);
+  if (unbake && (unbake.dx || unbake.dy || (unbake.s && unbake.s !== 1))) { // 묶음 풀기: 옮긴 자리·크기 그대로 두기
+    const ids = new Set((unbake.items || []).map(String)), pids = new Set((unbake.props || []).map(String)), T = withBlocks(fx);
+    const bake = (list, tl, set) => list.map((o, i) => { if (!set.has(String(o.id))) return o; const { _b, ...t } = tl[i]; return t; });
+    const items = bake(fx.items || [], T.items, ids), props = bake(fx.props || [], T.props, pids);
     saveFx(pogId, fx.id, 'items', items, ug); saveFx(pogId, fx.id, 'props', props, ug); fx.items = items; fx.props = props;
   }
   if (list.length && !fx.frame) { const fr = cvBox(fx); saveFx(pogId, fx.id, 'frame', fr, ug); fx.frame = fr; } // 처음 나눌 때의 매대 범위를 기억
@@ -1411,17 +1429,51 @@ function makeBlock(pogId, fx, block) {
   saveBlocks(pogId, fx, [...bl, nb], null, nb.id);
   toast(`제품 ${ids.length}개를 묶음으로 나눴어요. ✥를 끌어 옮기거나 Ctrl+X로 잘라낼 수 있어요`);
 }
+// 묶음·원래 매대의 위치·크기 저장 (patch = {dx, dy, s})
+const groupOf = (fx, bid) => bid === BASE ? { id: BASE, base: true, dx: 0, dy: 0, s: 1, ...(fx.base || {}) } : (fx.blocks || []).find(x => x.id === bid);
+function saveGroup(pogId, fx, bid, patch, keepSel = bid) {
+  if (bid !== BASE) { saveBlocks(pogId, fx, (fx.blocks || []).map(x => x.id === bid ? { ...x, ...patch } : x), null, keepSel); return; }
+  const ug = undoGroup();
+  if (!fx.frame) { const fr = cvBox(fx); saveFx(pogId, fx.id, 'frame', fr, ug); fx.frame = fr; } // 처음 옮길 때의 매대 범위를 틀로
+  const nb = { dx: 0, dy: 0, s: 1, ...(fx.base || {}), ...patch };
+  saveFx(pogId, fx.id, 'base', nb, ug); fx.base = nb;
+  rebuildPage(fx.id, keepSel);
+}
+// 원래 매대 처음 상태로 (위치·크기 조정 없애기)
+function resetBase(pogId, fx) {
+  const ug = undoGroup();
+  saveFx(pogId, fx.id, 'base', null, ug); fx.base = null;
+  if (!(fx.blocks || []).length) { saveFx(pogId, fx.id, 'frame', null, ug); fx.frame = null; }
+  rebuildPage(fx.id, null);
+}
+// 크기 조절: 묶음 오른쪽 아래 손잡이를 끌면 왼쪽 위 기준으로 비율대로 커지고 작아짐
+function resizeBlock(e, block, bid) {
+  e.preventDefault(); e.stopPropagation();
+  const fx = state.fixtures.get(block._fx), b = fx && groupOf(fx, bid); if (!b) return;
+  const cvIn = block.querySelector('.pcanvas .cv-in'), sc = cvIn?._sc || 1;
+  const g = cvIn?.querySelector(`.cv-bgrp[data-b="${CSS.escape(bid)}"]`), box = cvIn?.querySelector(`.cv-blk[data-b="${CSS.escape(bid)}"]`); if (!g || !box) return;
+  const l = parseFloat(box.style.left) + 4, t = parseFloat(box.style.top) + 4, w0 = Math.max(10, parseFloat(box.style.width) - 8);
+  g.style.transformOrigin = `${l}px ${t}px`;
+  const sx = e.clientX; let k = 1;
+  const mv = ev => { k = Math.min(5, Math.max(0.2, (w0 + (ev.clientX - sx) / sc) / w0)); g.style.transform = `scale(${k})`; };
+  const up = () => {
+    window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up);
+    if (Math.abs(k - 1) < 0.01) { g.style.transform = ''; return; }
+    saveGroup(state.currentPog.id, fx, bid, { s: Math.round((b.s || 1) * k * 1000) / 1000 });
+  };
+  window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+}
 // 묶음 끌어 옮기기 (그림 위 ✥). 살짝만 누르면 선택
 function dragBlock(e, block, bid) {
   e.preventDefault(); e.stopPropagation();
-  const fx = state.fixtures.get(block._fx), b = (fx?.blocks || []).find(x => x.id === bid); if (!b) return;
+  const fx = state.fixtures.get(block._fx), b = fx && groupOf(fx, bid); if (!b) return;
   const cvIn = block.querySelector('.pcanvas .cv-in'), g = cvIn?.querySelector(`.cv-bgrp[data-b="${CSS.escape(bid)}"]`), sc = cvIn?._sc || 1;
   const sx = e.clientX, sy = e.clientY; let moved = false, ddx = 0, ddy = 0;
   const mv = ev => { ddx = (ev.clientX - sx) / sc; ddy = (ev.clientY - sy) / sc; if (Math.abs(ddx) + Math.abs(ddy) > 2) moved = true; if (g) g.style.transform = `translate(${ddx}px, ${ddy}px)`; };
   const up = () => {
     window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up);
     if (!moved) { block._selBlock = block._selBlock === bid ? null : bid; paintBlockSel(block); renderSidePanel(); return; }
-    saveBlocks(state.currentPog.id, fx, fx.blocks.map(x => x.id === bid ? { ...x, dx: Math.round((x.dx || 0) + ddx), dy: Math.round((x.dy || 0) + ddy) } : x), null, bid);
+    saveGroup(state.currentPog.id, fx, bid, { dx: Math.round((b.dx || 0) + ddx), dy: Math.round((b.dy || 0) + ddy) });
   };
   window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
 }
@@ -1442,17 +1494,19 @@ function pasteBlock(pogId, to) {
   const mvI = (from.items || []).filter(o => ids.has(String(o.id))), mvP = (from.props || []).filter(o => pids.has(String(o.id)));
   if (!mvI.length && !mvP.length) { state.clip = null; return; }
   // 붙일 자리: 붙일 페이지 매대 틀 안 오른쪽 끝에 맞춰서 (화면 안에 보여야 끌어서 옮길 수 있음 · 사용자). 높이는 틀 안으로
-  const fr = to.frame || cvBox(to), mv = [...mvI, ...mvP].map(o => ({ ...o, x: o.x + (b.dx || 0), y: o.y + (b.dy || 0) }));
+  const F = withBlocks(from), strip = ({ _b, ...o }) => o;
+  const tI = F.items.filter(o => ids.has(String(o.id))).map(strip), tP = F.props.filter(o => pids.has(String(o.id))).map(strip); // 옮긴 자리·크기 반영
+  const fr = to.frame || cvBox(to), mv = [...tI, ...tP];
   const left = Math.min(...mv.map(o => o.x)), bw = Math.max(...mv.map(o => o.x + o.w)) - left, top = Math.min(...mv.map(o => o.y));
   const shift = fr ? Math.max(fr.x0, fr.x1 - bw) - left : -left;
   const vshift = fr ? Math.min(Math.max(top, fr.y0), Math.max(fr.y0, fr.y1 - 30)) - top : 0;
   const used = new Set([...(to.items || []), ...(to.props || [])].map(o => String(o.id)));
   const uid = id => { let s = String(id), k = 1; while (used.has(s)) s = `${id}~${k++}`; used.add(s); return s; };
-  const nI = mvI.map(o => ({ ...o, id: uid(o.id), x: o.x + (b.dx || 0) + shift, y: o.y + (b.dy || 0) + vshift }));
-  const nP = mvP.map(o => ({ ...o, id: uid(o.id), x: o.x + (b.dx || 0) + shift, y: o.y + (b.dy || 0) + vshift }));
+  const nI = tI.map(o => ({ ...o, id: uid(o.id), x: o.x + shift, y: o.y + vshift }));
+  const nP = tP.map(o => ({ ...o, id: uid(o.id), x: o.x + shift, y: o.y + vshift }));
   const nb = { id: blkId(), items: nI.map(o => o.id), props: nP.map(o => o.id), dx: 0, dy: 0 };
   const zFrom = { ...(from.itemZ || {}) }, zTo = { ...(to.itemZ || {}) };
-  mvI.forEach((o, i) => { if (zFrom[o.id] != null) { zTo[nI[i].id] = zFrom[o.id]; delete zFrom[o.id]; } });
+  tI.forEach((o, i) => { if (zFrom[o.id] != null) { zTo[nI[i].id] = zFrom[o.id]; delete zFrom[o.id]; } });
   const ug = undoGroup();
   const fI = (from.items || []).filter(o => !ids.has(String(o.id))), fP = (from.props || []).filter(o => !pids.has(String(o.id)));
   const fB = (from.blocks || []).filter(x => x.id !== b.id);
