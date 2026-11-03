@@ -274,6 +274,59 @@ const saveFx = (pogId, fxId, f, v, gk) => { track(pogId, fxId, [f], gk || `${fxI
 const savePog = (pogId, f, v) => { track(pogId, '__pog', [f], `__pog|${f}`); queueWrite(`${pogId}|${f}`, () =>
   updateDoc(doc(db, 'pogs', pogId), { [f]: v, updatedAt: serverTimestamp() })); };
 
+/* ---------- 수정 기록 (사용자): 누가 무엇을 무엇으로 고쳤는지 ----------
+   pogs/{id}/logs = { fx: 페이지 id('__cover' = 표지·고정 문구), area: make|trans, lang?, field, act?, from, to, by, at }
+   drawings/{id}/logs = { vId, gid?, x?, y?(SVG 단위, 도면 확대 구역 거르기용), area: up|dwtr, lang?, field, act?, from, to, by, at }
+   같은 칸을 계속 고치면 4초 동안 모아서 한 줄 (처음 값 → 마지막 값). 같으면 안 남김 */
+const LOG_F = {
+  headerName: '매대명', fixtureType: '매대 타입', hookType: '고리타입', hookCount: '고리 갯수', sp: '선반/파이프', shelfPipe: '선반/파이프',
+  extras: '이외집기', otherFixtures: '기타 메모', manager: '담당자', notes: '메모 상자', itemZ: '제품 앞뒤', order: '페이지 순서', merged: '매대 붙이기',
+  mergedInto: '붙인 곳', drawingRef: '도면 매대 연결', items: '제품', props: '집기', coverTitle: '표지 제목', hooks: '쓸 고리', cat: '카테고리',
+  memo: '메모', crop: '저장 구역', tr: '번역', groups: '매대명 묶음', outsideItems: '매대 밖 제품', area: '평수',
+};
+const logLabel = (f = '') => LOG_F[f] || LABELS_KO[f] || (f.startsWith('x_') ? '이외집기 줄' : f.startsWith('n_') ? '글상자' : f);
+function logShort(f, v) {
+  if (v === undefined || v === null || v === '') return '';
+  if (f === 'notes' && Array.isArray(v)) return `${v.length}개 (글: ${v.filter(n => n.t === 'text').map(n => n.text).filter(Boolean).join(' / ').slice(0, 60)})`;
+  if ((f === 'sp' || f === 'extras') && Array.isArray(v)) return v.map(x => `${x.name || ''}${x.qty ? ' × ' + x.qty : ''}`).join(', ');
+  if (Array.isArray(v)) return `${v.length}개`;
+  if (f === 'drawingRef') return v.ko || '';
+  if (f === 'tr' && typeof v === 'object') return [v.text, (v.dx || v.dy) ? '위치 옮김' : '', v.sc && v.sc !== 1 ? `크기 ${Math.round(v.sc * 100)}%` : ''].filter(Boolean).join(' · ');
+  if (f === 'crop' && typeof v === 'object') return '구역 정함';
+  const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  return s.length > 120 ? s.slice(0, 117) + '…' : s;
+}
+const logBuf = new Map();
+function logEdit(path, key, info, before, afterFn) {
+  let b = logBuf.get(key);
+  if (!b) { b = { path, info, before: structuredClone(before ?? null) }; logBuf.set(key, b); }
+  b.afterFn = afterFn; clearTimeout(b.t);
+  b.t = setTimeout(() => flushLog(key), 4000);
+}
+function flushLog(key) {
+  const b = logBuf.get(key); if (!b) return; logBuf.delete(key); clearTimeout(b.t);
+  const f = b.info.field, from = logShort(f, b.before), to = logShort(f, b.afterFn());
+  if (from === to) return;
+  addLog(b.path, { ...b.info, from, to });
+}
+function addLog(path, entry) {
+  if (!state.user) return;
+  addDoc(collection(db, ...path, 'logs'), { ...Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined)), by: me(), at: serverTimestamp() }).catch(e => console.warn('수정 기록을 남기지 못했어요', e.code || e));
+}
+window.addEventListener('beforeunload', () => [...logBuf.keys()].forEach(flushLog));
+const flushLogs = () => [...logBuf.keys()].forEach(flushLog);
+// 기록 창: rows = 문서 데이터 배열 (최신 먼저)
+function logModal(title, sub, rows, extra) {
+  rows.sort((x, y) => (y.at?.toMillis?.() || 0) - (x.at?.toMillis?.() || 0));
+  modal(h('div', { class: 'log-pop' }, h('h3', {}, title), sub ? h('p', { class: 'mut' }, sub) : null, extra || null,
+    rows.length ? h('table', { class: 'gl-table log-table' }, h('thead', {}, h('tr', {}, h('th', {}, '언제'), h('th', {}, '누가'), h('th', {}, '무엇을'), h('th', {}, '바뀐 내용'))),
+      h('tbody', {}, ...rows.map(r => h('tr', {},
+        h('td', { class: 'nowrap' }, fmtTime(r.at)), h('td', {}, (r.by || '').split('@')[0]),
+        h('td', {}, (r.lang ? `[${r.lang}] ` : '') + (r.act || logLabel(r.field)) + (r.what ? ` · ${r.what}` : '')),
+        h('td', {}, r.act && !r.from && !r.to ? '' : h('span', {}, h('s', { class: 'mut' }, r.from || '(빈칸)'), ' → ', h('b', {}, r.to || '(빈칸)')))))))
+      : h('p', { class: 'mut pad' }, '아직 기록이 없어요.')), { wide: true });
+}
+
 /* ---------- 되돌리기 (POG 만들기: Ctrl+Z 되돌리기, Ctrl+Y 다시 하기, 툴바 ↶ ↷) ----------
    바꾸기 직전 값(state.fxRaw = 서버에서 받은 그대로)을 한 단계씩 기억. 같은 칸을 1.5초 안에 계속 고치면 한 단계.
    what = 바꾼 칸 이름들 | '*'(페이지 삭제: 문서 통째로) | 'new'(새로 만든 페이지). 되돌릴 때는 그 칸만 예전 값으로 씀 */
@@ -290,12 +343,21 @@ function track(pogId, docKey, what, gk) {
   }
   st.t = now; undo.redo = [];
   const raw = docKey === '__pog' ? state.pogRaw : state.fxRaw.get(docKey);
+  logTrack(pogId, docKey, what, raw);
   let op = st.ops.get(docKey);
   if (!op) { op = what === 'new' ? { whole: true, before: null } : what === '*' ? { whole: true, before: raw || null } : { whole: false, before: {}, fields: new Set() }; st.ops.set(docKey, op); }
   if (!op.whole) for (const f of what) if (!op.fields.has(f)) { op.fields.add(f); op.before[f] = raw && f in raw ? structuredClone(raw[f]) : undefined; }
   updateUndoBtns();
 }
 const undoGroup = () => 'g' + Date.now() + Math.random();
+function logTrack(pogId, docKey, what, raw) {
+  const fx = docKey === '__pog' ? '__cover' : docKey;
+  if (what === 'new') return addLog(['pogs', pogId], { fx, area: 'make', act: '빈 페이지 추가' });
+  if (what === '*') return addLog(['pogs', pogId], { fx, area: 'make', act: '페이지 삭제', what: raw ? displayName(raw) : '' });
+  const cur = () => docKey === '__pog' ? state.pogRaw : state.fxRaw.get(docKey);
+  for (const f of what) if (!['updatedAt', 'updatedBy'].includes(f))
+    logEdit(['pogs', pogId], `p|${pogId}|${docKey}|${f}`, { fx, area: 'make', field: f }, raw?.[f], () => cur()?.[f]);
+}
 async function applyStep(st) { // 이 단계 전 상태로 되돌리고, 반대로 갈 단계(지금 상태)를 돌려줌
   const pogId = undo.pogId, rev = { key: undoGroup(), t: 0, ops: new Map() }, b = writeBatch(db);
   for (const [k, op] of st.ops) {
@@ -1384,7 +1446,7 @@ $('#ed-final').onclick = async () => {
   const p = state.currentPog; if (!p) return;
   if (p.status === 'final') {
     if (!confirm('잠금을 풀고 다시 수정할 수 있게 할까요? 온라인 POG 목록에서는 빠져요.')) return;
-    await updateDoc(doc(db, 'pogs', p.id), { status: 'draft', updatedAt: serverTimestamp() });
+    await updateDoc(doc(db, 'pogs', p.id), { status: 'draft', updatedAt: serverTimestamp() }); addLog(['pogs', p.id], { fx: '__cover', area: 'make', act: '잠금 해제 (다시 편집)' });
     return;
   }
   const miss = [];
@@ -1394,6 +1456,7 @@ $('#ed-final').onclick = async () => {
   const msg = (miss.length ? '확인 필요: ' + miss.join(', ') + '\n\n' : '') + '최종 POG로 내보낼까요? 내보내면 수정이 잠기고 온라인 POG와 번역 화면에서 쓸 수 있어요.';
   if (!confirm(msg)) return;
   await updateDoc(doc(db, 'pogs', p.id), { status: 'final', finalizedAt: serverTimestamp(), finalizedBy: state.user.email, updatedAt: serverTimestamp() });
+  addLog(['pogs', p.id], { fx: '__cover', area: 'make', act: '최종 POG 내보내기' });
   toast('최종 POG로 내보냈어요');
 };
 $('#ed-delete').onclick = async () => {
@@ -1411,6 +1474,7 @@ async function deletePogAll(pogId) {
   const [fxs, trs] = await Promise.all([getDocs(collection(db, 'pogs', pogId, 'fixtures')), getDocs(collection(db, 'pogs', pogId, 'translations'))]);
   for (const d of fxs.docs) for (const ph of [...(d.data().photos || []), ...(d.data().notes || []).filter(n => n.path)]) { if (ph.path) try { await deleteObject(sRef(st, ph.path)); } catch { } }
   await deleteDocs([...fxs.docs.map(d => d.ref), ...trs.docs.map(d => d.ref)]);
+  await dropLogs(['pogs', pogId]);
   await deleteDoc(doc(db, 'pogs', pogId));
 }
 // 도면 통째로: 모든 버전(SVG 파일 포함)·번역·도면 문서
@@ -1418,8 +1482,11 @@ async function deleteDrawingAll(storeId) {
   const [vs, trs] = await Promise.all([getDocs(collection(db, 'drawings', storeId, 'versions')), getDocs(collection(db, 'drawings', storeId, 'translations'))]);
   for (const d of vs.docs) for (const pth of [d.data().path, d.data().basePath]) { if (pth) try { await deleteObject(sRef(st, pth)); } catch { } }
   await deleteDocs([...vs.docs.map(d => d.ref), ...trs.docs.map(d => d.ref)]);
+  await dropLogs(['drawings', storeId]);
   await deleteDoc(doc(db, 'drawings', storeId));
 }
+// 수정 기록도 지움 (규칙상 POG팀·VMD팀 등은 못 지움 → 그냥 남김)
+async function dropLogs(path) { try { const s = await getDocs(collection(db, ...path, 'logs')); await deleteDocs(s.docs.map(d => d.ref)); } catch { } }
 $('#ed-pdf').onclick = () => printPages($('#ed-pages'), state.currentPog);
 
 /* ---------- PDF (인쇄) ---------- */
@@ -1971,6 +2038,7 @@ $('#tr-only').addEventListener('change', () => renderTrSide(true));
 $('#tr-view').onclick = () => { const id = tr.pog?.id; if (!id) return; state.viewer.wantLang = tr.lang; go('pog-online'); openViewer(id); };
 function saveTr(fxId, key, v) {
   const pogId = tr.pog.id, lang = tr.lang, k = `tr|${pogId}|${lang}|${fxId}|${key}`;
+  logEdit(['pogs', pogId], k, { fx: fxId.startsWith('__') ? '__cover' : fxId, area: 'trans', lang, field: key }, tr.doc.fx?.[fxId]?.[key], () => tr.local?.[k]);
   ((tr.doc.fx ||= {})[fxId] ||= {})[key] = v;
   (tr.local ||= {})[k] = v;
   queueWrite(k, () => setDoc(doc(db, 'pogs', pogId, 'translations', lang), { lang, fx: { [fxId]: { [key]: v } }, updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true }));
@@ -2361,6 +2429,7 @@ function renderDw() {
     $('#dw-seg').classList.remove('hidden');
   }
   $('#dw-side').classList.toggle('hidden', dw.tab === 'on'); // 온라인 도면은 보기만
+  $('#dw-log').classList.toggle('hidden', dw.tab === 'on');
   $('#dw-find-box').classList.toggle('hidden', up);
   const fin = dwFinal(dw.doc);
   $('#dw-ver').textContent = v ? `ver.${v.no}${v.id === fin ? ' ★최종본' : ''}${v.exported ? '' : ' · 작성 중'}` : '도면 없음';
@@ -2527,12 +2596,14 @@ $('#dw-export').onclick = async () => {
   if (!confirm(`ver.${v.no}을(를) 내보낼까요?\n내보내면 글로벌사업부가 번역할 수 있어요. 고칠 게 생기면 '재업로드'로 다음 버전을 올리면 돼요.`)) return;
   const b = writeBatch(db);
   b.update(doc(db, 'drawings', dw.id, 'versions', v.id), { exported: true, exportedAt: serverTimestamp(), exportedBy: me() });
+  addLog(['drawings', dw.id], { vId: v.id, area: 'up', act: '내보내기', what: `ver.${v.no}` });
   b.set(doc(db, 'drawings', dw.id), { status: 'final', latestExported: v.no === dw.doc?.latestNo, updatedAt: serverTimestamp() }, { merge: true });
   await b.commit();
   toast(`ver.${v.no}을(를) 내보냈어요. 최종본이면 버전 기록에서 ★를 눌러주세요`);
 };
 async function starVersion(v) {
   await setDoc(doc(db, 'drawings', dw.id), { finalVersion: v.id, finalNo: v.no, updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true });
+  addLog(['drawings', dw.id], { vId: v.id, area: 'up', act: '★ 최종본으로 정함', what: `ver.${v.no}` });
   toast(`ver.${v.no}을(를) 최종본(★)으로 정했어요. POG에서 이 도면이 보여요`);
 }
 
@@ -2560,6 +2631,7 @@ function saveDwTr(gid, patch) {
   const id = dw.id, lang = dw.lang, vId = dw.vId, g = curVersion()?.groups.find(x => x.id === gid);
   const k = `dwtr|${id}|${lang}|${vId}|${gid}`;
   const cur = (((dw.tr.v ||= {})[vId] ||= {})[gid] ||= {});
+  logEdit(['drawings', id], k, { vId, gid, area: 'dwtr', lang, field: 'tr', what: g?.ko || '', ...(g ? { x: g.x + g.w / 2, y: g.y + g.h / 2 } : {}) }, { ...cur }, () => dw.local?.[k]);
   Object.assign(cur, { ko: g?.ko || '' }, patch);
   (dw.local ||= {})[k] = { ...cur };
   queueWrite(k, () => setDoc(doc(db, 'drawings', id, 'translations', lang), { lang, v: { [vId]: { [gid]: { ...dw.local[k] } } }, updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true }));
@@ -2687,9 +2759,10 @@ function renderCropStage(box, v) {
   });
   const done = () => { dw.cropping = false; dw.cropDraft = null; renderDwStage(); renderDwSide(); };
   const save = async crop => {
-    try { await updateDoc(doc(db, 'drawings', dw.id, 'versions', v.id), { crop: crop ? Object.fromEntries(Object.entries(crop).map(([k2, n]) => [k2, +n.toFixed(2)])) : deleteField() }); toast(crop ? '저장 구역을 정했어요' : '전체 도면으로 되돌렸어요'); done(); }
+    try { await updateDoc(doc(db, 'drawings', dw.id, 'versions', v.id), { crop: crop ? Object.fromEntries(Object.entries(crop).map(([k2, n]) => [k2, +n.toFixed(2)])) : deleteField() }); toast(crop ? '저장 구역을 정했어요' : '전체 도면으로 되돌렸어요'); addLog(['drawings', dw.id], { vId: v.id, area: 'up', act: crop ? '저장 구역 정함' : '저장 구역 없앰 (전체)' }); done(); }
     catch (e) { toast('저장하지 못했어요: ' + (e.code || e.message)); }
   };
+  dw.cropSave = save;
   box.replaceChildren(h('div', { class: 'dw-legend dw-crop-bar' },
     h('b', {}, '✂ 저장 구역 정하기'), ' · 도면 위를 끌어서 남길 곳을 네모로 그려 주세요. 네모 밖은 온라인 도면·번역·POG·PDF에서 안 보여요 (지워지지는 않아요).',
     h('span', { class: 'se-btns' }, h('button', { class: 'btn small primary', onclick: () => save(dw.cropDraft) }, '이 구역으로 저장'),
@@ -2734,6 +2807,48 @@ async function loadDwFindPog() {
 let dwFindT = 0;
 $('#dw-find').addEventListener('input', () => { clearTimeout(dwFindT); dwFindT = setTimeout(() => { dwf.jump = true; renderDwStage(); }, 250); });
 $('#dw-find').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); dwf.jump = true; renderDwStage(); } });
+// 도면 손으로 끌기: 마우스 휠(가운데 버튼)을 누른 채 움직이면 화면이 따라 움직임 (도면 위치는 그대로)
+$('#dw-stage').addEventListener('mousedown', e => {
+  if (e.button !== 1) return;
+  e.preventDefault();
+  const st = e.currentTarget, sx = e.clientX, sy = e.clientY, l0 = st.scrollLeft, t0 = st.scrollTop;
+  st.classList.add('panning');
+  const mv = ev => { st.scrollLeft = l0 - (ev.clientX - sx); st.scrollTop = t0 - (ev.clientY - sy); };
+  const up = () => { st.classList.remove('panning'); window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); };
+  window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up);
+});
+$('#dw-stage').addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
+
+// 수정 기록 보기: POG = 지금 보고 있는 페이지, 도면 = 전체 (확대했으면 화면에 보이는 구역 안에서 생긴 것만)
+async function readLogs(path, filter) {
+  flushLogs();
+  try { const s = await getDocs(filter ? query(collection(db, ...path, 'logs'), where(...filter)) : collection(db, ...path, 'logs')); return s.docs.map(d => d.data()); }
+  catch (e) { alert('기록을 읽지 못했어요: ' + (e.code || e.message) + '\n(보안 규칙이 아직 게시되지 않았을 수 있어요)'); return null; }
+}
+async function showPogLogs(pogId, fxId, name) {
+  const pageId = !fxId || fxId === '__cover' ? '__cover' : fxId;
+  const rows = await readLogs(['pogs', pogId], ['fx', '==', pageId]); if (!rows) return;
+  const all = h('button', { class: 'btn small ghost', onclick: async () => { const r = await readLogs(['pogs', pogId]); if (r) logModal('이 POG 전체 수정 기록', `${r.length}개`, r); } }, '이 POG 전체 기록 보기');
+  logModal(`수정 기록 · ${pageId === '__cover' ? '표지·고정 문구' : name}`, '이 페이지에서 POG 만들기·번역으로 고친 것', rows, all);
+}
+$('#ed-log').onclick = () => { const p = state.currentPog; if (!p) return; const fx = state.fixtures.get(state.edActive); showPogLogs(p.id, state.edActive, fx ? displayName(fx) : ''); };
+$('#tr-log').onclick = () => { const p = tr.pog; if (!p) return; const fx = (tr.fixtures || []).find(f => f.id === tr.active); showPogLogs(p.id, tr.active, fx ? displayName(fx) : ''); };
+$('#dw-log').onclick = async () => {
+  const v = curVersion(); if (!dw.id || !v) return;
+  const rows0 = await readLogs(['drawings', dw.id]); if (!rows0) return;
+  const rows = rows0.filter(r => !r.vId || r.vId === v.id);
+  // 화면에 보이는 도면 구역 (SVG 단위)
+  const cv = $('#dw-stage > .dw-canvas'), st = $('#dw-stage');
+  let area = null;
+  if (cv) {
+    const r = cv.getBoundingClientRect(), s = st.getBoundingClientRect(), c = dwCrop(v);
+    const L = Math.max(r.left, s.left), R = Math.min(r.right, s.right), T = Math.max(r.top, s.top), B = Math.min(r.bottom, s.bottom);
+    if (R > L && B > T && ((R - L) < r.width * 0.97 || (B - T) < r.height * 0.97))
+      area = { x0: c.x + (L - r.left) / r.width * c.w, x1: c.x + (R - r.left) / r.width * c.w, y0: c.y + (T - r.top) / r.height * c.h, y1: c.y + (B - r.top) / r.height * c.h };
+  }
+  const shown = area ? rows.filter(r => r.x != null && r.x >= area.x0 && r.x <= area.x1 && r.y >= area.y0 && r.y <= area.y1) : rows;
+  logModal(`도면 수정 기록 · ver.${v.no}`, area ? `확대해서 보이는 구역 안에서 생긴 기록만 (${shown.length}개 / 전체 ${rows.length}개). 메모·내보내기처럼 위치가 없는 기록은 100%로 보면 나와요.` : `이 버전 전체 (${rows.length}개). Alt+휠로 확대하면 보이는 구역의 기록만 볼 수 있어요.`, shown);
+};
 function verCard(v, { canStar, onOpen }) {
   const fin = dwFinal(dw.doc) === v.id;
   return h('div', { class: 'dw-ver' + (v.id === dw.vId ? ' cur' : ''), onclick: onOpen },
@@ -2758,10 +2873,15 @@ function renderDwSide() {
       nodes.push(h('div', { class: 'se-head' }, h('b', {}, `ver.${v.no}${dwFinal(dw.doc) === v.id ? ' ★최종본' : ''}`), h('span', { class: 'mut' }, `${v.fileName || ''} · 매대명 ${v.groups?.length || 0}개 읽음`)));
       const ta = h('textarea', { class: 'se-memo', rows: 5, placeholder: ed ? (v.no > 1 ? '이번 버전에서 바뀐 것, 특이사항' : '특이사항 메모') : '', disabled: !ed });
       ta.value = v.memo || '';
-      ta.addEventListener('input', () => queueWrite(`dw|${dw.id}|${v.id}|memo`, () => updateDoc(doc(db, 'drawings', dw.id, 'versions', v.id), { memo: ta.value })));
+      ta.addEventListener('input', () => { logEdit(['drawings', dw.id], `dw|${dw.id}|${v.id}|memo`, { vId: v.id, area: 'up', field: 'memo' }, v.memo || '', () => ta.value);
+        queueWrite(`dw|${dw.id}|${v.id}|memo`, () => updateDoc(doc(db, 'drawings', dw.id, 'versions', v.id), { memo: ta.value })); });
       nodes.push(sec(v.no > 1 ? '메모 (바뀐 것·특이사항)' : '특이사항 메모', ta));
       if (ed) nodes.push(sec('저장 구역', h('p', { class: 'se-help' }, v.crop ? `도면의 일부만 보여요 (가로 ${Math.round(v.crop.w / v.w * 100)}% · 세로 ${Math.round(v.crop.h / v.h * 100)}%).` : '지금은 도면 전체가 보여요. 필요 없는 가장자리가 있으면 남길 구역만 정할 수 있어요.'),
-        h('div', { class: 'se-btns' }, h('button', { class: 'btn small' + (dw.cropping ? ' primary' : ''), onclick: () => { dw.cropping = !dw.cropping; dw.cropDraft = null; renderDwStage(); renderDwSide(); } }, dw.cropping ? '구역 고르는 중… (취소)' : '✂ 저장 구역 정하기'))));
+        dw.cropping
+          ? h('div', { class: 'se-btns' }, h('p', { class: 'se-help' }, '도면 위를 끌어서 네모를 그린 다음 아래 버튼을 눌러야 저장돼요.'),
+              h('button', { class: 'btn primary', onclick: () => dw.cropSave?.(dw.cropDraft) }, '✓ 이 구역으로 저장'),
+              h('button', { class: 'btn small ghost', onclick: () => { dw.cropping = false; dw.cropDraft = null; renderDwStage(); renderDwSide(); } }, '취소'))
+          : h('div', { class: 'se-btns' }, h('button', { class: 'btn small', onclick: () => { dw.cropping = true; dw.cropDraft = null; renderDwStage(); renderDwSide(); } }, '✂ 저장 구역 정하기'))));
       if (ed) nodes.push(groupEditor(v));
     } else nodes.push(h('p', { class: 'se-help' }, '아직 올린 도면이 없어요.'));
     if (vers.length) nodes.push(sec('버전 기록', h('p', { class: 'se-help' }, ed ? '내보낸 버전 중 최종본에 ★를 누르세요. ★ 버전이 POG에서 보여요.' : '★ = 최종본 (POG에서 보이는 도면)'),
@@ -2819,7 +2939,10 @@ function groupEditor(v) {
     const linked = [...state.fixtures.values()].some(f => f.drawingRef?.vId === v.id);
     if (v.exported && !confirm(`이미 내보낸 버전이에요. ${msg}${linked ? '\nPOG에서 이 버전의 매대를 고른 페이지가 있으면, 나뉜 매대는 다시 골라야 할 수 있어요.' : ''}\n계속할까요?`)) return;
     list.sort((a, b) => a.y - b.y || a.x - b.x);
-    try { await updateDoc(doc(db, 'drawings', dw.id, 'versions', v.id), { groups: list }); dw.picks = new Set(); toast(msg); }
+    try {
+      await updateDoc(doc(db, 'drawings', dw.id, 'versions', v.id), { groups: list }); dw.picks = new Set(); toast(msg);
+      const g0 = sel[0]; addLog(['drawings', dw.id], { vId: v.id, area: 'up', act: '매대명 묶음', what: msg, ...(g0 ? { gid: g0.id, x: g0.x + g0.w / 2, y: g0.y + g0.h / 2 } : {}) });
+    }
     catch (e) { alert('저장하지 못했어요: ' + (e.code || e.message)); }
   };
   const split = () => {

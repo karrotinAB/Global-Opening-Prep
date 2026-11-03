@@ -71,7 +71,7 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 .editor { flex: 1; overflow: auto; min-width: 0; }
 .split.list-off .side-list { display: none; }
 .ed-body { display: flex; flex-direction: column; height: 100%; }
-.ed-main { flex: 1; min-height: 0; display: flex; }
+.ed-main { flex: 1; min-height: 0; display: flex; position: relative; }
 .ed-main .pages { flex: 1; overflow: auto; }
 
 /* 슬라이드 썸네일 (PPT처럼) */
@@ -431,6 +431,16 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
   .ed-body { height: auto; }
   .ed-main { display: block; }
 }
+
+/* 수정 기록 버튼: 편집 화면 오른쪽 아래 (오른쪽 패널 왼쪽) */
+.log-btn { position: absolute; right: 316px; bottom: 34px; z-index: 6; padding: 5px 11px; border: 1px solid var(--line); border-radius: 14px; background: #fff; color: var(--mut); font: inherit; font-size: 12px; cursor: pointer; box-shadow: 0 1px 6px rgba(0,0,0,.12); }
+.log-btn:hover { color: var(--or-d); border-color: var(--or); }
+.side-edit:empty + .log-btn, .side-edit.hidden + .log-btn { right: 16px; }
+.log-pop { min-width: 560px; max-width: 900px; }
+.log-table td { vertical-align: top; font-size: 12px; } .log-table td:last-child { min-width: 280px; } .log-table td s { color: #999; } .nowrap { white-space: nowrap; }
+.dw-stage.panning { cursor: grabbing; user-select: none; }
+.dw-crop-bar { position: sticky; top: 0; z-index: 7; background: #fff8ee; border: 1px solid #ffd8a8; border-radius: 8px; padding: 8px 10px; }
+@media print { .log-btn { display: none !important; } }
 
 /* 찾기 (온라인 POG·온라인 도면) */
 .find-box { display: inline-flex; align-items: center; gap: 4px; }
