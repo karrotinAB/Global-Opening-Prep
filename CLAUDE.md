@@ -212,7 +212,7 @@ barcodes/{바코드} code(제품코드), name?(제품명, 바코드 화면에서
                  // 바코드·제품코드가 이미 똑같이 등록된 줄은 제품명만 채움(`nameUpd`, 비어 있거나 다를 때). 제품명 열은 '제품명(한글)'처럼 써도 찾음
                  // 이미 있는 바코드·제품코드, 파일 안 중복은 바꾸지 않고 건너뜀 → 건너뛴 줄은 그 화면에만 한 번 표시(#bc-report, 저장 안 함, 엑셀로 받기)
 managers/{id}    name            // 담당자 드롭다운 목록
-roles/{email}    level, prefix(바이어: 매장코드 앞 4자리), ex(수출서류 사이트 권한), createdAt, updatedAt, updatedBy   // 계정 레벨 (admin | pog | vmd | global | buyer | finder | none | blocked | 예전 editor). 문서 없음 = none
+roles/{email}    level, prefix(바이어: 매장코드 앞 4자리), ex(수출서류 사이트 권한), name(화면에 보일 이름, 20자, 본인도 바꿀 수 있음), createdAt, updatedAt, updatedBy   // 계정 레벨 (admin | pog | vmd | global | buyer | finder | none | blocked | 예전 editor). 문서 없음 = none
 exReasons/{코드(소문자, URL 인코딩)}  code, items: { 서류번호: {reason, memo, by, at} }   // 수출서류 사이트: 없는 서류 사유
 exExtra/{PDF 경로(소문자, URL 인코딩)} path('07_GMP\\파일.pdf'), codes[], by, at          // 수출서류 사이트: 추가 제품코드
 exMeta/report    codes[]                                                              // 수출서류 사이트: 누적 엑셀에 들어간 코드

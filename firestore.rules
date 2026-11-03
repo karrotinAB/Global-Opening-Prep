@@ -27,7 +27,8 @@ service cloud.firestore {
       return exists(p) ? get(p).data.get('ex', 'none') : 'none';
     }
     function exOk(levels) { return signedIn() && level() != 'blocked' && (level() == 'admin' || exLv() in levels); }
-    function exValid(d) { return d.get('ex', 'none') in ['admin', 'edit', 'view', 'none']; }
+    function exValid(d) { return d.get('ex', 'none') in ['admin', 'edit', 'view', 'none']
+                                  && d.get('name', '') is string && d.get('name', '').size() <= 20; }  // name = 화면에 보이는 이름 (선택)
 
     match /roles/{email} {
       allow read: if signedIn() && (email == myEmail() || hasLevel(['admin']) || exOk(['admin']));
@@ -36,9 +37,12 @@ service cloud.firestore {
                        && request.resource.data.get('prefix', '').matches('^[0-9A-Za-z]{0,4}$') && exValid(request.resource.data)));
       // 수출서류 사이트 관리자: ex(이 사이트 권한)만 바꾸거나, Global POG 권한 없는(level none) 계정을 새로 만듦
       allow create: if exOk(['admin']) && request.resource.data.level == 'none' && exValid(request.resource.data)
-                    && request.resource.data.keys().hasOnly(['level', 'ex', 'createdAt', 'updatedAt', 'updatedBy']);
+                    && request.resource.data.keys().hasOnly(['level', 'ex', 'name', 'createdAt', 'updatedAt', 'updatedBy']);
       allow update: if exOk(['admin']) && exValid(request.resource.data)
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ex', 'updatedAt', 'updatedBy']);
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ex', 'name', 'updatedAt', 'updatedBy']);
+      // 누구나 자기 이름(name)만 바꿀 수 있음
+      allow update: if signedIn() && email == myEmail() && exValid(request.resource.data)
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'updatedAt']);
     }
 
     // POG: 만들기는 POG팀, 번역(translations)은 글로벌사업부
