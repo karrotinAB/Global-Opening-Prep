@@ -496,7 +496,9 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
   .page-block.cover-block .page-extra { display: none; }
   #v-dw .side-list, #v-dw .side-edit, #v-dw .toolbar, .dw-legend { display: none !important; }
   .dw-stage { padding: 0; overflow: visible; display: block; }
-  .dw-canvas { page: dwg; width: 297mm !important; max-width: none; box-shadow: none; }
+  /* A4 가로 한 장에 다 들어가게: 폭 285mm, 높이 198mm 안에서 도면 비율대로 (사용자) */
+  .dw-canvas { page: dwg; width: min(285mm, calc(198mm * var(--ar, 1.414))) !important; height: auto !important; max-width: none; box-shadow: none; margin: 6mm auto 0 !important; break-inside: avoid; page-break-inside: avoid; }
+  .dw-stage > :not(.dw-canvas) { display: none !important; }
   .dw-lab.need, .dw-lab.on { outline: none; background: none; color: #d61518; }
   .ph-dw { display: none; }
   .page .f::placeholder { color: transparent; }
