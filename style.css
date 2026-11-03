@@ -647,3 +647,24 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 @keyframes char-fly { 0% { transform: none; } 40% { transform: translateY(var(--fly, -150px)) rotate(-3deg); } 55% { transform: translateY(var(--fly, -150px)) rotate(3deg); } 100% { transform: none; } }
 @media (prefers-reduced-motion: reduce) { .login-chars img { animation: none !important; } }
 @media (max-width: 700px) { .login { padding-bottom: 145px; } .login-chars { --s: .32; --fly: -90px; gap: 2px; justify-content: center; padding: 110px 0 0; } }
+
+/* 계정 관리: POG 담당자 목록 */
+.mgr-h { margin: 28px 0 4px; }
+.mgr-table { max-width: 420px; }
+.pdl .modal-act .grow { flex: 1; }
+.pdl-row.pdl-guess { grid-template-columns: 24px 1.1fr 1.1fr 1fr 44px; cursor: pointer; }
+.pdl-row.pdl-guess.none { opacity: .55; cursor: default; }
+.pdl-score { font-size: 12px; color: var(--mut); text-align: right; }
+
+/* 매대 나누기 · 묶음 (POG 만들기) */
+.cv-bgrp { position: absolute; left: 0; top: 0; }
+.cv-blk { position: absolute; border: 2px dashed rgba(30,111,217,.55); border-radius: 4px; pointer-events: none; z-index: 9000; }
+.cv-blk.on { border-color: #1e6fd9; border-style: solid; box-shadow: 0 0 0 3px rgba(30,111,217,.18); }
+.cv-blk-h { position: absolute; left: -2px; top: -2px; z-index: 1; background: #1e6fd9; color: #fff; font-size: 9px; font-weight: 700; padding: 1px 5px; line-height: 1.3; border-radius: 0 0 4px 0; opacity: .9; cursor: grab; pointer-events: auto; white-space: nowrap; }
+.cv-blk.on .cv-blk-h { background: #0b4fa8; }
+.page-block.splitting .pcanvas { cursor: crosshair; outline: 2px dashed #f7931e; outline-offset: 2px; }
+.page-block.splitting .cv-item { pointer-events: none; }
+.cv .cv-item.split-pick { outline: 3px solid #f7931e; outline-offset: 1px; z-index: 9500 !important; }
+.pcanvas { position: relative; }
+.split-band { position: absolute; border: 2px dashed #f7931e; background: rgba(247,147,30,.12); pointer-events: none; z-index: 9999; }
+@media print { .cv-blk { display: none !important; } }

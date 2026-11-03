@@ -224,7 +224,7 @@ function startListeners() {
   }, () => { }));
   unsubs.push(onSnapshot(query(collection(db, 'managers'), orderBy('name')), s => {
     state.managers = s.docs.map(d => ({ id: d.id, ...d.data() }));
-    refreshManagerSelect();
+    refreshManagerSelect(); renderMgrAdmin();
   }));
   unsubs.push(onSnapshot(collection(db, 'glossary'), s => {
     state.glossary = s.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -437,14 +437,15 @@ function imgRetry(img) {
   else img.style.visibility = 'hidden';
   img.dispatchEvent(new Event('gaveup'));
 }
-function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
-  const items = fx.items || [];
+function buildCanvas(fx, W, H, onItem, { lazy = false, blockUI = false } = {}) {
+  fx = withBlocks(fx);
+  const items = fx.items || [], hasBlocks = !!fx._blocks;
   const wrap = h('div', { class: 'cv', style: `width:${W}px;height:${H}px` });
   // 가로 범위 = 매대(선반·파이프·넓은 판) 폭 + 제품이 삐져나온 만큼만. 여러 칸에 걸친 긴 집기는 이 범위에서 자른다
   const core = objs => { const ws = objs.map(o => o.w).sort((a, b) => a - b), med = ws[Math.floor(ws.length / 2)]; return objs.filter(o => o.w <= med * 1.6); };
   const frameAll = [...(fx.props || []), ...(fx.panels || []).filter(p => p.w >= 40)];
   let wx0 = -Infinity, wx1 = Infinity;
-  if (frameAll.length) {
+  if (frameAll.length && !hasBlocks) { // 묶음이 있으면 자르지 않음 (옮긴 묶음이 잘리지 않게)
     const c = core(frameAll);
     wx0 = Math.min(...c.map(o => o.x), ...items.map(i => i.x));
     wx1 = Math.max(...c.map(o => o.x + o.w), ...items.map(i => i.x + i.w));
@@ -461,9 +462,26 @@ function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
   const pad = 8, bw = x1 - x0 + pad * 2, bh = y1 - y0 + pad * 2;
   const sc = Math.min(W / bw, H / bh);
   const inner = h('div', { class: 'cv-in', style: `width:${bw}px;height:${bh}px;left:${(W - bw * sc) / 2}px;transform:scale(${sc})` });
+  inner._sc = sc;
+  // 매대 나누기로 만든 묶음이 있으면: 묶음마다·나머지마다 그 제품·집기를 감싸는 곳만 회색 바탕 (사용자). 묶음은 따로 한 층(.cv-bgrp)이라 끌어서 옮길 수 있음
+  const grpOf = new Map(); // 묶음 id → 층
+  const layer = o => o._b ? grpOf.get(o._b) : inner;
+  if (hasBlocks) {
+    const sets = [{ id: null }, ...fx._blocks];
+    for (const b of sets) {
+      const mem = [...props, ...items].filter(o => (o._b || null) === b.id);
+      if (b.id) { const gEl = h('div', { class: 'cv-bgrp', 'data-b': b.id }); grpOf.set(b.id, gEl); inner.append(gEl); }
+      if (!mem.length) continue;
+      const bx0 = Math.min(...mem.map(o => o.x)), by0 = Math.min(...mem.map(o => o.y)), bx1 = Math.max(...mem.map(o => o.x + o.w)), by1 = Math.max(...mem.map(o => o.y + Math.max(o.h || 0, 4)));
+      const back = h('div', { class: 'cv-back', style: `left:${bx0 - x0 + pad - 4}px;top:${by0 - y0 + pad - 4}px;width:${bx1 - bx0 + 8}px;height:${by1 - by0 + 8}px` });
+      (b.id ? grpOf.get(b.id) : inner).append(back);
+      if (b.id && blockUI) grpOf.get(b.id).append(h('div', { class: 'cv-blk no-print', 'data-b': b.id, style: `left:${bx0 - x0 + pad - 4}px;top:${by0 - y0 + pad - 4}px;width:${bx1 - bx0 + 8}px;height:${by1 - by0 + 8}px` },
+        h('span', { class: 'cv-blk-h', 'data-b': b.id, title: '끌어서 옮기기 · 누르면 선택 (Ctrl+X로 잘라내기)' }, `✥ 묶음 ${fx._blocks.indexOf(b) + 1}`)));
+    }
+  }
   // 매대 뒤 회색 바탕: 선반·파이프·배경판의 가로 범위 × 전체 높이 (붙인 매대는 매대마다 따로)
   const groups = new Map();
-  for (const o of [...props, ...panels.filter(p => p.w >= 40)]) { const g = o._g || 0; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(o); }
+  if (!hasBlocks) for (const o of [...props, ...panels.filter(p => p.w >= 40)]) { const g = o._g || 0; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(o); }
   for (const [g, frame] of groups) {
     const c = core(frame), fx0 = Math.min(...c.map(o => o.x)), fx1 = Math.max(...c.map(o => o.x + o.w));
     const back = h('div', { class: 'cv-back', style: `left:${fx0 - x0 + pad}px;top:${pad}px;width:${fx1 - fx0}px;height:${y1 - y0}px` });
@@ -479,7 +497,7 @@ function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
   }
   for (const p of props) {
     const color = p.color && !/rgba\(0, 0, 0, 0\)|transparent/.test(p.color) ? p.color : '#7d7d7d';
-    inner.append(h('div', { class: 'cv-prop', title: p.kind || '',
+    layer(p).append(h('div', { class: 'cv-prop', 'data-pid': p.id, title: p.kind || '',
       style: `left:${p.x - x0 + pad}px;top:${p.y - y0 + pad}px;width:${p.w}px;height:${Math.max(p.h || 0, 4)}px;background:${color}` }));
   }
   for (const it of items) {
@@ -487,7 +505,8 @@ function buildCanvas(fx, W, H, onItem, { lazy = false } = {}) {
       style: `left:${it.x - x0 + pad}px;top:${it.y - y0 + pad}px;width:${it.w}px;height:${it.h}px;z-index:${itemZ(fx, it)}` },
       it.img ? prodImg(it.img, it.name, { lazy }) : h('span', {}, it.name));
     if (onItem) el.onclick = () => onItem(it, fx);
-    inner.append(el);
+    if (it._b) el.dataset.b = it._b;
+    layer(it).append(el);
   }
   wrap.append(inner);
   return wrap;
@@ -669,10 +688,22 @@ function makeThumbs(box, scroller, onActive, tools = null) { // tools = { can(),
 const itemSig = fx => {
   const str = [...(fx.items || []).map(i => `${i.code}@${i.x},${i.y},${i.w},${i.h}`), ...(fx.props || []).map(p => `${p.x},${p.y},${p.w}`), ...(fx.panels || []).map(p => `${p.x},${p.y},${p.w},${p.h}`)].join('|');
   let hh = 0; for (let i = 0; i < str.length; i++) hh = (hh * 31 + str.charCodeAt(i)) | 0;
-  return `${(fx.items || []).length}:${(fx.props || []).length}:${hh}`;
+  return `${(fx.items || []).length}:${(fx.props || []).length}:${hh}:${JSON.stringify(fx.blocks || [])}`;
 };
 /* 매대 붙이기: 얇은 매대(스페이스월 등) 두 개를 한 페이지에. 붙인 쪽 fixture.merged = [id…], 붙여진 쪽 .mergedInto = id.
    붙여진 페이지는 따로 안 나오고, 붙인 페이지 그림 오른쪽에 나란히 그린다 (입력칸·번역은 붙인 페이지 것) */
+/* ---------- 매대 나누기 (사용자): fx.blocks = [{ id, items: [제품 id], props: [집기 id], dx, dy }]
+   고른 제품(과 그 안의 집기)을 '묶음'으로 떼어 따로 회색 바탕을 칠하고, 끌어서 옮기거나(dx, dy = POG 사이트 px) 다른 페이지로 잘라 붙임.
+   묶음에 없는 것 = 나머지. 그림은 withBlocks로 위치를 옮긴 복사본으로 그림 (원래 좌표는 그대로) */
+function withBlocks(fx) {
+  const bl = (fx.blocks || []).filter(b => (b.items || []).length || (b.props || []).length);
+  if (!bl.length || fx._blocks) return fx;
+  const ofI = new Map(), ofP = new Map();
+  bl.forEach(b => { (b.items || []).forEach(id => ofI.set(String(id), b)); (b.props || []).forEach(id => ofP.set(String(id), b)); });
+  const sh = (o, b) => b ? { ...o, x: o.x + (b.dx || 0), y: o.y + (b.dy || 0), _b: b.id } : o;
+  return { ...fx, items: (fx.items || []).map(o => sh(o, ofI.get(String(o.id)))), props: (fx.props || []).map(o => sh(o, ofP.get(String(o.id)))), _blocks: bl };
+}
+const blkId = () => 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 function combineFx(host, kids) {
   const ext = f => { const xs = [...(f.props || []), ...(f.panels || []), ...(f.items || [])]; return xs.length ? [Math.min(...xs.map(o => o.x)), Math.max(...xs.map(o => o.x + o.w))] : [0, 0]; };
   let right = ext(host)[1];
@@ -759,7 +790,7 @@ function buildPage(fx, pog, { editable, onItem, L = LABELS_KO }) {
       editable ? h('button', { class: 'ph-dw no-print', type: 'button', title: '도면에서 매대를 골라 헤더에 넣어요', onclick: () => openHeaderPicker(pog, fx) }, '📐 도면에서 고르기') : null,
       h('div', { class: 'ph-cat' }, fx._cat ?? catName(fx.teamName))),
     h('div', { class: 'pb' },
-      h('div', { class: 'pcanvas' }, buildCanvas(fx, CANVAS_W, CANVAS_H, onItem)),
+      h('div', { class: 'pcanvas' }, buildCanvas(fx, CANVAS_W, CANVAS_H, onItem, { blockUI: editable && !(fx._parts) })),
       h('div', { class: 'pside' },
         box(L.type, field('fixtureType', h('input', { list: 'dl-fixtureType', placeholder: '예: 벽매대1000' }))),
         box(L.hook, h('div', { class: 'hook-row' },
@@ -843,6 +874,9 @@ function finishBlock(fx, pog, page, editable) {
   if (editable) page.addEventListener('pointerdown', e => {
     setEdActive(fx.id);
     if (e.target.closest('.nt, .nh')) return;
+    if (state.split?.id === fx.id && e.target.closest('.pcanvas')) { splitBand(e, block); return; }
+    const hd = e.target.closest('.cv-blk-h');
+    if (hd) { dragBlock(e, block, hd.dataset.b); return; }
     selectNote(block, null);
     const item = e.target.closest('.cv-item');
     selectItem(block, item ? item.dataset.id : null);
@@ -1280,6 +1314,137 @@ function moveItemZ(pogId, fx, id, dir) {
   saveFx(pogId, fx.id, 'itemZ', map);
 }
 
+// 오른쪽 패널 '매대 나누기' 칸
+function splitSection(pog, fx, block) {
+  const btn = (t, fn, cls = '') => h('button', { class: 'btn small ' + cls, onclick: fn }, t);
+  const sec = (t, ...k) => h('section', { class: 'se-sec' }, h('h4', {}, t), ...k);
+  if (fx.merged?.length) return sec('매대 나누기', h('p', { class: 'se-help' }, '매대를 붙인 페이지는 나눌 수 없어요. 붙이기를 취소하고 나눠 주세요.'));
+  const bl = fx.blocks || [], sel = block._selBlock && bl.find(b => b.id === block._selBlock);
+  if (state.split?.id === fx.id) {
+    const n = state.split.items.size;
+    return sec('매대 나누기', h('p', { class: 'se-help' }, '매대 그림 위를 끌어서 떼어낼 제품을 네모로 고르세요 (여러 번 끌면 더해져요). 고른 제품과 그 안의 선반·파이프가 한 묶음이 되고, 나머지는 그대로 남아요.'),
+      h('div', { class: 'se-btns' }, btn(`✂ 고른 ${n}개를 묶음으로 나누기`, () => makeBlock(pog.id, fx, block), 'primary'), btn('다시 고르기', () => { state.split.items.clear(); state.split.props.clear(); paintSplit(block); renderSidePanel(); }, 'ghost'), btn('취소', () => { state.split = null; paintSplit(block); renderSidePanel(); }, 'ghost')));
+  }
+  return sec('매대 나누기', h('p', { class: 'se-help' }, '제품 일부를 떼어 따로 묶음으로 만들어요. 묶음은 회색 바탕을 따로 칠하고, ✥를 끌어 옮기거나 Ctrl+X → 다른 페이지에서 Ctrl+V로 옮길 수 있어요.'),
+    h('div', { class: 'se-btns' }, btn('✂ 매대 나누기', () => { state.split = { id: fx.id, items: new Set(), props: new Set() }; block._selBlock = null; paintSplit(block); renderSidePanel(); })),
+    sel ? h('div', { class: 'se-kid' }, h('span', {}, '선택한 묶음: ', h('b', {}, `묶음 ${bl.indexOf(sel) + 1}`), ` · 제품 ${(sel.items || []).length}개`)) : (bl.length ? h('p', { class: 'se-help' }, `묶음 ${bl.length}개 · 그림의 '✥ 묶음' 표시를 누르면 골라져요.`) : null),
+    sel ? h('div', { class: 'se-btns' }, btn('✂ 잘라내기 (Ctrl+X)', () => cutBlock(pog.id, fx, sel)), btn('제자리로', () => saveBlocks(pog.id, fx, bl.map(b => b.id === sel.id ? { ...b, dx: 0, dy: 0 } : b)), 'ghost'),
+      btn('묶음 풀기', () => saveBlocks(pog.id, fx, bl.filter(b => b.id !== sel.id), sel), 'ghost')) : null);
+}
+// 나누기: 끌어서 네모 → 걸친 제품(과 완전히 들어간 선반·파이프)을 고름
+function splitBand(e, block) {
+  e.preventDefault();
+  const cvIn = block.querySelector('.pcanvas .cv-in'); if (!cvIn) return;
+  const host = block.querySelector('.pcanvas'), r0 = host.getBoundingClientRect(), sx = e.clientX, sy = e.clientY;
+  const band = h('div', { class: 'split-band' }); host.append(band);
+  const box = ev => ({ l: Math.min(sx, ev.clientX), t: Math.min(sy, ev.clientY), r: Math.max(sx, ev.clientX), b: Math.max(sy, ev.clientY) });
+  const mv = ev => { const b = box(ev); Object.assign(band.style, { left: b.l - r0.left + 'px', top: b.t - r0.top + 'px', width: b.r - b.l + 'px', height: b.b - b.t + 'px' }); };
+  const up = ev => {
+    window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); band.remove();
+    const b = box(ev); if (b.r - b.l < 3 && b.b - b.t < 3) return;
+    cvIn.querySelectorAll('.cv-item').forEach(el => { const q = el.getBoundingClientRect(); if (q.right >= b.l && q.left <= b.r && q.bottom >= b.t && q.top <= b.b) state.split.items.add(el.dataset.id); });
+    // 집기는 네모 안에 다 들어간 것만
+    cvIn.querySelectorAll('.cv-prop').forEach(el => { const q = el.getBoundingClientRect(); if (el.dataset.pid && q.left >= b.l - 1 && q.right <= b.r + 1 && q.top >= b.t - 1 && q.bottom <= b.b + 1) state.split.props.add(el.dataset.pid); });
+    paintSplit(block); renderSidePanel();
+  };
+  window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+}
+function paintSplit(block) {
+  const on = state.split?.id === block._fx;
+  block.classList.toggle('splitting', on);
+  block.querySelectorAll('.cv-item').forEach(el => el.classList.toggle('split-pick', on && state.split.items.has(el.dataset.id)));
+}
+function saveBlocks(pogId, fx, list, unbake, keepSel = null) {
+  const ug = undoGroup();
+  if (unbake && (unbake.dx || unbake.dy)) { // 묶음 풀기: 옮긴 자리 그대로 두기
+    const ids = new Set((unbake.items || []).map(String)), pids = new Set((unbake.props || []).map(String));
+    const items = (fx.items || []).map(o => ids.has(String(o.id)) ? { ...o, x: o.x + unbake.dx, y: o.y + unbake.dy } : o);
+    const props = (fx.props || []).map(o => pids.has(String(o.id)) ? { ...o, x: o.x + unbake.dx, y: o.y + unbake.dy } : o);
+    saveFx(pogId, fx.id, 'items', items, ug); saveFx(pogId, fx.id, 'props', props, ug); fx.items = items; fx.props = props;
+  }
+  saveFx(pogId, fx.id, 'blocks', list, ug); fx.blocks = list;
+  rebuildPage(fx.id, keepSel);
+}
+// 페이지 그림 다시 그리기 (묶음이 바뀌었을 때)
+function rebuildPage(id, selBlock) { const el = state.pageEls.get(id); if (el) el._itemSig = null; renderEditorPages(); const nb = state.pageEls.get(id); if (nb && selBlock !== undefined) { nb._selBlock = selBlock; paintBlockSel(nb); } }
+function makeBlock(pogId, fx, block) {
+  const s = state.split; if (!s?.items.size) { toast('먼저 매대 그림 위를 끌어서 제품을 골라 주세요'); return; }
+  const ids = [...s.items], pids = [...s.props];
+  // 다른 묶음에 있던 것은 그 묶음에서 빼서 새 묶음으로 (옮겨 둔 위치는 그대로)
+  let bl = (fx.blocks || []).map(b => ({ ...b, items: (b.items || []).filter(i => !s.items.has(String(i))), props: (b.props || []).filter(i => !s.props.has(String(i))) }));
+  const moved = (fx.blocks || []).find(b => (b.items || []).some(i => s.items.has(String(i))));
+  bl = bl.filter(b => (b.items || []).length || (b.props || []).length);
+  const nb = { id: blkId(), items: ids, props: pids, dx: moved?.dx || 0, dy: moved?.dy || 0 };
+  state.split = null;
+  saveBlocks(pogId, fx, [...bl, nb], null, nb.id);
+  toast(`제품 ${ids.length}개를 묶음으로 나눴어요. ✥를 끌어 옮기거나 Ctrl+X로 잘라낼 수 있어요`);
+}
+// 묶음 끌어 옮기기 (그림 위 ✥). 살짝만 누르면 선택
+function dragBlock(e, block, bid) {
+  e.preventDefault(); e.stopPropagation();
+  const fx = state.fixtures.get(block._fx), b = (fx?.blocks || []).find(x => x.id === bid); if (!b) return;
+  const cvIn = block.querySelector('.pcanvas .cv-in'), g = cvIn?.querySelector(`.cv-bgrp[data-b="${CSS.escape(bid)}"]`), sc = cvIn?._sc || 1;
+  const sx = e.clientX, sy = e.clientY; let moved = false, ddx = 0, ddy = 0;
+  const mv = ev => { ddx = (ev.clientX - sx) / sc; ddy = (ev.clientY - sy) / sc; if (Math.abs(ddx) + Math.abs(ddy) > 2) moved = true; if (g) g.style.transform = `translate(${ddx}px, ${ddy}px)`; };
+  const up = () => {
+    window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up);
+    if (!moved) { block._selBlock = block._selBlock === bid ? null : bid; paintBlockSel(block); renderSidePanel(); return; }
+    saveBlocks(state.currentPog.id, fx, fx.blocks.map(x => x.id === bid ? { ...x, dx: Math.round((x.dx || 0) + ddx), dy: Math.round((x.dy || 0) + ddy) } : x), null, bid);
+  };
+  window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+}
+function paintBlockSel(block) { block.querySelectorAll('.cv-blk').forEach(el => el.classList.toggle('on', el.dataset.b === block._selBlock)); }
+// 잘라내기 → 다른 페이지에서 붙여넣기 (붙여넣을 때 실제로 옮김)
+function cutBlock(pogId, fx, b) {
+  state.clip = { pogId, from: fx.id, bid: b.id, n: (b.items || []).length };
+  toast(`묶음(제품 ${state.clip.n}개)을 잘라냈어요. 옮길 페이지를 보고 Ctrl+V (또는 오른쪽 '여기에 붙여넣기')`);
+  renderSidePanel();
+}
+function pasteBlock(pogId, to) {
+  const c = state.clip; if (!c || c.pogId !== pogId) return;
+  const from = state.fixtures.get(c.from), b = (from?.blocks || []).find(x => x.id === c.bid);
+  if (!from || !b) { state.clip = null; toast('잘라낸 묶음을 찾지 못했어요'); renderSidePanel(); return; }
+  if (to.id === from.id) { toast('다른 페이지에서 붙여넣어 주세요'); return; }
+  if (to.kind === 'free' || to.merged?.length) { toast('매대 페이지(붙이기 안 한 페이지)에 붙여넣어 주세요'); return; }
+  const ids = new Set((b.items || []).map(String)), pids = new Set((b.props || []).map(String));
+  const mvI = (from.items || []).filter(o => ids.has(String(o.id))), mvP = (from.props || []).filter(o => pids.has(String(o.id)));
+  if (!mvI.length && !mvP.length) { state.clip = null; return; }
+  // 붙일 페이지의 오른쪽 끝 옆에 (높이는 그대로)
+  const T = withBlocks(to), all = [...(T.items || []), ...(T.props || []), ...(T.panels || [])];
+  const right = all.length ? Math.max(...all.map(o => o.x + o.w)) : 0;
+  const left = Math.min(...[...mvI, ...mvP].map(o => o.x + (b.dx || 0)));
+  const shift = right + 40 - left;
+  const used = new Set([...(to.items || []), ...(to.props || [])].map(o => String(o.id)));
+  const uid = id => { let s = String(id), k = 1; while (used.has(s)) s = `${id}~${k++}`; used.add(s); return s; };
+  const nI = mvI.map(o => ({ ...o, id: uid(o.id), x: o.x + (b.dx || 0) + shift, y: o.y + (b.dy || 0) }));
+  const nP = mvP.map(o => ({ ...o, id: uid(o.id), x: o.x + (b.dx || 0) + shift, y: o.y + (b.dy || 0) }));
+  const nb = { id: blkId(), items: nI.map(o => o.id), props: nP.map(o => o.id), dx: 0, dy: 0 };
+  const zFrom = { ...(from.itemZ || {}) }, zTo = { ...(to.itemZ || {}) };
+  mvI.forEach((o, i) => { if (zFrom[o.id] != null) { zTo[nI[i].id] = zFrom[o.id]; delete zFrom[o.id]; } });
+  const ug = undoGroup();
+  const fI = (from.items || []).filter(o => !ids.has(String(o.id))), fP = (from.props || []).filter(o => !pids.has(String(o.id)));
+  const fB = (from.blocks || []).filter(x => x.id !== b.id);
+  saveFx(pogId, from.id, 'items', fI, ug); saveFx(pogId, from.id, 'props', fP, ug); saveFx(pogId, from.id, 'blocks', fB, ug); saveFx(pogId, from.id, 'itemZ', zFrom, ug);
+  saveFx(pogId, to.id, 'items', [...(to.items || []), ...nI], ug); saveFx(pogId, to.id, 'props', [...(to.props || []), ...nP], ug);
+  saveFx(pogId, to.id, 'blocks', [...(to.blocks || []), nb], ug); saveFx(pogId, to.id, 'itemZ', zTo, ug);
+  Object.assign(from, { items: fI, props: fP, blocks: fB, itemZ: zFrom });
+  Object.assign(to, { items: [...(to.items || []), ...nI], props: [...(to.props || []), ...nP], blocks: [...(to.blocks || []), nb], itemZ: zTo });
+  state.clip = null;
+  rebuildPage(from.id, null); rebuildPage(to.id, nb.id);
+  toast(`'${displayName(to)}'에 붙였어요. ✥를 끌어 자리를 맞추세요 (Ctrl+Z로 되돌릴 수 있어요)`);
+}
+document.addEventListener('keydown', e => {
+  if (state.view !== 'pog-make' || !state.edEditable || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const k = e.key.toLowerCase(); if (k !== 'x' && k !== 'v') return;
+  const a = document.activeElement;
+  if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return;
+  if ($('#modal-root')?.children.length) return;
+  const pog = state.currentPog, fx = state.fixtures.get(state.edActive), block = state.pageEls.get(state.edActive);
+  if (!pog || !fx) return;
+  if (k === 'x') { const b = block?._selBlock && (fx.blocks || []).find(x => x.id === block._selBlock); if (!b) return; e.preventDefault(); cutBlock(pog.id, fx, b); }
+  else if (state.clip) { e.preventDefault(); pasteBlock(pog.id, fx); }
+});
+
 /* ---------- 오른쪽 편집 패널: 지금 보고 있는 페이지의 메모 도구·메모·사진·페이지 버튼 ---------- */
 // 오른쪽 패널 ▲▼: 옮긴 페이지를 계속 따라감 (화면이 그 페이지로 같이 움직이고, 패널도 그 페이지 그대로).
 // 예전엔 화면은 제자리라 그 자리에 새로 온 페이지가 '지금 페이지'가 돼서, 다시 누르면 다른 페이지가 움직였음 (사용자)
@@ -1327,21 +1492,6 @@ function hookPicker(pog, ed) {
       h('button', { class: 'btn small ghost', onclick: () => { picked.clear(); apply(); draw(); } }, '모두 해제'),
       used.size ? h('button', { class: 'btn small ghost', onclick: () => { used.forEach(x => all.includes(x) && picked.add(x)); apply(); draw(); } }, '쓰는 고리 체크') : null) : null);
 }
-// 관리자용: 북마클릿이 이 매대 화면에서 찾은 타공판 단서 (POG 사이트가 타공판을 어떻게 그리는지 확인용)
-function lookInfo(fx) {
-  const L = fx.src?.look, b = fx.board, p = perfOf(fx, 0);
-  const rows = [
-    h('div', {}, '구멍 그리기: ', h('b', {}, p ? `${Math.round(p.x)}×${Math.round(p.y)}px 간격` : '안 그림')),
-    h('div', { class: 'mut' }, '판 정보: ', b ? (b.holes ? `구멍 요소 간격 ${b.holes.px}×${b.holes.py}` : `${b.from || '배경'} · 크기 ${b.size || '-'}`) : '없음'),
-  ];
-  if (!L) rows.push(h('div', { class: 'mut' }, '단서 없음 — 새 북마클릿으로 이 매대를 다시 가져와 주세요.'));
-  else {
-    rows.push(h('div', { class: 'mut' }, `매대 범위 요소 ${L.n}개 · 무늬·그림 ${L.bg.length}개 · 작은 구멍 ${L.holes ? `${L.holes.n}개(${L.holes.size}, 간격 ${L.holes.px}×${L.holes.py})` : '없음'}`));
-    L.bg.slice(0, 8).forEach(x => rows.push(h('div', { class: 'look-row' }, `${x.tag}${x.cls ? '.' + x.cls : ''}${x.ps || ''} ${x.w}×${x.h} · ${x.size || ''} · ${String(x.img || '').slice(0, 70)}`)));
-    if (L.err) rows.push(h('div', { class: 'mut' }, '오류: ' + L.err));
-  }
-  return h('details', { class: 'se-sec look' }, h('summary', {}, '타공판 정보 (확인용 · 관리자만)'), ...rows);
-}
 function renderSidePanel() {
   const box = $('#ed-side'), pog = state.currentPog;
   if (!box || !pog?.status) return;
@@ -1371,7 +1521,6 @@ function renderSidePanel() {
       h('div', { class: 'se-btns' }, btn('맨 앞으로', () => moveItemZ(pog.id, view, selIt.id, 1)), btn('맨 뒤로', () => moveItemZ(pog.id, view, selIt.id, -1)),
         btn('선택 해제', () => selectItem(block, null), 'ghost')),
       h('p', { class: 'se-help' }, '겹친 제품 중 어느 것이 앞에 보일지만 바꿔요. 위치는 그대로예요.')));
-    if (state.level === 'admin' && !free) nodes.push(lookInfo(fx));
     if (ed && block._bar) nodes.push(sec('메모 넣기', block._bar));
     if (ed && !free) {
       const list = [...state.edComposed.values()], i = list.findIndex(f => f.id === id), next = list.slice(i + 1).find(f => f.kind !== 'free');
@@ -1379,7 +1528,10 @@ function renderSidePanel() {
       nodes.push(sec('매대 붙이기', h('p', { class: 'se-help' }, '얇은 매대 두 개를 한 페이지에 나란히 넣어요. 붙인 매대 페이지는 따로 안 나와요.'),
         ...kids.map(k => h('div', { class: 'se-kid' }, h('span', {}, '붙인 매대: ', h('b', {}, displayName(k))), btn('↶ 붙이기 취소', () => unmerge(pog.id, fx, k.id), 'ghost'))),
         next ? h('div', { class: 'se-btns' }, btn(`⇣ 다음 매대 '${displayName(next)}' 붙이기`, () => mergeNext(pog.id, fx, state.fixtures.get(next.id)))) : null));
+      nodes.push(splitSection(pog, fx, block));
     }
+    if (ed && !free && state.clip && state.clip.pogId === pog.id && state.clip.from !== fx.id)
+      nodes.push(sec('붙여넣기', h('p', { class: 'se-help' }, `잘라낸 묶음(제품 ${state.clip.n}개)을 이 페이지 오른쪽에 붙여요.`), h('div', { class: 'se-btns' }, btn('📋 여기에 붙여넣기 (Ctrl+V)', () => pasteBlock(pog.id, fx)), btn('잘라내기 취소', () => { state.clip = null; renderSidePanel(); }, 'ghost'))));
     if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' },
       btn('▲ 앞으로', () => moveFollow(pog.id, fx.id, -1), 'ghost'),
       btn('▼ 뒤로', () => moveFollow(pog.id, fx.id, 1), 'ghost'),
@@ -1613,7 +1765,8 @@ const autoShelfPipe = (sh, pi) => [sh ? `선반 ${sh}` : '', pi ? `파이프 ${p
 function pagesFromGrab(f, i) {
   const panels = f.panels || [];
   const { inside, outside } = splitOutside(f.items || [], f.props || [], panels); // 매대 밖 제품은 버림 (사용자 결정: 아예 안 가져옴)
-  const bays = splitBays(inside, f.props || [], f.bayCount ?? null, panels);
+  // 제품이 하나도 없는 칸은 페이지를 만들지 않음 (사용자)
+  const bays = splitBays(inside, f.props || [], f.bayCount ?? null, panels).filter(b => b.items.length);
   const shelf = f.shelfCount ?? 0, pipe = f.pipeCount ?? 0;
   const kinds = (f.props || []).some(p => /선반|파이프/.test(p.kind || ''));
   const base = String(f.mdidx || 'fx' + i);
@@ -3152,6 +3305,22 @@ async function pogDrawing(pog) {
 async function readSeq(storeId, vId) {
   try { const d = await getDoc(doc(db, 'drawings', storeId, 'seq', vId)); return d.exists() ? { order: d.data().order || [] } : null; } catch { return null; }
 }
+// 이름 비슷한 정도 0~1: 낱말('/'·쉼표·괄호·띄어쓰기로 나눔)이 겹치는 정도 + 글자 두 개씩 겹치는 정도. POG 원래 이름 끝의 '_2_2600_1000'·'(1/4)'는 뺌
+const nameWords = s => String(s || '').replace(/\(\d+\/\d+\)/g, '').replace(/_[\d_A-Za-z]*$/, '').split(/[\/,·()\[\]\s&+]+/).map(w => w.replace(/[^가-힣A-Za-z0-9]/g, '')).filter(w => w.length > 0);
+const bigrams = s => { const t = s.replace(/[^가-힣A-Za-z0-9]/g, ''), out = new Set(); for (let i = 0; i < t.length - 1; i++) out.add(t.slice(i, i + 2)); return out; };
+function nameScore(fx, ko) {
+  const gw = nameWords(ko); if (!gw.length) return 0;
+  let best = 0;
+  for (const src of [fx.headerName, fx.mdName]) {
+    const pw = nameWords(src); if (!pw.length) continue;
+    const inter = gw.filter(w => pw.some(p => p === w || (p.length > 1 && w.length > 1 && (p.includes(w) || w.includes(p))))).length;
+    const word = inter / Math.max(gw.length, pw.length);
+    const A = bigrams(pw.join('')), B = bigrams(gw.join('')), both = [...A].filter(x => B.has(x)).length;
+    const dice = A.size + B.size ? 2 * both / (A.size + B.size) : 0;
+    best = Math.max(best, word * 0.65 + dice * 0.35 + (pw.join('') === gw.join('') ? 0.3 : 0));
+  }
+  return best;
+}
 // 페이지 → 도면 번호 (같은 버전이면 gid, 아니면 같은 한글 이름의 칸)
 function seqNoOf(fx, v, order) {
   const r = fx.drawingRef; if (!r || !order?.length) return 0;
@@ -3188,6 +3357,42 @@ async function openPogDwLink(pog) {
     await reorderPages(pog.id, [...has.sort((x, y) => num(x) - num(y)), ...rest]);
     toast('도면 번호 순서로 페이지를 바꿨어요'); setTimeout(paint, 700);
   } }, '도면순서로 POG 바꾸기');
+  // 자동 추측 연결 (사용자): 연결 안 된 페이지마다 이름(헤더·POG 원래 이름)이 가장 비슷한 도면 매대를 골라 미리 보여주고, 체크한 것만 연결
+  const guessBtn = h('button', { class: 'btn', onclick: () => {
+    const pages = [...state.edComposed.values()].filter(f => f.kind !== 'free' && !f.drawingRef);
+    if (!pages.length) { toast('연결 안 된 페이지가 없어요'); return; }
+    const used = new Map(); [...state.edComposed.values()].forEach(f => { const r = f.drawingRef; if (r?.vId === v.id) used.set(r.gid, 1); });
+    const rows = pages.map(f => {
+      let best = null;
+      for (const g of v.groups || []) {
+        const s = nameScore(f, g.ko) - (used.get(g.id) ? 0.15 : 0);
+        if (!best || s > best.s) best = { g, s };
+      }
+      if (best && best.s >= 0.34) used.set(best.g.id, 1); else best = null;
+      return { f, best };
+    });
+    const hit = rows.filter(r => r.best);
+    const checks = new Map();
+    const list = h('div', { class: 'pdl-list' }, ...rows.map(r => {
+      const cb = h('input', { type: 'checkbox', checked: !!r.best, disabled: !r.best }); checks.set(r.f.id, cb);
+      return h('label', { class: 'pdl-row pdl-guess' + (r.best ? '' : ' none') }, cb,
+        h('span', { class: 'pdl-name' }, displayName(r.f)), h('span', { class: 'pdl-orig' }, origName(r.f)),
+        h('span', { class: 'pdl-ref' }, r.best ? `→ 📐 ${r.best.g.ko}` : '비슷한 매대 없음'),
+        h('span', { class: 'pdl-score' }, r.best ? `${Math.round(Math.min(1, r.best.s) * 100)}%` : ''));
+    }));
+    const close2 = modal(h('div', { class: 'pdl' }, h('h3', {}, '자동 추측 연결'),
+      h('p', { class: 'mut' }, `연결 안 된 페이지 ${pages.length}장 중 ${hit.length}장에 비슷한 이름의 도면 매대를 찾았어요. 맞는 것만 체크된 채로 두고 '연결하기'를 누르세요. 틀린 건 나중에 '다시 연결'로 바꿀 수 있어요.`),
+      list, h('div', { class: 'modal-act' }, h('button', { class: 'btn primary', onclick: () => {
+        const ug = undoGroup(); let n = 0;
+        for (const r of hit) {
+          if (!checks.get(r.f.id)?.checked) continue;
+          const g = r.best.g, ref = { storeId: st0.id, vId: v.id, vNo: v.no, gid: g.id, ko: g.ko };
+          if (!r.f.headerName) { saveFx(pog.id, r.f.id, 'headerName', g.ko, ug); r.f.headerName = g.ko; const inp = state.pageEls.get(r.f.id)?.querySelector('[data-f="headerName"]'); if (inp) inp.value = g.ko; }
+          saveFx(pog.id, r.f.id, 'drawingRef', ref, ug); r.f.drawingRef = ref; n++;
+        }
+        close2(); toast(`${n}장을 연결했어요 (Ctrl+Z로 되돌릴 수 있어요)`); setTimeout(paint, 700);
+      } }, '연결하기'))), { wide: true });
+  } }, '🔎 자동 추측 연결');
   // 처음부터: 모든 페이지의 도면 연결을 풀고, 도면에서 넣은 매대명(연결한 이름 그대로인 헤더)도 비움. Ctrl+Z로 되돌릴 수 있음
   const resetBtn = h('button', { class: 'btn ghost danger', onclick: () => {
     const linked = [...state.edComposed.values()].filter(f => f.drawingRef);
@@ -3202,7 +3407,7 @@ async function openPogDwLink(pog) {
   } }, '처음부터');
   modal(h('div', { class: 'pdl' }, h('h3', {}, 'POG랑 도면 연결하기'), info,
     h('p', { class: 'se-help' }, "각 페이지 옆 '도면 연결하기'를 누르면 도면이 떠요. 매대를 누르면 그 페이지 헤더(매대명)와 연결돼요."),
-    body, h('div', { class: 'modal-act' }, resetBtn, sortBtn)), { wide: true });
+    body, h('div', { class: 'modal-act' }, resetBtn, h('span', { class: 'grow' }), guessBtn, sortBtn)), { wide: true });
   paint();
 }
 
@@ -4049,7 +4254,42 @@ function accName(r) {
   });
   return inp;
 }
+// POG 담당자 목록 (계정 관리 화면, 관리자): 이름 고치기·지우기 (사용자). 고치면 그 이름을 쓰는 POG·페이지도 같이 바꿀 수 있음
+function renderMgrAdmin() {
+  const body = $('#mgr-body'); if (!body) return;
+  const a = document.activeElement; if (body.contains(a) && a.tagName === 'INPUT') return; // 입력 중이면 그대로
+  body.replaceChildren(...(state.managers.length ? state.managers.map(m => {
+    const inp = h('input', { class: 'acc-name', maxlength: 20, value: m.name || '' });
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
+    inp.addEventListener('change', () => renameManager(m, inp));
+    return h('tr', {}, h('td', {}, inp), h('td', { class: 'tc' }, h('button', { class: 'btn ghost danger small', onclick: async () => {
+      if (!confirm(`담당자 '${m.name}'을(를) 목록에서 지울까요?\n이미 이 이름이 들어간 POG는 그대로 남아요.`)) return;
+      try { await deleteDoc(doc(db, 'managers', m.id)); toast('지웠어요'); } catch (e) { toast('지우지 못했어요: ' + (e.code || e.message)); }
+    } }, '삭제')));
+  }) : [h('tr', {}, h('td', { colspan: 2, class: 'mut pad' }, '등록된 담당자가 없어요. POG 만들기 위쪽 \'+ 담당자 추가\'로 넣어요.'))]));
+}
+async function renameManager(m, inp) {
+  const old = m.name || '', name = inp.value.trim().slice(0, 20);
+  if (!name || name === old) { inp.value = old; return; }
+  if (state.managers.some(x => x.id !== m.id && x.name === name)) { alert('같은 이름의 담당자가 이미 있어요.'); inp.value = old; return; }
+  try {
+    await updateDoc(doc(db, 'managers', m.id), { name });
+    // 이 이름이 들어간 POG(전체 담당자)·페이지(페이지 담당자)
+    const pogs = state.pogs.filter(p => p.manager === old);
+    const fxRefs = [];
+    for (const p of state.pogs) {
+      const s = await getDocs(query(collection(db, 'pogs', p.id, 'fixtures'), where('manager', '==', old))).catch(() => ({ docs: [] }));
+      s.docs.forEach(d => fxRefs.push(d.ref));
+    }
+    if ((pogs.length || fxRefs.length) && confirm(`이름을 '${name}'(으)로 바꿨어요.\n'${old}'이(가) 들어간 POG ${pogs.length}개·페이지 ${fxRefs.length}장도 '${name}'(으)로 바꿀까요?`)) {
+      const refs = [...pogs.map(p => doc(db, 'pogs', p.id)), ...fxRefs];
+      for (let i = 0; i < refs.length; i += 400) { const b = writeBatch(db); refs.slice(i, i + 400).forEach(r => b.update(r, { manager: name })); await b.commit(); }
+      toast(`POG ${pogs.length}개·페이지 ${fxRefs.length}장도 바꿨어요`);
+    } else toast('이름을 바꿨어요');
+  } catch (e) { alert('바꾸지 못했어요: ' + (e.code || e.message)); inp.value = old; }
+}
 function renderAccounts() {
+  renderMgrAdmin();
   const body = $('#acc-body'); body.innerHTML = '';
   const me = state.user?.email.toLowerCase();
   const rows = [...state.roles].sort((a, b) => a.id.localeCompare(b.id));
