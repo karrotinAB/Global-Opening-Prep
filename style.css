@@ -724,3 +724,12 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
   .fd-dw .dw-canvas { min-width: 460px; }
 }
 @media print { #v-pog-online .page-block, #v-pog-trans .page-block { zoom: 1 !important; } }
+
+/* 제품 찾기 PC 화면: 결과의 도면·POG를 양옆 나란히 (사용자). 휴대폰은 위아래 */
+.fd-col { min-width: 0; }
+@media (min-width: 900px) {
+  .fd { max-width: 1160px; }
+  .fd-top, #fd-step1, .fd-scan, #fd-result > .fd-prod, #fd-result > .fd-err { width: 100%; max-width: 560px; margin-left: auto; margin-right: auto; }
+  #fd-result { margin-top: 12px; }
+  .fd-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+}
