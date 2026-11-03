@@ -939,6 +939,21 @@ function placePage(pogId, fxIds, beforeId) { // beforeId 앞으로 (null이면 �
   return reorderPages(pogId, ids);
 }
 // 페이지 삭제 (매대 페이지·추가 페이지 모두). 붙여 둔 매대가 있으면 떼어서 따로 페이지로 남김
+// 제품이 하나도 없는 매대 페이지 (추가 페이지·붙여진 매대 제외, 붙인 페이지는 붙은 매대까지 합쳐서 봄)
+const emptyPages = () => composeFx(sortedFx()).filter(f => f.kind !== 'free' && !(f.items || []).length);
+async function deleteEmptyPages(pogId) {
+  const list = emptyPages(); if (!list.length) return;
+  if (!confirm(`제품이 하나도 없는 매대 페이지 ${list.length}장을 지울까요?\n${list.map(displayName).join(', ')}\n(Ctrl+Z로 되돌릴 수 있어요)`)) return;
+  try {
+    const g = undoGroup(), ids = list.flatMap(f => [f.id, ...((f._parts || []).map(p => p.id))]).filter((v, i, s) => s.indexOf(v) === i);
+    let b = writeBatch(db), n = 0;
+    for (const id of ids) { track(pogId, id, '*', g); b.delete(doc(db, 'pogs', pogId, 'fixtures', id)); if (++n >= 400) { await b.commit(); b = writeBatch(db); n = 0; } }
+    track(pogId, '__pog', ['fixtureCount'], g);
+    b.update(doc(db, 'pogs', pogId), { fixtureCount: Math.max(0, (state.currentPog?.fixtureCount || ids.length) - ids.length), updatedAt: serverTimestamp() });
+    await b.commit();
+    toast(`제품 없는 페이지 ${ids.length}장을 지웠어요 · Ctrl+Z로 되돌릴 수 있어요`);
+  } catch (e) { alert('지우지 못했어요: ' + (e.code || e.message)); }
+}
 async function deletePage(pogId, fx) {
   const kids = (fx.merged || []).filter(id => state.fixtures.get(id)?.mergedInto === fx.id);
   const msg = fx.kind === 'free' ? `'${displayName(fx)}' 페이지를 삭제할까요?`
@@ -1504,7 +1519,9 @@ function renderSidePanel() {
   if (id === '__cover') {
     nodes.push(h('div', { class: 'se-head' }, h('b', {}, '표지'), h('span', { class: 'mut' }, '매장명은 표지 가운데에서 바로 고칠 수 있어요')));
     nodes.push(hookPicker(pog, ed));
-    if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' }, btn('+ 표지 뒤에 빈 페이지 추가', () => addFreePage(pog.id, (sortedFx()[0]?.order ?? 0) - 1)))));
+    const emp = emptyPages();
+    if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' }, btn('+ 표지 뒤에 빈 페이지 추가', () => addFreePage(pog.id, (sortedFx()[0]?.order ?? 0) - 1)),
+      emp.length ? btn(`🧹 제품 없는 매대 페이지 지우기 (${emp.length}장)`, () => deleteEmptyPages(pog.id), 'danger') : null)));
     if (ed) nodes.push(sec('도면', h('p', { class: 'se-help' }, '페이지마다 도면 매대를 한꺼번에 연결하고, 온라인 도면에서 매긴 번호 순서로 페이지를 바꿀 수 있어요.'), h('div', { class: 'se-btns' }, btn('📐 POG랑 도면 연결하기', () => openPogDwLink(pog)))));
   } else {
     const fx = state.fixtures.get(id), block = state.pageEls.get(id);
@@ -1803,7 +1820,8 @@ async function doImport(text) {
     for (const [i, f] of data.fixtures.entries()) {
       if (empty(f)) continue; // 제품·집기가 하나도 없는 줄 (목록의 '★1차POG/리스트 전달완료★' 같은 표시 줄)
       const r = pagesFromGrab(f, i);
-      pages.push(...r.pages); outN += r.outN; if (r.pages.length > 1) splitN++;
+      const pg = r.pages.filter(p => (p.items || []).length); // 페이지로 나눈 뒤 제품 없는 페이지는 버림 (사용자)
+      pages.push(...pg); outN += r.outN; if (pg.length > 1) splitN++;
     }
     ref = await addDoc(collection(db, 'pogs'), {
       storeCode: data.storeCode || '', storeName: data.storeName || '', saup: data.saup || '00', storePrefix: codePrefix(data.storeCode),
