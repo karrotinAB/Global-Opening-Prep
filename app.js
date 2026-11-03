@@ -2538,7 +2538,9 @@ function renderDwList() {
   const list = $('#dw-list'); if (!list) return;
   const rows = dwListRows();
   list.innerHTML = '';
-  if (!rows.length) list.append(h('div', { class: 'mut pad' }, dw.tab !== 'up' ? '내보낸 도면이 있는 매장이 없어요.' : '등록된 매장이 없어요. 처음 화면의 \'매장 등록\'에서 먼저 등록해주세요.'));
+  const dq = $('#dw-search').value.trim();
+  if (!rows.length && dq) list.append(h('div', { class: 'mut pad' }, `'${dq}'와 맞는 매장이 없어요. `, h('button', { class: 'btn small', onclick: () => { $('#dw-search').value = ''; renderDwList(); $('#dw-search').focus(); } }, '검색 지우기')));
+  else if (!rows.length) list.append(h('div', { class: 'mut pad' }, dw.tab !== 'up' ? '내보낸 도면이 있는 매장이 없어요.' : '등록된 매장이 없어요. 처음 화면의 \'매장 등록\'에서 먼저 등록해주세요.'));
   for (const st of rows) {
     const d = state.dwMap.get(st.id);
     const sub = !d?.latestNo ? '도면 없음' : `ver.${d.latestNo}${d.latestExported ? '' : ' 작성 중'}${dwFinalNo(d) ? ` · ★ver.${dwFinalNo(d)}` : ''}`;
