@@ -300,6 +300,7 @@ glossary/{id}    cat, ko, en, code, tr, auto, createdBy, updatedBy, updatedAt //
 - `final`인 POG만 목록에 나온다. 읽기 전용.
 - **POG 계산기용 파일 받기** (툴바, 글사부·관리자만 · 편집 영역 `calc`, `exportCalc`): POG-calculator2의 수집 파일과 같은 모양(`POG_FL_DATA`, `source:'global-pog'`). 칸으로 나눈 페이지를 `mdidx`별로 다시 합치고, 집기 종류는 계산기 규칙(`data-propoption` 'Y' = 파이프). 매대 크기 mm·몸통·메모는 fixture `src`. `products`는 비어 있음 → 계산기에서 '상품 상세정보 채우기'. `src`가 없는 예전 POG는 경고 후 받기 (다시 가져오기 권장).
 - **바코드 없는 제품 엑셀** (툴바, **관리자만** · `data-admin`, `exportNoBarcode`): 이 POG의 제품코드 중 `barcodes`에 없는 것만 (30개씩 `where('code','in')`로 확인). 열은 바코드 업로드 양식과 같음(제품코드 · 바코드(빈칸) · 제품명) → 바코드만 채워서 바코드 등록에 올리면 됨.
+- **헤더(매대명)를 누르면 도면 위치 창 (사용자):** `showFxDrawing` → 제품 찾기와 같은 `fdDrawing`(빨간 칸·화살표, 지금 언어). 보기 화면의 매대명 칸은 disabled라 `.ph-dwlink *`에 `pointer-events:none`. 연결 안 된 매대는 안내 글.
 - 제품을 클릭하면 팝업: 사진, 제품명, 제품코드, 가격, **바코드(바코드 등록에서 제품코드로 찾음)**, 매대. (진열 그룹은 뺌 · 사용자)
 - 언어는 툴바의 알약 버튼(한국어 | English)으로 바로 바꾼다.
 - **찾기** (툴바 🔍, `vwFind`): 제품명·제품코드, 매대명(한글·지금 언어 번역)·카테고리(팀명)·매대 타입. 띄어쓰기·대소문자 무시(`findNorm`). 맞는 제품은 빨간 테두리 깜빡임(나머지 제품은 흐리게, 제품 찾기와 같은 `fd-dim`/`fd-hit`), 매대명·카테고리가 맞는 페이지는 빨간 테두리(`find-page`), 왼쪽 썸네일도 빨간 테두리. 'n쪽 · 제품 m개', ◀ ▶·Enter(Shift+Enter 이전)로 그 페이지로 이동. PDF에는 표시 안 나옴 (사용자).

@@ -3490,7 +3490,11 @@ function renderViewer() {
   const cover = buildCover(pogV, { editable: false, L }); syncCover(cover, pogV); wrap.append(cover);
   const blocks = new Map();
   const shownFx = composeFx(v.fixtures);
-  shownFx.forEach(f => { const fx = fxV(f); const el = buildPage(fx, pogV, { editable: false, onItem: showItem, L }); syncPage(el, fx, pogV); wrap.append(el); blocks.set(fx.id, el); });
+  shownFx.forEach(f => {
+    const fx = fxV(f); const el = buildPage(fx, pogV, { editable: false, onItem: showItem, L }); syncPage(el, fx, pogV); wrap.append(el); blocks.set(fx.id, el);
+    // 헤더(매대명)를 누르면 도면에서 이 매대 위치 (사용자)
+    const ph = el.querySelector('.ph'); if (ph && f.kind !== 'free') { ph.classList.add('ph-dwlink'); ph.title = v.lang !== 'ko' ? 'Click to see on floor plan' : '누르면 도면에서 위치를 보여줘요'; ph.onclick = () => showFxDrawing(f, fx); }
+  });
   vwThumbs.sync(slideEntries(cover, v.pog, shownFx, fx => blocks.get(fx.id)));
   v.blocks = blocks; vwFind();
 }
@@ -3537,6 +3541,13 @@ $('#vw-find').addEventListener('keydown', e => { if (e.key === 'Enter') { e.prev
 $('#vw-find-next').onclick = () => vwFind(1);
 $('#vw-find-prev').onclick = () => vwFind(-1);
 $('#vw-pdf').onclick = () => printPages($('#vw-pages'), state.viewer.pog);
+// 온라인 POG: 헤더 누르면 도면 위치 창 (제품 찾기와 같은 빨간 칸·화살표)
+function showFxDrawing(f, fx) {
+  const lang = state.viewer.lang || 'ko', en = lang !== 'ko';
+  const box = h('div', { class: 'fd-dw vw-dwpop' }, h('div', { class: 'mut' }, en ? 'Loading floor plan…' : '도면 불러오는 중…'));
+  modal(h('div', {}, h('h3', {}, (en ? 'Floor plan · ' : '도면 위치 · ') + displayName(fx)), box), { wide: true });
+  fdDrawing(box, f.drawingRef, lang);
+}
 function showItem(it, fx) {
   modal(h('div', { class: 'item-pop' },
     h('div', { class: 'ip-img' }, it.img ? prodImg(it.img, '', { fallback: false }) : null),
@@ -3942,19 +3953,21 @@ function fdCanvasH(fx, W) {
   return Math.round(Math.max(Math.min(W * 0.35, maxH), Math.min(maxH, W * r + 24)));
 }
 const ordinal = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
-async function fdDrawing(box, ref) {
+// lang: 제품 찾기는 lang, 온라인 POG 헤더 누르기는 그 화면 언어
+async function fdDrawing(box, ref, lang = fd.lang) {
+  const T = (ko, en) => lang !== 'ko' ? en : ko;
   if (!ref?.storeId || !ref.vId) { box.replaceChildren(h('div', { class: 'mut' }, T('이 매대는 도면과 연결되지 않았어요.', 'This fixture is not linked to the floor plan.'))); return; }
   try {
-    const key = `${ref.storeId}|${ref.vId}|${fd.lang}`;
+    const key = `${ref.storeId}|${ref.vId}|${lang}`;
     let c = fd.dwCache.get(key);
     if (!c) {
       const [v, t] = await Promise.all([getDoc(doc(db, 'drawings', ref.storeId, 'versions', ref.vId)),
-        fd.lang !== 'ko' ? getDoc(doc(db, 'drawings', ref.storeId, 'translations', fd.lang)).catch(() => null) : null]);
+        lang !== 'ko' ? getDoc(doc(db, 'drawings', ref.storeId, 'translations', lang)).catch(() => null) : null]);
       if (!v.exists()) throw new Error('no version');
       c = { v: { id: v.id, ...v.data() }, tr: t?.exists?.() ? t.data() : null }; fd.dwCache.set(key, c);
     }
-    const en = fd.lang !== 'ko' && c.tr;
-    box.replaceChildren(drawingView(c.v, en ? 'en' : 'ko', { only: ref.gid, plain: true, ctx: { vId: c.v.id, trDoc: c.tr || {}, lang: fd.lang } }));
+    const en = lang !== 'ko' && c.tr;
+    box.replaceChildren(drawingView(c.v, en ? 'en' : 'ko', { only: ref.gid, plain: true, ctx: { vId: c.v.id, trDoc: c.tr || {}, lang: lang } }));
     setTimeout(() => box.querySelector('.fd-on')?.scrollIntoView({ block: 'nearest', inline: 'center' }), 50);
   } catch { box.replaceChildren(h('div', { class: 'mut' }, T('도면을 불러오지 못했어요.', 'Could not load the floor plan.'))); }
 }
