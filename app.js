@@ -103,7 +103,7 @@ const displayName = fx => fx.kind === 'free' ? (fx.headerName || '추가 페이�
 const glossaryOf = cat => state.glossary.filter(g => g.cat === cat).sort((a, b) => (a.ko || '').localeCompare(b.ko || '', 'ko'));
 
 const state = {
-  user: null, level: null, view: 'home', roles: [], glLang: '', stores: [], dwMap: new Map(),
+  user: null, level: null, myName: '', view: 'home', roles: [], glLang: '', stores: [], dwMap: new Map(),
   pogs: [], managers: [], glossary: [], glCat: CATS[0],
   currentPog: null, fixtures: new Map(), pageEls: new Map(), lockKey: null, unsubPog: null, unsubFx: null,
   viewer: { unsubPog: null, unsubFx: null, pog: null, fixtures: [] },
@@ -120,13 +120,14 @@ onAuthStateChanged(auth, user => {
   $('#login').classList.toggle('hidden', !!user);
   $('#app').classList.toggle('hidden', !user);
   if (!user) return;
-  $('#me-email').textContent = user.email;
+  state.myName = ''; showMe();
   // 내 레벨을 읽고, 관리자가 바꾸면 바로 반영
   unsubRole = onSnapshot(doc(db, 'roles', user.email.toLowerCase()),
     d => {
       const lv = d.data()?.level;
       if (!d.exists()) console.warn(`roles/${user.email.toLowerCase()} 문서가 없어서 아무 화면도 열지 않아요 (계정 관리에서 레벨을 받아야 해요)`);
       else if (!LEVELS[lv]) console.warn(`roles/${user.email.toLowerCase()}의 level 값 '${lv}'을 알 수 없어요`);
+      state.myName = String(d.data()?.name || '').trim(); showMe();
       const pf = String(d.data()?.prefix || '').trim();
       if (pf !== state.prefix) { state.prefix = pf; if (state.level === 'buyer') { stopListeners(); startListeners(); } }
       setLevel(LEVELS[lv] && d.exists() ? lv : 'none');
@@ -161,6 +162,17 @@ $('#login-forgot').onclick = async e => {
   if (!email) return;
   try { await sendPasswordResetEmail(auth, email); alert(`${email}(으)로 비밀번호 재설정 메일을 보냈어요.\n메일의 링크를 눌러 새 비밀번호를 정해주세요. (안 보이면 스팸함도 확인해주세요)`); }
   catch (err) { alert(err.code === 'auth/invalid-email' ? '이메일 형식이 맞지 않아요.' : '메일을 보내지 못했어요: ' + (err.code || err.message)); }
+};
+// 화면에 보일 이름 = roles 문서의 name (수출서류 아카이빙 사이트와 같음). 없으면 이메일 앞부분
+const myName = () => state.myName || me().split('@')[0];
+// 기록에 보일 이름: 남길 때 저장한 이름 → (관리자는) 계정 목록의 이름 → 이메일 앞부분
+const nameOf = (email, saved) => saved || state.roles.find(r => r.id === String(email || '').toLowerCase())?.name || String(email || '').split('@')[0];
+function showMe() { $('#me-email').textContent = state.user ? myName() : ''; $('#me-email').title = state.user?.email || ''; }
+$('#btn-name').onclick = async () => {
+  const v = prompt('화면에 보일 이름을 넣어 주세요 (20자까지). 비우면 이메일 앞부분이 보여요.', state.myName);
+  if (v === null) return;
+  try { await updateDoc(doc(db, 'roles', me()), { name: v.trim().slice(0, 20), updatedAt: serverTimestamp() }); toast('이름을 바꿨어요'); }
+  catch (e) { toast('저장 실패: ' + (e.code === 'permission-denied' ? 'Firebase 콘솔에 최신 firestore.rules가 게시됐는지 확인해 주세요' : e.code || e.message)); }
 };
 // 내 비밀번호 바꾸기 (지금 비밀번호 확인 → 새 비밀번호)
 $('#btn-pw').onclick = () => {
@@ -311,7 +323,7 @@ function flushLog(key) {
 }
 function addLog(path, entry) {
   if (!state.user) return;
-  addDoc(collection(db, ...path, 'logs'), { ...Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined)), by: me(), at: serverTimestamp() }).catch(e => console.warn('수정 기록을 남기지 못했어요', e.code || e));
+  addDoc(collection(db, ...path, 'logs'), { ...Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined)), by: me(), byName: myName(), at: serverTimestamp() }).catch(e => console.warn('수정 기록을 남기지 못했어요', e.code || e));
 }
 window.addEventListener('beforeunload', () => [...logBuf.keys()].forEach(flushLog));
 const flushLogs = () => [...logBuf.keys()].forEach(flushLog);
@@ -321,7 +333,7 @@ function logModal(title, sub, rows, extra) {
   modal(h('div', { class: 'log-pop' }, h('h3', {}, title), sub ? h('p', { class: 'mut' }, sub) : null, extra || null,
     rows.length ? h('table', { class: 'gl-table log-table' }, h('thead', {}, h('tr', {}, h('th', {}, '언제'), h('th', {}, '누가'), h('th', {}, '무엇을'), h('th', {}, '바뀐 내용'))),
       h('tbody', {}, ...rows.map(r => h('tr', {},
-        h('td', { class: 'nowrap' }, fmtTime(r.at)), h('td', {}, (r.by || '').split('@')[0]),
+        h('td', { class: 'nowrap' }, fmtTime(r.at)), h('td', {}, nameOf(r.by, r.byName)),
         h('td', {}, (r.lang ? `[${r.lang}] ` : '') + (r.act || logLabel(r.field)) + (r.what ? ` · ${r.what}` : '')),
         h('td', {}, r.act && !r.from && !r.to ? '' : h('span', {}, h('s', { class: 'mut' }, r.from || '(빈칸)'), ' → ', h('b', {}, r.to || '(빈칸)')))))))
       : h('p', { class: 'mut pad' }, '아직 기록이 없어요.')), { wide: true });
@@ -2585,7 +2597,7 @@ async function uploadDrawing(file) {
     if (redo) for (const p of [latest.path, latest.basePath]) if (p) deleteObject(sRef(st, p)).catch(() => { });
     await setDoc(doc(db, 'drawings', id, 'versions', vId), {
       no, fileName: file.name, url, path, baseUrl, basePath, w: an.w, h: an.h, groups: an.groups, lineCount: an.lines,
-      memo: redo ? (latest.memo || '') : '', exported: false, uploadedAt: serverTimestamp(), uploadedBy: me(),
+      memo: redo ? (latest.memo || '') : '', exported: false, uploadedAt: serverTimestamp(), uploadedBy: me(), uploadedByName: myName(),
     });
     await setDoc(doc(db, 'drawings', id), { ...dwStoreInfo(store), storeId: id, latestNo: no, latestExported: false, updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true });
     dw.vId = vId;
@@ -2901,7 +2913,7 @@ function verCard(v, { canStar, onOpen }) {
       h('span', { class: 'badge ' + (v.exported ? 'final' : 'draft') }, v.exported ? '내보냄' : '작성 중'),
       canStar && v.exported ? h('button', { class: 'dw-star' + (fin ? ' on' : ''), title: fin ? '최종본' : '최종본으로 정하기', onclick: e => { e.stopPropagation(); if (!fin) starVersion(v); } }, '★')
         : fin ? h('span', { class: 'dw-star on', title: '최종본' }, '★') : null),
-    h('div', { class: 'd' }, `올림 ${fmtTime(v.uploadedAt)} · ${v.uploadedBy || ''}${v.exportedAt ? ` · 내보냄 ${fmtTime(v.exportedAt)}` : ''}`),
+    h('div', { class: 'd' }, `올림 ${fmtTime(v.uploadedAt)} · ${v.uploadedBy ? nameOf(v.uploadedBy, v.uploadedByName) : ''}${v.exportedAt ? ` · 내보냄 ${fmtTime(v.exportedAt)}` : ''}`),
     v.memo ? h('div', { class: 'm' }, v.memo) : null);
 }
 function renderDwSide() {
@@ -3554,7 +3566,7 @@ function glSearch(q) {
 }
 // 편집 기록: glossaryLog에 누가 언제 무엇을 바꿨는지 남김 (화면에는 '변경 기록'·ⓘ로만 작게)
 const me = () => state.user.email.toLowerCase();
-const logEntry = (g, action, changes = []) => ({ gid: g.id, cat: g.cat || '', ko: g.ko || '', action, changes, by: me(), at: serverTimestamp() });
+const logEntry = (g, action, changes = []) => ({ gid: g.id, cat: g.cat || '', ko: g.ko || '', action, changes, by: me(), byName: myName(), at: serverTimestamp() });
 const glLog = (g, action, changes) => addDoc(collection(db, 'glossaryLog'), logEntry(g, action, changes)).catch(() => { });
 const fieldLabel = f => ({ ko: '한국어', en: 'English', cat: '분류', code: '제품코드' }[f] || f.replace(/^tr\./, ''));
 
@@ -3669,7 +3681,7 @@ function renderGlossary() {
     const codeCell = showCode ? h('td', {}, CODE_CATS.includes(g.cat) ? inp('code') : null) : null;
     body.append(h('tr', {}, codeCell, catCell, h('td', {}, inp('ko')), h('td', {}, inp('en')), lang ? h('td', {}, trInp()) : null,
       h('td', { class: 'tc' }, ed ? h('span', {},
-        h('button', { class: 'gl-i', type: 'button', title: g.updatedBy ? `마지막 수정: ${g.updatedBy} · ${fmtDate(g.updatedAt)}` : '편집 기록 보기', onclick: () => showGlLog(g) }, 'ⓘ'),
+        h('button', { class: 'gl-i', type: 'button', title: g.updatedBy ? `마지막 수정: ${nameOf(g.updatedBy)} · ${fmtDate(g.updatedAt)}` : '편집 기록 보기', onclick: () => showGlLog(g) }, 'ⓘ'),
         h('button', { class: 'btn ghost danger small', onclick: async () => {
           if (!confirm(`'${g.ko}'를 삭제할까요?`)) return;
           await deleteDoc(doc(db, 'glossary', g.id));
@@ -3732,7 +3744,7 @@ async function showGlLog(g) {
       box.append(h('table', { class: 'log-tbl' },
         h('tr', {}, h('th', {}, '날짜'), h('th', {}, '편집자'), h('th', {}, ''), g ? null : h('th', {}, '단어'), h('th', {}, '내용')),
         ...rows.map(l => h('tr', {},
-          h('td', {}, fmtTime(l.at)), h('td', {}, l.by), h('td', {}, ACTION[l.action] || l.action),
+          h('td', {}, fmtTime(l.at)), h('td', {}, nameOf(l.by, l.byName)), h('td', {}, ACTION[l.action] || l.action),
           g ? null : h('td', {}, `[${l.cat}] ${l.ko}`),
           h('td', { class: 'log-ch' }, ...(l.changes || []).map(c => h('div', {}, `${fieldLabel(c.f)}: ${c.from || '(빈칸)'} → `, h('b', {}, c.to || '(빈칸)'))))))));
     };
@@ -3874,11 +3886,20 @@ const levelSelect = v => {
   const sel = h('select', { class: 'acc-sel' }, ...keys.map(k => h('option', { value: k }, LEVELS[k])));
   sel.value = v; return sel;
 };
+// 이름 칸: 바로 고치면 저장 (화면 오른쪽 위·기록에 이메일 대신 보임)
+function accName(r) {
+  const inp = h('input', { class: 'acc-name', maxlength: 20, placeholder: r.id.split('@')[0], value: r.name || '' });
+  inp.addEventListener('change', async () => {
+    try { await updateDoc(doc(db, 'roles', r.id), { name: inp.value.trim().slice(0, 20), updatedAt: serverTimestamp(), updatedBy: me() }); toast('이름을 바꿨어요'); }
+    catch (e) { toast('저장 실패: ' + e.message); inp.value = r.name || ''; }
+  });
+  return inp;
+}
 function renderAccounts() {
   const body = $('#acc-body'); body.innerHTML = '';
   const me = state.user?.email.toLowerCase();
   const rows = [...state.roles].sort((a, b) => a.id.localeCompare(b.id));
-  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 5, class: 'mut pad' }, '등록된 계정이 없어요.')));
+  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 6, class: 'mut pad' }, '등록된 계정이 없어요.')));
   rows.forEach(r => {
     const sel = levelSelect(LEVELS[r.level] ? r.level : 'finder');
     sel.addEventListener('change', async () => {
@@ -3897,6 +3918,7 @@ function renderAccounts() {
     body.append(h('tr', {},
       h('td', {}, r.id, r.id === me ? h('span', { class: 'acc-me' }, '나') : null,
         r.level === 'blocked' ? h('span', { class: 'acc-old' }, '접속 막힘 · 레벨을 고르면 다시 열려요') : ASSIGNABLE.includes(r.level) ? null : h('span', { class: 'acc-old' }, '레벨을 다시 골라주세요')),
+      h('td', {}, accName(r)),
       h('td', {}, sel),
       h('td', {}, pf || (r.level === 'buyer' ? null : h('span', { class: 'mut' }, '—')), r.level === 'buyer' && !r.prefix ? h('div', { class: 'acc-old' }, '4자리를 넣어야 매장이 보여요') : null),
       h('td', {}, r.level === 'admin' ? '관리자 (자동)' : EX_LEVELS[r.ex] || h('span', { class: 'mut' }, '—')),

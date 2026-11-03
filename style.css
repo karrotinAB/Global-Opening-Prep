@@ -498,6 +498,7 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .bc-bar .sp { flex: 1; }
 .bc-search { width: 100%; margin: 14px 0 8px; padding: 10px 12px; font-size: 15px; }
 .acc-pf { width: 90px; }
+.acc-name { width: 110px; }
 
 /* 알약 모양 언어 버튼 (한국어 | English) */
 .seg { display: inline-flex; background: #ececec; border-radius: 999px; padding: 3px; gap: 2px; flex: none; }
