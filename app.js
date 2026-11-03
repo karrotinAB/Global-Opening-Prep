@@ -168,12 +168,7 @@ const myName = () => state.myName || me().split('@')[0];
 // 기록에 보일 이름: 남길 때 저장한 이름 → (관리자는) 계정 목록의 이름 → 이메일 앞부분
 const nameOf = (email, saved) => saved || state.roles.find(r => r.id === String(email || '').toLowerCase())?.name || String(email || '').split('@')[0];
 function showMe() { $('#me-email').textContent = state.user ? myName() : ''; $('#me-email').title = state.user?.email || ''; }
-$('#btn-name').onclick = async () => {
-  const v = prompt('화면에 보일 이름을 넣어 주세요 (20자까지). 비우면 이메일 앞부분이 보여요.', state.myName);
-  if (v === null) return;
-  try { await updateDoc(doc(db, 'roles', me()), { name: v.trim().slice(0, 20), updatedAt: serverTimestamp() }); toast('이름을 바꿨어요'); }
-  catch (e) { toast('저장 실패: ' + (e.code === 'permission-denied' ? 'Firebase 콘솔에 최신 firestore.rules가 게시됐는지 확인해 주세요' : e.code || e.message)); }
-};
+// 이름은 관리자만 계정 관리 '이름' 칸에서 정함 (사용자: 일반 계정에는 '이름 바꾸기' 안 보이게)
 // 내 비밀번호 바꾸기 (지금 비밀번호 확인 → 새 비밀번호)
 $('#btn-pw').onclick = () => {
   const cur = h('input', { type: 'password', placeholder: '지금 비밀번호', autocomplete: 'current-password' });
