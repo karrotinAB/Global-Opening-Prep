@@ -2502,20 +2502,32 @@ async function analyzeSvg(text) {
   live.setAttribute('width', vw); live.setAttribute('height', vh);
   host.append(live); document.body.append(host);
   const root = live.getBoundingClientRect(), k = vw / (root.width || vw);
-  const lines = [];
-  live.querySelectorAll('text').forEach(t => {
-    const parts = [...t.querySelectorAll('tspan')].filter(x => !x.querySelector('tspan'));
-    for (const el of parts.length ? parts : [t]) {
-      if (!el.textContent.trim()) continue;
+  const lines = [], dark = new Set(); // dark = 검은 글씨 (치수·W800 같은 것): 번역 칸을 만들지 않고 영문 도면에도 그대로 남김 (사용자)
+  const leaves = t => { const ps = [...t.querySelectorAll('tspan')].filter(x => !x.querySelector('tspan')); return ps.length ? ps : [t]; };
+  live.querySelectorAll('text').forEach((t, ti) => {
+    leaves(t).forEach((el, li) => {
+      if (!el.textContent.trim()) return;
+      if (isDarkFill(getComputedStyle(el).fill)) { dark.add(ti + ':' + li); return; }
       for (const c of charRuns(el)) {
         const w = c.w * k, hh = c.h * k;
         lines.push({ text: c.text, x: (c.x - root.left) * k, y: (c.y - root.top) * k, w, h: hh, lh: c.text.length > 1 && hh > w * 1.5 ? w : hh }); // lh = 글자 굵기 (세로 글씨면 폭)
       }
-    }
+    });
   });
   host.remove();
-  const base = svg.cloneNode(true); base.querySelectorAll('text').forEach(e => e.remove());
-  return { w: vw, h: vh, clean, base: new XMLSerializer().serializeToString(base), lines: lines.length, groups: groupLines(lines) };
+  // 바탕(영문 도면용): 검은 글씨만 남기고 나머지 글자를 지움
+  const base = svg.cloneNode(true);
+  base.querySelectorAll('text').forEach((t, ti) => {
+    const ls = leaves(t), keep = ls.filter((_, li) => dark.has(ti + ':' + li));
+    if (!keep.length) t.remove(); else if (keep.length < ls.length) ls.forEach((el, li) => { if (!dark.has(ti + ':' + li)) el.remove(); });
+  });
+  return { w: vw, h: vh, clean, base: new XMLSerializer().serializeToString(base), lines: lines.length, darkKept: dark.size, groups: groupLines(lines) };
+}
+// 검은색(또는 아주 진한 회색) 글씨인지: Illustrator 검정 #231F20 등
+function isDarkFill(f) {
+  const m = String(f || '').match(/rgba?\(\s*(\d+)[ ,]+(\d+)[ ,]+(\d+)/); if (!m) return false;
+  const c = [+m[1], +m[2], +m[3]];
+  return Math.max(...c) < 90 && Math.max(...c) - Math.min(...c) < 40;
 }
 // 글자 조각 하나를 글자 위치로 다시 나눔: 한 조각 안에 멀리 떨어진 매대명 여러 개가 들어 있을 때 (글자 크기만큼 떨어지면 다른 덩어리)
 function charRuns(el) {
@@ -2597,7 +2609,7 @@ async function uploadDrawing(file) {
     });
     await setDoc(doc(db, 'drawings', id), { ...dwStoreInfo(store), storeId: id, latestNo: no, latestExported: false, updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true });
     dw.vId = vId;
-    toast(`ver.${no} 올렸어요 · 매대명 ${an.groups.length}개 읽음. 다 되면 '내보내기'를 눌러주세요`);
+    toast(`ver.${no} 올렸어요 · 매대명 ${an.groups.length}개 읽음${an.darkKept ? ` (검은 글씨 ${an.darkKept}개는 번역 안 하고 그대로 둠)` : ''}. 다 되면 '내보내기'를 눌러주세요`);
   } catch (e) { toast('올리기 실패: ' + e.message); }
 }
 $('#dw-export').onclick = async () => {
@@ -2682,7 +2694,7 @@ function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, p
       const s0 = ctx ? dwRowState(g, ctx.vId, ctx.trDoc, ctx.lang) : dwRowState(g), m = s0.m, sc = m.sc || 1;
       const look = dw.tab === 'on' || !onLab; // 보기만 (온라인 도면·PDF): 점선·끌기 없음
       const el = h('div', { class: 'dw-lab' + (s0.need && !look ? ' need' : '') + (g.id === selId && !look ? ' on' : '') + (!look && canEdit('drawing-trans') ? ' edit' : ''),
-        style: `left:${pct(g.x + g.w / 2 + (m.dx || 0), v.w)};top:${pct(g.y + (m.dy || 0), v.h)};font-size:${(g.fs * 0.82 * sc / v.w * 100).toFixed(4)}cqw` },
+        style: `left:${pct(g.x + g.w / 2 + (m.dx || 0), v.w)};top:${pct(g.y + (m.dy || 0), v.h)};width:${pct(g.w * (m.wd || 1), v.w)};font-size:${(g.fs * 0.82 * sc / v.w * 100).toFixed(4)}cqw` },
         (s0.show || g.ko).replace(/ ?\/ ?/g, '/'));
       el.title = g.ko;
       if (!look) el.addEventListener('pointerdown', e => dragLabel(e, g, wrap, v));
@@ -2966,7 +2978,7 @@ function renderDwSide() {
     const g = groups.find(x => x.id === dw.sel);
     if (g) {
       const s0 = dwRowState(g);
-      const ta = h('textarea', { class: 'se-memo', rows: 2, placeholder: s0.a.text, disabled: !ed }); ta.value = s0.value;
+      const ta = h('textarea', { class: 'se-memo', rows: 3, placeholder: s0.a.text, disabled: !ed, title: 'Enter로 줄을 바꿀 수 있어요' }); ta.value = s0.value;
       ta.addEventListener('input', () => { saveDwTr(g.id, { text: ta.value.trim() }); renderDwStage(); });
       if (canGl) ta.addEventListener('change', () => {
         const val = ta.value.trim();
@@ -2975,11 +2987,15 @@ function renderDwSide() {
       });
       const scSel = h('select', { class: 'nb-sel', disabled: !ed }, ...[0.6, 0.7, 0.8, 0.9, 1, 1.2, 1.4, 1.7, 2].map(x => h('option', { value: x }, Math.round(x * 100) + '%')));
       scSel.value = String(s0.m.sc || 1); scSel.onchange = () => { saveDwTr(g.id, { sc: Number(scSel.value) }); renderDwStage(); };
+      // 칸 폭: 영어가 이 폭 안에서 줄바꿈됨 (원래 한글 칸 폭 기준)
+      const wdSel = h('select', { class: 'nb-sel', disabled: !ed }, ...[0.6, 0.8, 1, 1.2, 1.5, 2, 2.5, 3].map(x => h('option', { value: x }, Math.round(x * 100) + '%')));
+      wdSel.value = String(s0.m.wd || 1); wdSel.onchange = () => { saveDwTr(g.id, { wd: Number(wdSel.value) }); renderDwStage(); };
       nodes.push(sec('고르는 글자', h('div', { class: 'tr-ko' }, g.lines.join('\n')),
         ta, s0.a.missing.length && !s0.m.text && !s0.prev ? h('div', { class: 'tr-why', style: 'color:var(--red)' }, `사전에 없는 말: ${s0.a.missing.join(', ')}`) : null,
         s0.status === 'prev' ? h('div', { class: 'tr-why' }, '이전 버전 번역을 그대로 가져왔어요') : null,
-        h('div', { class: 'se-btns' }, h('span', { class: 'nb-l' }, '글자 크기'), scSel,
-          ed ? h('button', { class: 'btn small ghost', onclick: () => { saveDwTr(g.id, { dx: 0, dy: 0, sc: 1 }); renderDw(); } }, '위치·크기 처음대로') : null,
+        h('p', { class: 'se-help' }, '영어는 칸 폭 안에서 저절로 줄바꿈돼요. 원하는 곳에서 바꾸려면 Enter를 누르세요.'),
+        h('div', { class: 'se-btns' }, h('span', { class: 'nb-l' }, '글자 크기'), scSel, h('span', { class: 'nb-l' }, '칸 폭'), wdSel,
+          ed ? h('button', { class: 'btn small ghost', onclick: () => { saveDwTr(g.id, { dx: 0, dy: 0, sc: 1, wd: 1 }); renderDw(); } }, '위치·크기 처음대로') : null,
           canGl && s0.a.missing.length ? h('button', { class: 'btn small ghost', onclick: () => askGlossary({ id: 'dw' }, { key: g.id, label: '도면 매대명', ko: g.ko, addCat: '카테고리' }, ta.value.trim(),
             { lang: dw.lang, st: { a: s0.a, custom: false }, onUse: x => saveDwTr(g.id, { text: x }), after: () => renderDw() }) }, '사전에 추가') : null)));
     }
