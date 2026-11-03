@@ -668,3 +668,59 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .pcanvas { position: relative; }
 .split-band { position: absolute; border: 2px dashed #f7931e; background: rgba(247,147,30,.12); pointer-events: none; z-index: 9999; }
 @media print { .cv-blk { display: none !important; } }
+
+/* ===== 휴대폰 화면 (사용자: 모바일에서 보기 좋게) ===== */
+@media (max-width: 700px) {
+  /* 상단: 첫 줄 로고·내 정보, 둘째 줄 메뉴(옆으로 밀기) */
+  .topbar { flex-wrap: wrap; height: auto; padding: 6px 10px 0; gap: 0 10px; overflow: visible; }
+  .topbar .brand, .link-brand { font-size: 14px; }
+  .me { margin-left: auto; gap: 8px; font-size: 11px; }
+  .me #btn-pw { display: none; }
+  #nav { order: 3; flex: 1 0 100%; margin: 2px -10px 0; padding: 0 6px 6px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  #nav::-webkit-scrollbar { display: none; }
+  nav button { padding: 6px 10px; font-size: 14px; }
+  .subnav { margin-left: 6px; padding-left: 6px; }
+
+  /* 처음 화면·도면/POG 고르기 타일: 화면 폭에 맞게 */
+  .home { padding: 20px 12px; }
+  .tiles, .tiles.three, .tiles.five { width: 100%; max-width: 420px; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .tiles:not(.three):not(.five) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tiles.five .tile.sub { margin-top: 4px; }
+  .tile { border-radius: 14px; gap: 6px; font-size: 14px; padding: 6px; text-align: center; }
+  .tile svg { width: 40px; height: 40px; }
+  .tile small { font-size: 11px; }
+
+  /* 목록 + 화면: 위아래로 */
+  .side-list { max-height: 34vh; }
+
+  /* A4 페이지(온라인 POG·POG 번역)는 화면 폭에 맞게 줄여서 */
+  #v-pog-online .pages, #v-pog-trans .pages { padding: 8px; gap: 12px; align-items: center; overflow-x: hidden; }
+  #v-pog-online .page-block, #v-pog-trans .page-block { zoom: var(--pz, .46); }
+
+  /* 툴바 버튼이 줄바꿈되게 */
+  .ed-head, .toolbar, .dw-tools, .tb-right { flex-wrap: wrap; gap: 6px; }
+  .toolbar { height: auto; padding: 8px 10px; }
+  .tb-right { margin-left: 0; width: 100%; }
+  .tb-right .btn { padding: 6px 10px; font-size: 13px; }
+
+  /* 표: 칸이 눌리지 않게 옆으로 밀어서 보기 */
+  .st-table, #acc-body, .acc-table, .mgr-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .st-table th, .st-table td { white-space: nowrap; }
+  .st-table input { min-width: 110px; }
+  .gl-wrap { padding: 16px 14px; border-radius: 0; }
+
+  /* 매장 등록 입력칸: 두 줄로 */
+  .st-add { flex-wrap: wrap; }
+  .st-add > input { flex: 1 1 40%; min-width: 0; }
+  .st-add .st-date { flex: 1 1 100%; }
+  .st-add .st-date input { flex: 1; width: auto; }
+  .st-add .btn { flex: 1 1 100%; }
+
+  /* 모달 창 */
+  .modal > div, .modal-box { max-width: calc(100vw - 20px); }
+  .log-pop { min-width: 0; }
+
+  /* 제품 찾기 도면: 화면 폭에 맞게 (옆으로 밀어서 자세히) */
+  .fd-dw .dw-canvas { min-width: 460px; }
+}
+@media print { #v-pog-online .page-block, #v-pog-trans .page-block { zoom: 1 !important; } }
