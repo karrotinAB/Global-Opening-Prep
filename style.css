@@ -797,3 +797,8 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .ph.ph-dwlink:hover { box-shadow: inset 0 0 0 2px var(--or); }
 .vw-dwpop .dw-canvas { min-width: 0; }
 @media print { .ph.ph-dwlink:hover { box-shadow: none; } }
+
+/* 매대 나누기 묶음은 그림 칸 밖으로 튀어나와도 보이게 (사용자) */
+.cv.has-blk { overflow: visible; }
+.cv.has-blk .cv-bgrp { z-index: 6; }
+.pb:has(.cv.has-blk) .pcanvas { z-index: 3; }

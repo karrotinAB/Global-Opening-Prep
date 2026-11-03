@@ -447,7 +447,7 @@ function imgRetry(img) {
 function buildCanvas(fx, W, H, onItem, { lazy = false, blockUI = false } = {}) {
   fx = withBlocks(fx);
   const items = fx.items || [], hasBlocks = !!fx._blocks;
-  const wrap = h('div', { class: 'cv', style: `width:${W}px;height:${H}px` });
+  const wrap = h('div', { class: 'cv' + (hasBlocks ? ' has-blk' : ''), style: `width:${W}px;height:${H}px` });
   // 가로 범위 = 매대(선반·파이프·넓은 판) 폭 + 제품이 삐져나온 만큼만. 여러 칸에 걸친 긴 집기는 이 범위에서 자른다
   const core = objs => { const ws = objs.map(o => o.w).sort((a, b) => a - b), med = ws[Math.floor(ws.length / 2)]; return objs.filter(o => o.w <= med * 1.6); };
   const frameAll = [...(fx.props || []), ...(fx.panels || []).filter(p => p.w >= 40)];
@@ -462,7 +462,8 @@ function buildCanvas(fx, W, H, onItem, { lazy = false, blockUI = false } = {}) {
   const objs = [...panels, ...props, ...items];
   if (!objs.length) { wrap.append(h('div', { class: 'cv-empty' }, '매대 데이터 없음')); return wrap; }
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (const o of objs) {
+  if (hasBlocks && fx.frame) ({ x0, y0, x1, y1 } = fx.frame); // 묶음이 있으면 기억해 둔 틀로 (튀어나온 묶음 때문에 작아지지 않게)
+  else for (const o of objs) {
     x0 = Math.min(x0, o.x); y0 = Math.min(y0, o.y);
     x1 = Math.max(x1, o.x + o.w); y1 = Math.max(y1, o.y + Math.max(o.h || 0, 4));
   }
@@ -709,6 +710,13 @@ function withBlocks(fx) {
   bl.forEach(b => { (b.items || []).forEach(id => ofI.set(String(id), b)); (b.props || []).forEach(id => ofP.set(String(id), b)); });
   const sh = (o, b) => b ? { ...o, x: o.x + (b.dx || 0), y: o.y + (b.dy || 0), _b: b.id } : o;
   return { ...fx, items: (fx.items || []).map(o => sh(o, ofI.get(String(o.id)))), props: (fx.props || []).map(o => sh(o, ofP.get(String(o.id)))), _blocks: bl };
+}
+// 매대 그림의 범위 (제품·집기·판, 묶음 위치 반영). 묶음을 처음 만들거나 붙여넣기 직전에 fx.frame으로 기억해 두고,
+// 그 뒤에는 이 틀로만 그림 크기를 정함 → 묶음을 옮기거나 붙여넣어 매대 밖으로 튀어나와도 원래 매대가 작아지지 않음 (사용자)
+function cvBox(fx) {
+  const f = withBlocks(fx), objs = [...(f.panels || []), ...(f.props || []), ...(f.items || [])].filter(o => o.w > 0);
+  if (!objs.length) return null;
+  return { x0: Math.min(...objs.map(o => o.x)), y0: Math.min(...objs.map(o => o.y)), x1: Math.max(...objs.map(o => o.x + o.w)), y1: Math.max(...objs.map(o => o.y + Math.max(o.h || 0, 4))) };
 }
 const blkId = () => 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 function combineFx(host, kids) {
@@ -1384,6 +1392,8 @@ function saveBlocks(pogId, fx, list, unbake, keepSel = null) {
     const props = (fx.props || []).map(o => pids.has(String(o.id)) ? { ...o, x: o.x + unbake.dx, y: o.y + unbake.dy } : o);
     saveFx(pogId, fx.id, 'items', items, ug); saveFx(pogId, fx.id, 'props', props, ug); fx.items = items; fx.props = props;
   }
+  if (list.length && !fx.frame) { const fr = cvBox(fx); saveFx(pogId, fx.id, 'frame', fr, ug); fx.frame = fr; } // 처음 나눌 때의 매대 범위를 기억
+  if (!list.length && fx.frame) { saveFx(pogId, fx.id, 'frame', null, ug); fx.frame = null; }
   saveFx(pogId, fx.id, 'blocks', list, ug); fx.blocks = list;
   rebuildPage(fx.id, keepSel);
 }
@@ -1431,15 +1441,15 @@ function pasteBlock(pogId, to) {
   const ids = new Set((b.items || []).map(String)), pids = new Set((b.props || []).map(String));
   const mvI = (from.items || []).filter(o => ids.has(String(o.id))), mvP = (from.props || []).filter(o => pids.has(String(o.id)));
   if (!mvI.length && !mvP.length) { state.clip = null; return; }
-  // 붙일 페이지의 오른쪽 끝 옆에 (높이는 그대로)
-  const T = withBlocks(to), all = [...(T.items || []), ...(T.props || []), ...(T.panels || [])];
-  const right = all.length ? Math.max(...all.map(o => o.x + o.w)) : 0;
-  const left = Math.min(...[...mvI, ...mvP].map(o => o.x + (b.dx || 0)));
-  const shift = right + 40 - left;
+  // 붙일 자리: 붙일 페이지 매대 틀 안 오른쪽 끝에 맞춰서 (화면 안에 보여야 끌어서 옮길 수 있음 · 사용자). 높이는 틀 안으로
+  const fr = to.frame || cvBox(to), mv = [...mvI, ...mvP].map(o => ({ ...o, x: o.x + (b.dx || 0), y: o.y + (b.dy || 0) }));
+  const left = Math.min(...mv.map(o => o.x)), bw = Math.max(...mv.map(o => o.x + o.w)) - left, top = Math.min(...mv.map(o => o.y));
+  const shift = fr ? Math.max(fr.x0, fr.x1 - bw) - left : -left;
+  const vshift = fr ? Math.min(Math.max(top, fr.y0), Math.max(fr.y0, fr.y1 - 30)) - top : 0;
   const used = new Set([...(to.items || []), ...(to.props || [])].map(o => String(o.id)));
   const uid = id => { let s = String(id), k = 1; while (used.has(s)) s = `${id}~${k++}`; used.add(s); return s; };
-  const nI = mvI.map(o => ({ ...o, id: uid(o.id), x: o.x + (b.dx || 0) + shift, y: o.y + (b.dy || 0) }));
-  const nP = mvP.map(o => ({ ...o, id: uid(o.id), x: o.x + (b.dx || 0) + shift, y: o.y + (b.dy || 0) }));
+  const nI = mvI.map(o => ({ ...o, id: uid(o.id), x: o.x + (b.dx || 0) + shift, y: o.y + (b.dy || 0) + vshift }));
+  const nP = mvP.map(o => ({ ...o, id: uid(o.id), x: o.x + (b.dx || 0) + shift, y: o.y + (b.dy || 0) + vshift }));
   const nb = { id: blkId(), items: nI.map(o => o.id), props: nP.map(o => o.id), dx: 0, dy: 0 };
   const zFrom = { ...(from.itemZ || {}) }, zTo = { ...(to.itemZ || {}) };
   mvI.forEach((o, i) => { if (zFrom[o.id] != null) { zTo[nI[i].id] = zFrom[o.id]; delete zFrom[o.id]; } });
@@ -1448,9 +1458,11 @@ function pasteBlock(pogId, to) {
   const fB = (from.blocks || []).filter(x => x.id !== b.id);
   saveFx(pogId, from.id, 'items', fI, ug); saveFx(pogId, from.id, 'props', fP, ug); saveFx(pogId, from.id, 'blocks', fB, ug); saveFx(pogId, from.id, 'itemZ', zFrom, ug);
   saveFx(pogId, to.id, 'items', [...(to.items || []), ...nI], ug); saveFx(pogId, to.id, 'props', [...(to.props || []), ...nP], ug);
+  const toFrame = to.frame || cvBox(to), fromFrame = fB.length ? from.frame || null : null; // 붙일 페이지는 붙이기 전 매대 범위를 틀로
+  saveFx(pogId, to.id, 'frame', toFrame, ug); saveFx(pogId, from.id, 'frame', fromFrame, ug);
   saveFx(pogId, to.id, 'blocks', [...(to.blocks || []), nb], ug); saveFx(pogId, to.id, 'itemZ', zTo, ug);
-  Object.assign(from, { items: fI, props: fP, blocks: fB, itemZ: zFrom });
-  Object.assign(to, { items: [...(to.items || []), ...nI], props: [...(to.props || []), ...nP], blocks: [...(to.blocks || []), nb], itemZ: zTo });
+  Object.assign(from, { items: fI, props: fP, blocks: fB, itemZ: zFrom, frame: fromFrame });
+  Object.assign(to, { items: [...(to.items || []), ...nI], props: [...(to.props || []), ...nP], blocks: [...(to.blocks || []), nb], itemZ: zTo, frame: toFrame });
   state.clip = null;
   rebuildPage(from.id, null); rebuildPage(to.id, nb.id);
   toast(`'${displayName(to)}'에 붙였어요. ✥를 끌어 자리를 맞추세요 (Ctrl+Z로 되돌릴 수 있어요)`);
