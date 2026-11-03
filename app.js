@@ -3902,14 +3902,15 @@ function fdShow({ q, code, barcode, hits }) {
     const posTxt = !pos ? T('위치를 계산하지 못했어요 (집기 정보 없음)', 'Position unknown')
       : FD_EN() ? `${pos.pipe ? 'Pipe' : 'Shelf'} ${pos.row} from top${pos.col ? ` · ${ordinal(pos.col)} from left` : ''}`
       : `위에서 ${pos.row}번째 ${pos.pipe ? '파이프' : '선반'}${pos.col ? ` · 왼쪽에서 ${pos.col}번째` : ''}`;
-    const W = Math.min(window.innerWidth - 56, 520), cv = buildCanvas(fxT, W, fdCanvasH(fxT, W));
+    const W = window.innerWidth >= 900 ? Math.min(520, Math.floor((Math.min(window.innerWidth, 1160) - 32 - 28 - 18) / 2)) : Math.min(window.innerWidth - 56, 520), cv = buildCanvas(fxT, W, fdCanvasH(fxT, W));
     cv.classList.add('fd-dim');
     cv.querySelector(`.cv-item[data-id="${CSS.escape(String(it.id))}"]`)?.classList.add('fd-hit');
     const dwBox = h('div', { class: 'fd-dw' }, h('div', { class: 'mut' }, T('도면 불러오는 중…', 'Loading floor plan…')));
     nodes.push(h('div', { class: 'fd-card' },
       h('div', { class: 'fd-h' }, h('span', { class: 'fd-no' }, hits.length > 1 ? n + 1 : '📍'), h('div', {}, h('b', {}, name), h('div', { class: 'fd-pos' }, posTxt))),
-      h('div', { class: 'fd-sub' }, T('도면', 'Floor plan')), dwBox,
-      h('div', { class: 'fd-sub' }, 'POG'), h('div', { class: 'fd-cv' }, cv))); // 도면 먼저, 그다음 POG (사용자)
+      h('div', { class: 'fd-two' }, // 휴대폰: 도면 먼저, 그다음 POG · PC: 양옆 나란히 (사용자)
+        h('div', { class: 'fd-col' }, h('div', { class: 'fd-sub' }, T('도면', 'Floor plan')), dwBox),
+        h('div', { class: 'fd-col' }, h('div', { class: 'fd-sub' }, 'POG'), h('div', { class: 'fd-cv' }, cv)))));
     fdDrawing(dwBox, part.drawingRef);
   });
   box.replaceChildren(...nodes);
