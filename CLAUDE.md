@@ -213,7 +213,7 @@ barcodes/{바코드} code(제품코드), name?(제품명, 바코드 화면에서
                  // 바코드·제품코드가 이미 똑같이 등록된 줄은 제품명만 채움(`nameUpd`, 비어 있거나 다를 때). 제품명 열은 '제품명(한글)'처럼 써도 찾음
                  // 이미 있는 바코드·제품코드, 파일 안 중복은 바꾸지 않고 건너뜀 → 건너뛴 줄은 그 화면에만 한 번 표시(#bc-report, 저장 안 함, 엑셀로 받기)
 managers/{id}    name            // 담당자 드롭다운 목록
-roles/{email}    level, prefix(바이어: 매장코드 앞 4자리), ex(수출서류 사이트 권한), name(화면에 보일 이름, 20자, 본인도 바꿀 수 있음), createdAt, updatedAt, updatedBy   // 계정 레벨 (admin | pog | vmd | global | buyer | finder | none | blocked | 예전 editor). 문서 없음 = none
+roles/{email}    level, prefix(바이어: 매장코드 앞 4자리), ex(수출서류 사이트 권한), name(화면에 보일 이름, 20자, 관리자만 바꿈), createdAt, updatedAt, updatedBy   // 계정 레벨 (admin | pog | vmd | global | buyer | finder | none | blocked | 예전 editor). 문서 없음 = none
 exReasons/{코드(소문자, URL 인코딩)}  code, items: { 서류번호: {reason, memo, by, at} }   // 수출서류 사이트: 없는 서류 사유
 exExtra/{PDF 경로(소문자, URL 인코딩)} path('07_GMP\\파일.pdf'), codes[], by, at          // 수출서류 사이트: 추가 제품코드
 exMeta/report    codes[]                                                              // 수출서류 사이트: 누적 엑셀에 들어간 코드
@@ -327,6 +327,7 @@ glossary/{id}    cat, ko, en, code, tr, auto, createdBy, updatedBy, updatedAt //
   - **평수 필수:** 평수가 비어 있으면 올리기·내보내기가 안 되고 칸이 빨갛게 표시된다(`needArea`).
   - **끌어다 놓기:** 도면 업로드 화면에 SVG 파일을 끌어다 놓아도 올라간다.
   - **재업로드:** 다음 버전(ver.2…)으로 저장. 아직 안 내보낸 최신 버전이 있으면 그것을 바꿔치기. 메모에 바뀐 점. 오른쪽에 버전 기록(올린 날짜·사람·메모).
+  - **다시 편집 (사용자):** 내보낸 **마지막** 버전이면 툴바 '✎ 다시 편집' → 그 버전을 `exported: false`(작성 중)로 되돌림. 재업로드하면 같은 버전을 바꿔치기, 묶음 고치기도 확인 창 없이, 다 고치면 '내보내기' 다시. 다시 내보낼 때까지 번역·온라인·POG에는 그 전에 내보낸 버전이 보이고(없으면 도면 문서 `status: 'draft'`라 안 보임). 되돌리기(Ctrl+Z)·수정 기록에 남음.
   - 내보낸 버전에 **★ = 최종본**. POG에서는 ★ 버전(없으면 마지막으로 내보낸 버전)이 보인다.
   - **저장 구역 (사용자):** 오른쪽 패널 '✂ 저장 구역 정하기' → 전체 도면 위를 끌어서 남길 곳을 네모로 → '이 구역으로 저장'(버전 문서 `crop: {x,y,w,h}`, SVG 단위) / '전체로 되돌리기'(`crop` 지움). 원본 파일은 그대로, 보여줄 때만 자름: `drawingView`가 바깥 칸(`.dw-canvas`, 그 구역 비율, `.cropped`면 넘치는 것 숨김) 안에 전체 도면 층(`.dw-full`, 글자·칸 좌표는 전체 기준 그대로)을 밀어 넣음 → 온라인 도면·번역·POG 헤더 고르기·제품 찾기·PDF 모두 그 구역만. 번역 위치(dx, dy)는 안 바뀜.
 - **되돌리기 (사용자):** 도면 업로드·번역에서 Ctrl+Z / Ctrl+Y, 툴바 ↶ ↷ (`dwTrack`/`dwDoUndo`). 업로드: 매대명 묶음(합치기·나누기·지우기)·저장 구역·메모·평수. 번역: 번역 글자·위치·크기(`v.{vId}.{gid}`를 통째로 예전 값으로). 같은 칸을 1.5초 안에 계속 고치면 한 단계, 100단계, 다른 도면을 열면 비움. 내보내기·★는 되돌리기 없음.

@@ -2445,6 +2445,7 @@ function renderDw() {
   $('#dw-upload').classList.toggle('hidden', !up || !canEdit('drawing'));
   $('#dw-upload').textContent = dw.versions.length ? '재업로드' : '도면 파일 올리기';
   $('#dw-export').classList.toggle('hidden', !up || !canEdit('drawing') || !v || v.exported);
+  $('#dw-reedit').classList.toggle('hidden', !up || !canEdit('drawing') || !v?.exported || v.id !== dw.versions.at(-1)?.id);
   $('#dw-print').classList.toggle('hidden', !v);
   renderDwStage(); renderDwSide();
 }
@@ -2609,6 +2610,21 @@ $('#dw-export').onclick = async () => {
   b.set(doc(db, 'drawings', dw.id), { status: 'final', latestExported: v.no === dw.doc?.latestNo, updatedAt: serverTimestamp() }, { merge: true });
   await b.commit();
   toast(`ver.${v.no}을(를) 내보냈어요. 최종본이면 버전 기록에서 ★를 눌러주세요`);
+};
+// 다시 편집 (사용자): 내보낸 마지막 버전을 '작성 중'으로 되돌림 → 재업로드하면 같은 버전을 바꿔치기, 다 고치면 다시 '내보내기'
+$('#dw-reedit').onclick = async () => {
+  const v = curVersion(); if (!v || !v.exported || v.id !== dw.versions.at(-1)?.id) return;
+  const others = dw.versions.filter(x => x.exported && x.id !== v.id);
+  if (!confirm(`ver.${v.no}을(를) 다시 편집할까요?\n'작성 중'으로 바뀌어서 파일 바꾸기(재업로드)·매대명 묶음을 고칠 수 있어요. 다 고치면 '내보내기'를 다시 눌러 주세요.\n` +
+    (others.length ? `다시 내보낼 때까지 도면 번역·온라인 도면·POG에는 ver.${others.at(-1).no}이(가) 보여요.` : '다시 내보낼 때까지 도면 번역·온라인 도면·POG에서 이 도면이 안 보여요.'))) return;
+  const ref = doc(db, 'drawings', dw.id, 'versions', v.id), dref = doc(db, 'drawings', dw.id), st0 = dw.doc?.status || 'final';
+  const open = async () => { const b = writeBatch(db); b.update(ref, { exported: false }); b.set(dref, { status: others.length ? 'final' : 'draft', latestExported: false, updatedAt: serverTimestamp() }, { merge: true }); await b.commit(); };
+  try {
+    await open();
+    addLog(['drawings', dw.id], { vId: v.id, area: 'up', act: '다시 편집 (내보내기 취소)', what: `ver.${v.no}` });
+    dwTrack(null, '다시 편집', async () => { const b = writeBatch(db); b.update(ref, { exported: true }); b.set(dref, { status: st0, latestExported: true, updatedAt: serverTimestamp() }, { merge: true }); await b.commit(); }, open);
+    toast(`ver.${v.no}을(를) 다시 편집할 수 있어요. 다 고치면 '내보내기'를 눌러 주세요`);
+  } catch (e) { alert('바꾸지 못했어요: ' + (e.code || e.message)); }
 };
 async function starVersion(v) {
   await setDoc(doc(db, 'drawings', dw.id), { finalVersion: v.id, finalNo: v.no, updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true });
