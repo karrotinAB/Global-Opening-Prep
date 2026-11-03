@@ -2386,7 +2386,7 @@ function closeDw() {
 }
 function openDw(id) {
   closeDw();
-  dw.id = id; $('#dw-find').value = ''; dwf.pog = undefined; dw.seqMode = false; $('#dw-seqbtn')?.classList.remove('primary'); dw.seqUnsub?.(); dw.seqKey = null; dw.seq = []; dw.cropping = false; dw.cropDraft = null; dw.zoom = 1;
+  dw.id = id; $('#dw-find').value = ''; dwf.pog = undefined; dw.seqMode = false; dw.seqDraft = null; $('#dw-seqbtn')?.classList.remove('primary'); dw.seqUnsub?.(); dw.seqKey = null; dw.seq = []; dw.cropping = false; dw.cropDraft = null; dw.zoom = 1;
   $('#dw-empty').classList.add('hidden'); $('#dw-body').classList.remove('hidden');
   $('#dw-stage').replaceChildren(h('div', { class: 'mut pad' }, '불러오는 중…'));
   renderDwList();
@@ -2731,7 +2731,7 @@ function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, p
   if (seq) for (const g of v.groups || []) {
     const n = (seq.order || []).indexOf(g.id) + 1;
     if (!n && !seq.onToggle) continue;
-    const el = h('div', { class: 'dw-box dw-seq' + (n ? ' on' : '') + (seq.onToggle ? ' pick' : ''), style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko },
+    const el = h('div', { 'data-gid': g.id, class: 'dw-box dw-seq' + (n ? ' on' : '') + (seq.onToggle ? ' pick' : ''), style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko },
       n ? h('b', { class: 'dw-seq-n' }, n) : null);
     if (seq.onToggle) el.onclick = e => { e.stopPropagation(); seq.onToggle(g); };
     wrap.append(el);
@@ -2774,11 +2774,18 @@ function renderDwStage() {
   // 도면 번호 (온라인 도면, 직원): 🔢 번호 매기기를 켜면 누르는 순서대로 1, 2, 3… 다시 누르면 빠짐
   const seqOn = dw.tab === 'on' && isStaff();
   if (seqOn) subDwSeq(v);
-  const seq = seqOn && (dw.seqMode || dw.seq?.length) ? { order: dw.seq || [], onToggle: dw.seqMode ? g => toggleSeq(v, g) : null } : null;
-  if (seq && dw.seqMode) legend.append(h('span', { class: 'dw-seq-bar' }, ` · 🔢 번호 매기는 중: 매대를 누르는 순서대로 1, 2, 3… 다시 누르면 빠져요 (지금 ${dw.seq?.length || 0}개). `,
-    dw.seq?.length ? h('button', { class: 'btn small ghost', onclick: () => { if (confirm('번호를 모두 지울까요?')) saveSeq(v, []); } }, '번호 모두 지우기') : null));
+  // 번호 매기는 동안은 화면에서만 바꾸고(다시 그리지 않음), '💾 저장'을 눌러야 저장 (사용자: 누를 때마다 저장하니 느림)
+  if (dw.seqMode && !dw.seqDraft) dw.seqDraft = [...(dw.seq || [])];
+  const order = dw.seqMode ? dw.seqDraft : dw.seq;
+  const seq = seqOn && dw.seqMode ? { order: order || [], onToggle: dw.seqMode ? g => toggleSeq(g) : null } : null;
+  if (seq && dw.seqMode) legend.append(h('span', { class: 'dw-seq-bar' }, ' · 🔢 번호 매기는 중: 매대를 누르는 순서대로 1, 2, 3… 다시 누르면 빠져요. ',
+    h('span', { id: 'dw-seq-n' }), ' ',
+    h('button', { class: 'btn small primary', id: 'dw-seq-save', onclick: () => saveSeq(v) }, '💾 저장'), ' ',
+    h('button', { class: 'btn small ghost', onclick: () => { dw.seqDraft = [...(dw.seq || [])]; paintSeq(); } }, '처음대로'), ' ',
+    h('button', { class: 'btn small ghost', onclick: () => { if (confirm('번호를 모두 지울까요? (저장을 눌러야 반영돼요)')) { dw.seqDraft = []; paintSeq(); } } }, '모두 지우기')));
   box.replaceChildren(legend, drawingView(v, en ? 'en' : 'ko', pickable ? { picks: dwPicks(), onPick: g => togglePick(g.id), onPickMany: ids => { const p = dwPicks(); ids.forEach(i => p.add(i)); renderDwStage(); renderDwSide(); } } : { selId: dw.sel, onLab: dw.tab === 'tr', plain: dw.tab !== 'up', hits, seq }));
   dwZoomApply();
+  if (seq && dw.seqMode) paintSeq();
   if (hits && dwf.jump) { dwf.jump = false; setTimeout(() => $('.dw-find', box)?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }), 30); }
 }
 // 확대·축소: Alt + 마우스 휠 (마우스가 있는 곳을 중심으로). 툴바 '🔍 n%'를 누르면 원래 크기
@@ -2835,19 +2842,41 @@ function renderCropStage(box, v) {
 function subDwSeq(v) {
   const key = dw.id + '|' + v.id; if (dw.seqKey === key) return;
   dw.seqUnsub?.(); dw.seqKey = key; dw.seq = [];
-  dw.seqUnsub = onSnapshot(doc(db, 'drawings', dw.id, 'seq', v.id), d => { if (dw.seqKey !== key || dw.seqPending) return; dw.seq = d.exists() ? (d.data().order || []) : []; renderDwStage(); }, () => { });
+  dw.seqUnsub = onSnapshot(doc(db, 'drawings', dw.id, 'seq', v.id), d => {
+    if (dw.seqKey !== key) return;
+    dw.seq = d.exists() ? (d.data().order || []) : [];
+    if (dw.seqMode) paintSeq(); else renderDwStage(); // 번호 매기는 중이면 다시 그리지 않음
+  }, () => { });
 }
-function saveSeq(v, order) {
-  dw.seq = order; dw.seqPending = true; renderDwStage();
-  const id = dw.id;
-  queueWrite(`dwseq|${id}|${v.id}`, async () => {
-    try { await setDoc(doc(db, 'drawings', id, 'seq', v.id), { order: dw.seq, vId: v.id, updatedAt: serverTimestamp(), updatedBy: me() }); }
-    catch (e) { alert('번호를 저장하지 못했어요: ' + (e.code || e.message) + '\n(보안 규칙이 아직 게시되지 않았을 수 있어요)'); }
-    finally { dw.seqPending = false; }
+const seqDirty = () => dw.seqMode && JSON.stringify(dw.seqDraft || []) !== JSON.stringify(dw.seq || []);
+// 화면의 번호만 다시 씀 (도면은 그대로)
+function paintSeq() {
+  const o = dw.seqDraft || [];
+  $$('#dw-stage .dw-seq').forEach(el => {
+    const n = o.indexOf(el.dataset.gid) + 1;
+    el.classList.toggle('on', !!n);
+    let b = el.querySelector('.dw-seq-n');
+    if (n) { if (!b) el.append(b = h('b', { class: 'dw-seq-n' })); b.textContent = n; }
+    else if (b) el.removeChild(b);
   });
+  const c = $('#dw-seq-n'); if (c) c.textContent = `지금 ${o.length}개${seqDirty() ? ' · 저장 안 됨' : ' · 저장됨'}`;
+  const sv = $('#dw-seq-save'); if (sv) sv.disabled = !seqDirty();
 }
-function toggleSeq(v, g) { const o = [...(dw.seq || [])], i = o.indexOf(g.id); if (i >= 0) o.splice(i, 1); else o.push(g.id); saveSeq(v, o); }
-$('#dw-seqbtn').onclick = () => { dw.seqMode = !dw.seqMode; $('#dw-seqbtn').classList.toggle('primary', dw.seqMode); renderDwStage(); };
+function toggleSeq(g) { const o = dw.seqDraft ||= [], i = o.indexOf(g.id); if (i >= 0) o.splice(i, 1); else o.push(g.id); paintSeq(); }
+async function saveSeq(v) {
+  const order = [...(dw.seqDraft || [])];
+  try {
+    await setDoc(doc(db, 'drawings', dw.id, 'seq', v.id), { order, vId: v.id, updatedAt: serverTimestamp(), updatedBy: me() });
+    dw.seq = order; paintSeq(); toast(`번호 ${order.length}개를 저장했어요`);
+  } catch (e) { alert('번호를 저장하지 못했어요: ' + (e.code || e.message)); }
+}
+// 저장 안 한 번호가 있으면 물어봄 (번호 매기기를 끌 때)
+async function leaveSeq() {
+  if (seqDirty() && confirm('저장 안 한 번호가 있어요. 저장할까요?\n(취소를 누르면 저장하지 않고 버려요)')) { const v = curVersion(); if (v) await saveSeq(v); }
+  dw.seqMode = false; dw.seqDraft = null; $('#dw-seqbtn')?.classList.remove('primary');
+}
+$('#dw-seqbtn').onclick = async () => { if (dw.seqMode) await leaveSeq(); else { dw.seqMode = true; dw.seqDraft = null; $('#dw-seqbtn').classList.add('primary'); } renderDwStage(); };
+window.addEventListener('beforeunload', e => { if (seqDirty()) { e.preventDefault(); e.returnValue = ''; } });
 // 도면 찾기: 매대명(한글·번역) + 제품(그 매장 최종 POG에서 그 제품이 있는 페이지의 '도면에서 고르기' 매대)
 function dwFindHits(v) {
   const q = findNorm($('#dw-find').value), n = $('#dw-find-n');
