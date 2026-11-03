@@ -204,6 +204,7 @@ drawings/{storeId}/versions/{vId} // vId = v1, v2 …
   exported, exportedAt, uploadedAt, uploadedBy
   groups: [{ id:'g0', ko, lines, parts:[{text,x,y,w,h,lh}], x, y, w, h, fs }]   // 매대명 묶음. 좌표는 SVG viewBox 단위
 pogs/{pogId}/logs/{id}           // 수정 기록: fx(페이지 id | '__cover'), area(make|trans), lang?, field, act?, what?, from, to, by, at
+drawings/{storeId}/seq/{vId}     // 도면 번호: order [gid…] (1번부터), vId, updatedAt, updatedBy
 drawings/{storeId}/logs/{id}     // 수정 기록: vId, gid?, x?, y?(SVG 단위), area(up|dwtr), lang?, field, act?, what?, from, to, by, at
 drawings/{storeId}/translations/{언어}   // 글사부만 씀
   v: { vId: { gid: { ko, text, dx, dy, sc, wd } } }   // 번역·위치 이동·글자 크기·칸 폭(줄바꿈 폭)
@@ -336,6 +337,8 @@ glossary/{id}    cat, ko, en, code, tr, auto, createdBy, updatedBy, updatedAt //
 - **저장 구역 글자 칸 어긋남 (고침):** `app.js`의 `?v=`가 예전 숫자(20261104d)로 남아 있어 브라우저가 예전 app.js와 새 style.css를 섞어 쓸 수 있었음 → 매대명 칸이 도면 층이 아니라 바깥 칸 기준으로 그려져 어긋남. `?v=`를 올리고, `.dw-full`·img·`.dw-canvas`의 위치·크기를 HTML에 직접 써서 CSS가 예전 것이어도 같이 움직이게 함. **app.js·style.css 둘 다 `?v=`를 꼭 같이 올릴 것.** 진짜 원인은 따로 있었음: 잘라낸 도면(`overflow:hidden`)은 세로 flex 안에서 화면 높이에 맞춰 눌려서(min-height가 0이 됨) 그림만 줄고 칸은 그대로 → `.dw-canvas`에 `flex-shrink:0`.
 - **손으로 끌기 (사용자):** 도면 화면에서 마우스 휠(가운데 버튼)을 누른 채 움직이면 화면(스크롤)이 따라 움직임 (도면 위치는 그대로).
 - **확대·축소 (사용자):** 도면 화면(업로드·번역·온라인)에서 **Alt + 마우스 휠** → 마우스 있는 곳 중심으로 50~800%(`dw.zoom`, `dwZoomApply`). 툴바 '🔍 n%'를 누르면 100%. 다른 매장을 열면 100%. PDF는 늘 A4 가로.
+- **도면 번호 (사용자):** 온라인 도면에서 직원(관리자·VMD·POG·글사부) 툴바 '🔢 번호 매기기' → 매대를 누르는 순서대로 1, 2, 3…, 다시 누르면 빠지고 뒤 번호가 당겨짐, '번호 모두 지우기'. 저장 `drawings/{매장}/seq/{버전}` = `{order: [gid…]}` (규칙: 직원 모두 읽고 씀, 바이어는 못 봄). 번호 매기기를 끄면 보라색 동그라미로 번호만 보임(직원만, PDF에는 안 나옴). POG 헤더 '도면에서 고르기' 창에도 번호가 보임.
+- **POG랑 도면 연결하기 (사용자):** POG 만들기 표지의 오른쪽 패널 '도면' 칸(‘페이지’ 아래) '📐 POG랑 도면 연결하기' → 창에 페이지 목록(지금 제목·연결된 도면 매대·도면 번호) + 줄마다 '도면 연결하기'(헤더 고르기 창 `openHeaderPicker` 재사용) → '도면순서로 POG 바꾸기': 도면 번호가 있는 페이지를 번호 순서로 앞에, 번호 없는 페이지는 지금 순서대로 뒤에(`reorderPages`, Ctrl+Z 됨). 페이지 → 번호는 `seqNoOf`(같은 버전이면 gid, 아니면 같은 한글 이름).
 - **찾기 (온라인 도면·도면 번역, 툴바 🔍, `dwFindHits`):** 매대명(한글·번역)과 맞는 칸, 그리고 **그 매장 최종 POG에서 제품명·제품코드·카테고리가 맞는 페이지의 '도면에서 고르기' 매대**(`drawingRef`, 같은 버전이면 gid, 아니면 한글 이름으로)를 빨간 칸으로(`.dw-find`, 누르기는 통과). POG 페이지는 처음 찾을 때 한 번만 읽음(`loadDwFindPog`). '매대 n곳 · 제품 m개' (사용자).
 - **도면 번역하기 (글사부):** 내보낸 매장만 나온다. 기본은 ★ 버전. 글자를 끌어 옮기고, 누르면 오른쪽에서 번역·글자 크기·사전에 추가. 번역 우선순위: 이 버전에 저장한 것 → 다른 버전에서 같은 한국어로 번역한 것 → 사전 자동(`카테고리` 먼저). '한글 원본 보기', 'PDF 저장'(A4 가로).
 - **POG 헤더 연결:** POG 만들기 헤더의 '📐 도면에서 고르기'(빈 헤더를 눌러도 뜸) → 도면 팝업에서 매대를 누르면 헤더에 한글 매대명 + `drawingRef` 저장. 뒤에 ' 1' 같은 글자를 붙여도 된다. 다른 페이지에서 고른 매대는 초록.
