@@ -40,9 +40,6 @@ service cloud.firestore {
                     && request.resource.data.keys().hasOnly(['level', 'ex', 'name', 'createdAt', 'updatedAt', 'updatedBy']);
       allow update: if exOk(['admin']) && exValid(request.resource.data)
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ex', 'name', 'updatedAt', 'updatedBy']);
-      // 누구나 자기 이름(name)만 바꿀 수 있음
-      allow update: if signedIn() && email == myEmail() && exValid(request.resource.data)
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'updatedAt']);
     }
 
     // POG: 만들기는 POG팀, 번역(translations)은 글로벌사업부
