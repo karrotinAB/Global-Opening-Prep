@@ -2867,6 +2867,9 @@ function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, p
   const outer = h('div', { class: 'dw-canvas' + (cropped ? ' cropped' : ''), style: `position:relative;flex-shrink:0;aspect-ratio:${c.w} / ${c.h}${cropped ? ';overflow:hidden' : ''}` }, wrap);
   outer._full = wrap;
   const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
+  // 제품 찾기 화살표: 매대가 도면 맨 위쪽이면 화살표가 잘리지 않게 아래에서 가리킴
+  const fdBelow = g => (g.y - c.y) / c.h < 0.15 ? ' fd-below' : '';
+  if (only) outer.classList.add('fd-only');
   for (const g of v.groups || []) {
     if (mode === 'en') {
       const s0 = ctx ? dwRowState(g, ctx.vId, ctx.trDoc, ctx.lang) : dwRowState(g), m = s0.m, sc = m.sc || 1;
@@ -2877,7 +2880,7 @@ function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, p
       el.title = g.ko;
       if (!look) el.addEventListener('pointerdown', e => dragLabel(e, g, wrap, v));
       wrap.append(el);
-    } else if (only) { if (g.id === only) wrap.append(h('div', { class: 'dw-box fd-on', style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko }));
+    } else if (only) { if (g.id === only) wrap.append(h('div', { class: 'dw-box fd-on' + fdBelow(g), style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko }));
     } else if (!plain) {
       const el = h('div', { 'data-gid': g.id, class: 'dw-box' + (onPick ? ' pick' : '') + (used?.has(g.id) ? ' used' : '') + (g.id === selId || picks?.has(g.id) ? ' on' : ''),
         style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko });
@@ -2901,7 +2904,7 @@ function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, p
     };
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
   });
-  if (only && mode === 'en') { const g = (v.groups || []).find(x => x.id === only); if (g) wrap.append(h('div', { class: 'dw-box fd-on', style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}` })); }
+  if (only && mode === 'en') { const g = (v.groups || []).find(x => x.id === only); if (g) wrap.append(h('div', { class: 'dw-box fd-on' + fdBelow(g), style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}` })); }
   // 도면 번호 (온라인 도면 🔢): seq = { order: [gid…], onToggle? }. 누르면 다음 번호, 다시 누르면 빠짐
   if (seq) for (const g of v.groups || []) {
     const n = (seq.order || []).indexOf(g.id) + 1;
