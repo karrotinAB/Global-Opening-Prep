@@ -174,9 +174,15 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 .tiles.five .tile.sub { margin-top: 14px; }
 
 /* 도면 */
-.dw-stage { flex: 1; overflow: auto; padding: 20px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
-.dw-canvas { position: relative; width: 100%; max-width: 1200px; background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,.12); container-type: inline-size; user-select: none; }
-.dw-canvas > img { display: block; width: 100%; height: 100%; }
+.dw-stage { flex: 1; overflow: auto; padding: 20px; display: flex; flex-direction: column; align-items: safe center; gap: 12px; }
+.dw-canvas { position: relative; width: 100%; max-width: 1200px; background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,.12); user-select: none; }
+.dw-canvas.cropped { overflow: hidden; }
+/* 전체 도면 층: 저장 구역만큼 밀어서 바깥 칸에 그 구역만 보이게. 글자 크기(cqw)는 전체 도면 폭 기준 */
+.dw-full { position: absolute; container-type: inline-size; }
+.dw-full > img { display: block; width: 100%; height: 100%; }
+.dw-crop-rect { position: absolute; border: 2px dashed #f7931e; box-shadow: 0 0 0 9999px rgba(0,0,0,.45); pointer-events: none; z-index: 5; }
+.dw-crop-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--ink); }
+.dw-crop-bar .se-btns { margin-left: auto; display: flex; gap: 6px; }
 .dw-box { position: absolute; border: 1px solid rgba(10,132,255,.55); background: rgba(10,132,255,.06); border-radius: 1px; }
 .dw-box.pick { cursor: pointer; }
 .dw-box.pick:hover, .dw-box.on { background: rgba(247,147,30,.25); border-color: var(--or); }
