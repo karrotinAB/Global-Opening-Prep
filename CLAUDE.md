@@ -198,6 +198,7 @@ stores/{id}      code, partner, branch, openDate, createdAt, createdBy   // 매�
 drawings/{storeId}               // 매장 하나에 도면 하나 (문서 ID = stores 문서 ID)
   storeId, storeCode, area(평수), status('final' = 한 번이라도 내보냄), latestNo, latestExported, finalVersion(★ 버전 id), finalNo
 drawings/{storeId}/versions/{vId} // vId = v1, v2 …
+  crop?: {x,y,w,h}                // 저장 구역 (SVG 단위). 없으면 전체
   no, fileName, url/path (원본 SVG), baseUrl/basePath (글자를 뺀 SVG = 영문 도면 바탕), w, h, lineCount, memo,
   exported, exportedAt, uploadedAt, uploadedBy
   groups: [{ id:'g0', ko, lines, parts:[{text,x,y,w,h,lh}], x, y, w, h, fs }]   // 매대명 묶음. 좌표는 SVG viewBox 단위
@@ -324,6 +325,8 @@ glossary/{id}    cat, ko, en, code, tr, auto, createdBy, updatedBy, updatedAt //
   - **끌어다 놓기:** 도면 업로드 화면에 SVG 파일을 끌어다 놓아도 올라간다.
   - **재업로드:** 다음 버전(ver.2…)으로 저장. 아직 안 내보낸 최신 버전이 있으면 그것을 바꿔치기. 메모에 바뀐 점. 오른쪽에 버전 기록(올린 날짜·사람·메모).
   - 내보낸 버전에 **★ = 최종본**. POG에서는 ★ 버전(없으면 마지막으로 내보낸 버전)이 보인다.
+  - **저장 구역 (사용자):** 오른쪽 패널 '✂ 저장 구역 정하기' → 전체 도면 위를 끌어서 남길 곳을 네모로 → '이 구역으로 저장'(버전 문서 `crop: {x,y,w,h}`, SVG 단위) / '전체로 되돌리기'(`crop` 지움). 원본 파일은 그대로, 보여줄 때만 자름: `drawingView`가 바깥 칸(`.dw-canvas`, 그 구역 비율, `.cropped`면 넘치는 것 숨김) 안에 전체 도면 층(`.dw-full`, 글자·칸 좌표는 전체 기준 그대로)을 밀어 넣음 → 온라인 도면·번역·POG 헤더 고르기·제품 찾기·PDF 모두 그 구역만. 번역 위치(dx, dy)는 안 바뀜.
+- **확대·축소 (사용자):** 도면 화면(업로드·번역·온라인)에서 **Alt + 마우스 휠** → 마우스 있는 곳 중심으로 50~800%(`dw.zoom`, `dwZoomApply`). 툴바 '🔍 n%'를 누르면 100%. 다른 매장을 열면 100%. PDF는 늘 A4 가로.
 - **찾기 (온라인 도면·도면 번역, 툴바 🔍, `dwFindHits`):** 매대명(한글·번역)과 맞는 칸, 그리고 **그 매장 최종 POG에서 제품명·제품코드·카테고리가 맞는 페이지의 '도면에서 고르기' 매대**(`drawingRef`, 같은 버전이면 gid, 아니면 한글 이름으로)를 빨간 칸으로(`.dw-find`, 누르기는 통과). POG 페이지는 처음 찾을 때 한 번만 읽음(`loadDwFindPog`). '매대 n곳 · 제품 m개' (사용자).
 - **도면 번역하기 (글사부):** 내보낸 매장만 나온다. 기본은 ★ 버전. 글자를 끌어 옮기고, 누르면 오른쪽에서 번역·글자 크기·사전에 추가. 번역 우선순위: 이 버전에 저장한 것 → 다른 버전에서 같은 한국어로 번역한 것 → 사전 자동(`카테고리` 먼저). '한글 원본 보기', 'PDF 저장'(A4 가로).
 - **POG 헤더 연결:** POG 만들기 헤더의 '📐 도면에서 고르기'(빈 헤더를 눌러도 뜸) → 도면 팝업에서 매대를 누르면 헤더에 한글 매대명 + `drawingRef` 저장. 뒤에 ' 1' 같은 글자를 붙여도 된다. 다른 페이지에서 고른 매대는 초록.

@@ -2309,7 +2309,7 @@ function closeDw() {
 }
 function openDw(id) {
   closeDw();
-  dw.id = id; $('#dw-find').value = ''; dwf.pog = undefined;
+  dw.id = id; $('#dw-find').value = ''; dwf.pog = undefined; dw.cropping = false; dw.cropDraft = null; dw.zoom = 1;
   $('#dw-empty').classList.add('hidden'); $('#dw-body').classList.remove('hidden');
   $('#dw-stage').replaceChildren(h('div', { class: 'mut pad' }, '불러오는 중…'));
   renderDwList();
@@ -2566,8 +2566,14 @@ function saveDwTr(gid, patch) {
 }
 
 // 그림: 업로드 화면 = 원본 + 읽은 매대명 표시 / 번역 화면 = 글자 뺀 바탕 + 번역 글자
-function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, plain, ctx, only, hits } = {}) {
-  const wrap = h('div', { class: 'dw-canvas', style: `aspect-ratio:${v.w} / ${v.h}` }, h('img', { src: mode === 'en' ? v.baseUrl : v.url, alt: '', draggable: 'false' }));
+// 저장 구역(v.crop, SVG 단위 {x,y,w,h}): 바깥 칸(.dw-canvas)은 그 구역 비율, 안쪽 전체 도면(.dw-full)을 밀어서 그 구역만 보이게
+const dwCrop = v => { const c = v.crop; return c && c.w > 0 && c.h > 0 ? c : { x: 0, y: 0, w: v.w, h: v.h }; };
+function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, plain, ctx, only, hits, full } = {}) {
+  const c = full ? { x: 0, y: 0, w: v.w, h: v.h } : dwCrop(v);
+  const wrap = h('div', { class: 'dw-full', style: `left:${-c.x / c.w * 100}%;top:${-c.y / c.h * 100}%;width:${v.w / c.w * 100}%;height:${v.h / c.h * 100}%` },
+    h('img', { src: mode === 'en' ? v.baseUrl : v.url, alt: '', draggable: 'false' }));
+  const outer = h('div', { class: 'dw-canvas' + (c.w < v.w || c.h < v.h ? ' cropped' : ''), style: `aspect-ratio:${c.w} / ${c.h}` }, wrap);
+  outer._full = wrap;
   const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
   for (const g of v.groups || []) {
     if (mode === 'en') {
@@ -2607,7 +2613,7 @@ function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, p
   // 찾기 결과: 빨간 칸 (누르기는 그 아래 글자로 통과)
   if (hits?.size) for (const g of v.groups || []) if (hits.has(g.id))
     wrap.append(h('div', { class: 'dw-box fd-on dw-find', style: `left:${pct(g.x, v.w)};top:${pct(g.y, v.h)};width:${pct(g.w, v.w)};height:${pct(g.h, v.h)}`, title: g.ko }));
-  return wrap;
+  return outer;
 }
 function dragLabel(e, g, wrap, v) {
   dw.sel = g.id; renderDwSide();
@@ -2637,9 +2643,59 @@ function renderDwStage() {
     : dw.tab === 'on' ? h('div', { class: 'dw-legend' }, `${$('#dw-ver').textContent} · ${en ? dw.lang : '한국어'}`)
     : h('div', { class: 'dw-legend' }, en ? '글자를 끌어서 옮길 수 있어요. 누르면 오른쪽에서 고쳐요. 회색 점선 = 아직 번역 안 된 글자' : '한글 원본이에요.');
   const pickable = dw.tab === 'up' && canEdit('drawing');
+  if (pickable && dw.cropping) { renderCropStage(box, v); return; }
   const hits = pickable ? null : dwFindHits(v);
   box.replaceChildren(legend, drawingView(v, en ? 'en' : 'ko', pickable ? { picks: dwPicks(), onPick: g => togglePick(g.id), onPickMany: ids => { const p = dwPicks(); ids.forEach(i => p.add(i)); renderDwStage(); renderDwSide(); } } : { selId: dw.sel, onLab: dw.tab === 'tr', plain: dw.tab !== 'up', hits }));
+  dwZoomApply();
   if (hits && dwf.jump) { dwf.jump = false; setTimeout(() => $('.dw-find', box)?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }), 30); }
+}
+// 확대·축소: Alt + 마우스 휠 (마우스가 있는 곳을 중심으로). 툴바 '🔍 n%'를 누르면 원래 크기
+function dwZoomApply() {
+  const z = dw.zoom || 1, cv = $('#dw-stage > .dw-canvas');
+  if (cv) Object.assign(cv.style, z === 1 ? { width: '', maxWidth: '', flex: '' } : { width: `calc(min(100%, 1200px) * ${z})`, maxWidth: 'none', flex: 'none' });
+  const b = $('#dw-zoom'); if (b) { b.textContent = `🔍 ${Math.round(z * 100)}%`; b.classList.toggle('hidden', !cv); }
+}
+$('#dw-stage').addEventListener('wheel', e => {
+  if (!e.altKey) return;
+  const cv = $('#dw-stage > .dw-canvas'); if (!cv) return;
+  e.preventDefault();
+  const st = $('#dw-stage'), r = cv.getBoundingClientRect(), fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+  dw.zoom = Math.min(8, Math.max(0.5, (dw.zoom || 1) * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+  if (Math.abs(dw.zoom - 1) < 0.04) dw.zoom = 1;
+  dwZoomApply();
+  const r2 = cv.getBoundingClientRect();
+  st.scrollLeft += r2.left + fx * r2.width - e.clientX; st.scrollTop += r2.top + fy * r2.height - e.clientY;
+}, { passive: false });
+$('#dw-zoom').onclick = () => { dw.zoom = 1; dwZoomApply(); };
+
+// 저장 구역 정하기 (도면 업로드, VMD): 전체 도면 위를 끌어서 남길 곳을 네모로. 온라인 도면·번역·POG·제품 찾기·PDF 모두 그 구역만 보임
+function renderCropStage(box, v) {
+  dw.cropDraft ||= { ...dwCrop(v) };
+  const view = drawingView(v, 'ko', { plain: true, full: true }), full = view._full;
+  const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
+  const rect = h('div', { class: 'dw-crop-rect' });
+  const paint = () => { const d = dw.cropDraft; Object.assign(rect.style, { left: pct(d.x, v.w), top: pct(d.y, v.h), width: pct(d.w, v.w), height: pct(d.h, v.h) }); };
+  full.append(rect); paint();
+  full.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return; e.preventDefault();
+    const r0 = full.getBoundingClientRect(), k = v.w / r0.width;
+    const at = ev => ({ x: Math.min(v.w, Math.max(0, (ev.clientX - r0.left) * k)), y: Math.min(v.h, Math.max(0, (ev.clientY - r0.top) * k)) });
+    const s = at(e);
+    const mv = ev => { const p = at(ev); dw.cropDraft = { x: Math.min(s.x, p.x), y: Math.min(s.y, p.y), w: Math.abs(p.x - s.x), h: Math.abs(p.y - s.y) }; paint(); };
+    const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); if (dw.cropDraft.w < v.w * 0.03 || dw.cropDraft.h < v.h * 0.03) { dw.cropDraft = { ...dwCrop(v) }; paint(); } };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+  });
+  const done = () => { dw.cropping = false; dw.cropDraft = null; renderDwStage(); renderDwSide(); };
+  const save = async crop => {
+    try { await updateDoc(doc(db, 'drawings', dw.id, 'versions', v.id), { crop: crop ? Object.fromEntries(Object.entries(crop).map(([k2, n]) => [k2, +n.toFixed(2)])) : deleteField() }); toast(crop ? '저장 구역을 정했어요' : '전체 도면으로 되돌렸어요'); done(); }
+    catch (e) { toast('저장하지 못했어요: ' + (e.code || e.message)); }
+  };
+  box.replaceChildren(h('div', { class: 'dw-legend dw-crop-bar' },
+    h('b', {}, '✂ 저장 구역 정하기'), ' · 도면 위를 끌어서 남길 곳을 네모로 그려 주세요. 네모 밖은 온라인 도면·번역·POG·PDF에서 안 보여요 (지워지지는 않아요).',
+    h('span', { class: 'se-btns' }, h('button', { class: 'btn small primary', onclick: () => save(dw.cropDraft) }, '이 구역으로 저장'),
+      v.crop ? h('button', { class: 'btn small ghost', onclick: () => save(null) }, '전체로 되돌리기') : null,
+      h('button', { class: 'btn small ghost', onclick: done }, '취소'))), view);
+  dwZoomApply();
 }
 // 도면 찾기: 매대명(한글·번역) + 제품(그 매장 최종 POG에서 그 제품이 있는 페이지의 '도면에서 고르기' 매대)
 function dwFindHits(v) {
@@ -2704,6 +2760,8 @@ function renderDwSide() {
       ta.value = v.memo || '';
       ta.addEventListener('input', () => queueWrite(`dw|${dw.id}|${v.id}|memo`, () => updateDoc(doc(db, 'drawings', dw.id, 'versions', v.id), { memo: ta.value })));
       nodes.push(sec(v.no > 1 ? '메모 (바뀐 것·특이사항)' : '특이사항 메모', ta));
+      if (ed) nodes.push(sec('저장 구역', h('p', { class: 'se-help' }, v.crop ? `도면의 일부만 보여요 (가로 ${Math.round(v.crop.w / v.w * 100)}% · 세로 ${Math.round(v.crop.h / v.h * 100)}%).` : '지금은 도면 전체가 보여요. 필요 없는 가장자리가 있으면 남길 구역만 정할 수 있어요.'),
+        h('div', { class: 'se-btns' }, h('button', { class: 'btn small' + (dw.cropping ? ' primary' : ''), onclick: () => { dw.cropping = !dw.cropping; dw.cropDraft = null; renderDwStage(); renderDwSide(); } }, dw.cropping ? '구역 고르는 중… (취소)' : '✂ 저장 구역 정하기'))));
       if (ed) nodes.push(groupEditor(v));
     } else nodes.push(h('p', { class: 'se-help' }, '아직 올린 도면이 없어요.'));
     if (vers.length) nodes.push(sec('버전 기록', h('p', { class: 'se-help' }, ed ? '내보낸 버전 중 최종본에 ★를 누르세요. ★ 버전이 POG에서 보여요.' : '★ = 최종본 (POG에서 보이는 도면)'),
