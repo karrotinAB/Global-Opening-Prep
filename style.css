@@ -188,7 +188,7 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 .dw-box { position: absolute; border: 1px solid rgba(10,132,255,.55); background: rgba(10,132,255,.06); border-radius: 1px; }
 .dw-box.pick { cursor: pointer; }
 .dw-box.pick:hover, .dw-box.on { background: rgba(247,147,30,.25); border-color: var(--or); }
-.dw-box.used { background: rgba(46,158,91,.18); border-color: var(--green); }
+.dw-box.used { background: rgba(24,128,64,.5); border: 2px solid #136b35; } /* 이미 다른 페이지에서 고른 매대: 진한 초록 (사용자) */
 .dw-lab { position: absolute; transform: translateX(-50%); font-weight: 700; white-space: pre-wrap; overflow-wrap: break-word; box-sizing: border-box; text-align: center; line-height: 1.15; color: #d61518; font-family: Arial, 'Malgun Gothic', sans-serif; cursor: default; padding: 0 1px; }
 .dw-lab.edit { cursor: move; }
 .dw-lab.need { color: #888; outline: 1px dashed var(--red); }
@@ -447,7 +447,7 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 /* 도면 번호 (온라인 도면 🔢) */
 .dw-box.dw-seq { border-color: rgba(120,120,120,.45); background: transparent; z-index: 4; }
 .dw-box.dw-seq.pick { cursor: pointer; border-style: dashed; }
-.dw-box.dw-seq:not(.pick) { pointer-events: none; }
+.dw-box.dw-seq:not(.pick) { pointer-events: none; border: 0 !important; background: none !important; } /* 고르기 창: 번호 동그라미만 (칸 색은 아래 칸이 보이게) */
 .dw-box.dw-seq.pick:hover { background: rgba(247,147,30,.18); }
 .dw-box.dw-seq.on { border: 2px solid #7a3cff; background: rgba(122,60,255,.10); border-style: solid; }
 .dw-seq-n { position: absolute; left: 0; top: 0; transform: translate(-40%, -55%); min-width: 1.5em; padding: 0 .25em; border-radius: 999px; background: #7a3cff; color: #fff; font-size: max(9px, .55cqw); font-weight: 700; line-height: 1.5em; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,.3); pointer-events: none; opacity: .92; }
