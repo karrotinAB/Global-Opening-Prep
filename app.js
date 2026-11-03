@@ -2864,7 +2864,7 @@ function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, p
   const wrap = h('div', { class: 'dw-full', style: `position:absolute;container-type:inline-size;left:${-c.x / c.w * 100}%;top:${-c.y / c.h * 100}%;width:${v.w / c.w * 100}%;height:${v.h / c.h * 100}%` },
     h('img', { src: mode === 'en' ? v.baseUrl : v.url, alt: '', draggable: 'false', style: 'display:block;width:100%;height:100%;max-width:none' }));
   const cropped = c.w < v.w || c.h < v.h;
-  const outer = h('div', { class: 'dw-canvas' + (cropped ? ' cropped' : ''), style: `position:relative;flex-shrink:0;aspect-ratio:${c.w} / ${c.h}${cropped ? ';overflow:hidden' : ''}` }, wrap);
+  const outer = h('div', { class: 'dw-canvas' + (cropped ? ' cropped' : ''), style: `--ar:${(c.w / c.h).toFixed(4)};position:relative;flex-shrink:0;aspect-ratio:${c.w} / ${c.h}${cropped ? ';overflow:hidden' : ''}` }, wrap);
   outer._full = wrap;
   const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
   // 제품 찾기 화살표: 매대가 도면 맨 위쪽이면 화살표가 잘리지 않게 아래에서 가리킴
