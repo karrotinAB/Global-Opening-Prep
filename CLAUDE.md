@@ -74,7 +74,7 @@ Firestore `roles/{이메일(소문자)}` 문서의 `level`. **문서가 없는 �
 - **수출서류 아카이빙 사이트(karrotinAB/ExportDocumentArchive)와 계정을 같이 씀.** 같은 Firebase 프로젝트, 같은 `roles` 문서.
   - 그 사이트 권한 = `roles` 문서의 `ex`: `admin`(계정 관리) | `edit`(사유·추가 제품코드 저장) | `view`(보기). 없으면 못 씀. 이 사이트의 `level admin`은 그 사이트에서도 자동 관리자, `blocked`는 그 사이트도 막힘.
   - 그 사이트 관리자(`ex: admin`)는 `roles`를 읽고, **`ex`만** 바꾸거나 `level: 'none'`인 새 계정만 만들 수 있다 (규칙). 이 사이트의 레벨은 못 바꿈.
-  - 그래서 `none`(권한 없음)을 이 사이트 계정 관리에서도 고를 수 있게 했다(`ASSIGNABLE`, 그 사이트만 쓰는 계정). 계정 관리 표에 '수출서류 사이트' 칸(보기만).
+  - 그래서 `none`(권한 없음)을 이 사이트 계정 관리에서도 고를 수 있게 했다(`ASSIGNABLE`, 그 사이트만 쓰는 계정). 계정 관리 표의 '수출서류 사이트' 칸은 없앰 (사용자 · 그 사이트 권한은 그 사이트 관리자 탭에서).
   - 이 사이트에서 계정을 만들 때 `setDoc(..., {merge:true})` — `ex`를 지우지 않게.
   - 그 사이트의 데이터: `exReasons`, `exExtra`, `exMeta` (아래 7장). PDF 파일은 Firebase에 없음 (회사 공용폴더).
 

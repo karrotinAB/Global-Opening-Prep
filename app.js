@@ -27,8 +27,6 @@ const CATS = ['카테고리', '매대타입', '고리타입', '선반/파이프'
 // 계정 레벨. roles/{이메일} 문서가 없으면 'finder' (제품 찾기만)
 const LEVELS = { admin: '관리자', pog: 'POG팀', vmd: 'VMD팀', global: '글로벌사업부', buyer: '바이어', finder: '제품 찾기만', editor: '편집 (예전 레벨)', none: '권한 없음', blocked: '접속 막힘' };
 const ASSIGNABLE = ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder', 'none']; // editor는 예전 레벨: 그대로 동작하지만 새로 고를 수는 없음. none = 이 사이트는 못 씀 (수출서류 사이트만 쓰는 계정)
-// 수출서류 아카이빙 사이트(ExportDocumentArchive) 권한 = roles 문서의 ex. 여기서는 보여 주기만 하고, 바꾸는 건 그 사이트의 관리자 탭에서
-const EX_LEVELS = { admin: '관리자', edit: '편집', view: '보기' };
 // 레벨마다 볼 수 있는 화면(views)과 편집할 수 있는 부분(edit). 진짜 차단은 firestore.rules / storage.rules가 함
 const STAFF_VIEWS = ['home', 'stores', 'barcodes', 'drawing', 'dw-up', 'dw-tr', 'dw-online', 'pog-home', 'pog-make', 'pog-trans', 'pog-online', 'glossary', 'finder'];
 const ALL_EDIT = ['calc', 'stores', 'barcodes', 'drawing', 'drawing-trans', 'pog-make', 'pog-trans', 'glossary'];
@@ -4055,7 +4053,7 @@ function renderAccounts() {
   const body = $('#acc-body'); body.innerHTML = '';
   const me = state.user?.email.toLowerCase();
   const rows = [...state.roles].sort((a, b) => a.id.localeCompare(b.id));
-  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 6, class: 'mut pad' }, '등록된 계정이 없어요.')));
+  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 5, class: 'mut pad' }, '등록된 계정이 없어요.')));
   rows.forEach(r => {
     const sel = levelSelect(LEVELS[r.level] ? r.level : 'finder');
     sel.addEventListener('change', async () => {
@@ -4077,7 +4075,6 @@ function renderAccounts() {
       h('td', {}, accName(r)),
       h('td', {}, sel),
       h('td', {}, pf || (r.level === 'buyer' ? null : h('span', { class: 'mut' }, '—')), r.level === 'buyer' && !r.prefix ? h('div', { class: 'acc-old' }, '4자리를 넣어야 매장이 보여요') : null),
-      h('td', {}, r.level === 'admin' ? '관리자 (자동)' : EX_LEVELS[r.ex] || h('span', { class: 'mut' }, '—')),
       h('td', { class: 'tc acc-btns' },
         h('button', { class: 'btn ghost small', title: '이 사람에게 비밀번호를 새로 정하는 메일을 보내요', onclick: async () => {
           if (!confirm(`${r.id}(으)로 비밀번호 재설정 메일을 보낼까요?`)) return;
