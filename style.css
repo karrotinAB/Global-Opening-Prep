@@ -177,6 +177,8 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 .dw-stage { flex: 1; overflow: auto; padding: 20px; display: flex; flex-direction: column; align-items: safe center; gap: 12px; }
 .dw-canvas { position: relative; width: 100%; max-width: 1200px; background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,.12); user-select: none; }
 .dw-canvas.cropped { overflow: hidden; }
+/* 화면 높이에 맞춰 위아래로 눌리지 않게 (눌리면 그림만 줄고 글자 칸은 그대로라 어긋남) */
+.dw-canvas { flex-shrink: 0; }
 /* 전체 도면 층: 저장 구역만큼 밀어서 바깥 칸에 그 구역만 보이게. 글자 크기(cqw)는 전체 도면 폭 기준 */
 .dw-full { position: absolute; container-type: inline-size; }
 .dw-full > img { display: block; width: 100%; height: 100%; }

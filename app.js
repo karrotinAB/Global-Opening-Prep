@@ -2651,7 +2651,7 @@ function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, p
   const wrap = h('div', { class: 'dw-full', style: `position:absolute;container-type:inline-size;left:${-c.x / c.w * 100}%;top:${-c.y / c.h * 100}%;width:${v.w / c.w * 100}%;height:${v.h / c.h * 100}%` },
     h('img', { src: mode === 'en' ? v.baseUrl : v.url, alt: '', draggable: 'false', style: 'display:block;width:100%;height:100%;max-width:none' }));
   const cropped = c.w < v.w || c.h < v.h;
-  const outer = h('div', { class: 'dw-canvas' + (cropped ? ' cropped' : ''), style: `position:relative;aspect-ratio:${c.w} / ${c.h}${cropped ? ';overflow:hidden' : ''}` }, wrap);
+  const outer = h('div', { class: 'dw-canvas' + (cropped ? ' cropped' : ''), style: `position:relative;flex-shrink:0;aspect-ratio:${c.w} / ${c.h}${cropped ? ';overflow:hidden' : ''}` }, wrap);
   outer._full = wrap;
   const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
   for (const g of v.groups || []) {
@@ -2731,7 +2731,7 @@ function renderDwStage() {
 // 확대·축소: Alt + 마우스 휠 (마우스가 있는 곳을 중심으로). 툴바 '🔍 n%'를 누르면 원래 크기
 function dwZoomApply() {
   const z = dw.zoom || 1, cv = $('#dw-stage > .dw-canvas');
-  if (cv) Object.assign(cv.style, z === 1 ? { width: '', maxWidth: '', flex: '' } : { width: `calc(min(100%, 1200px) * ${z})`, maxWidth: 'none', flex: 'none' });
+  if (cv) Object.assign(cv.style, z === 1 ? { width: '', maxWidth: '' } : { width: `calc(min(100%, 1200px) * ${z})`, maxWidth: 'none' });
   const b = $('#dw-zoom'); if (b) { b.textContent = `🔍 ${Math.round(z * 100)}%`; b.classList.toggle('hidden', !cv); }
 }
 $('#dw-stage').addEventListener('wheel', e => {
