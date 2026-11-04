@@ -932,3 +932,8 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .ph-cat-sel { font: 700 16px 'Malgun Gothic', 'Noto Sans KR', sans-serif; text-align: right; border: 1px dashed #999; background: rgba(255,255,255,.6); border-radius: 4px; padding: 1px 4px; max-width: 220px; cursor: pointer; }
 .ph-cat-sel:has(option[value=""]:checked) { color: #888; font-weight: 400; font-size: 13px; }
 @media print { .ph-cat-sel { border: 0 !important; background: none !important; appearance: none; -webkit-appearance: none; } .ph-cat-sel:has(option[value=""]:checked) { visibility: hidden; } }
+
+/* 타일이 2개뿐이면 가운데 2칸 (바이어 POG 화면 · 사용자) */
+.tiles.three.few, .tiles.five.few { grid-template-columns: repeat(2, 170px); }
+@media (max-width: 700px) { .tiles.three.few, .tiles.five.few { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 300px; } }
+.tiles.few > .tile { background: #f7f7f7; } /* 두 개뿐이면 같은 색 */

@@ -51,6 +51,8 @@ function applyAccess() {
   $$('[data-view], [data-go]').forEach(el => el.classList.toggle('hidden', !canSee(el.dataset.view || el.dataset.go)));
   $$('[data-edit]').forEach(el => el.classList.toggle('hidden', !canEdit(el.dataset.edit)));
   $('#subnav').classList.toggle('hidden', !canSee('pog-make'));
+  // 보이는 타일이 2개 이하(바이어 POG 화면 등)면 가운데로 2칸 (사용자)
+  $$('.tiles').forEach(t => t.classList.toggle('few', [...t.children].filter(c => c.classList.contains('tile') && !c.classList.contains('hidden')).length <= 2));
   $('#subnav-dw').classList.toggle('hidden', !canSee('dw-up'));
   $$('[data-staff]').forEach(el => el.classList.toggle('hidden', !isStaff()));
   $$('[data-admin]').forEach(el => el.classList.toggle('hidden', state.level !== 'admin')); // 관리자만 보이는 버튼
@@ -148,6 +150,7 @@ onAuthStateChanged(auth, user => {
   $('#login').classList.toggle('hidden', !!user);
   $('#app').classList.toggle('hidden', !user);
   if (!user) return;
+  state.view = 'home'; // 로그인하면 늘 처음 화면부터 (사용자: 바이어가 로그인했는데 POG 화면이 떴음 — 로그아웃 전 화면이 남아 있었음)
   state.myName = ''; showMe();
   // 내 레벨을 읽고, 관리자가 바꾸면 바로 반영
   unsubRole = onSnapshot(doc(db, 'roles', user.email.toLowerCase()),
@@ -5007,6 +5010,7 @@ $('#acc-add').addEventListener('submit', async e => {
 const UI_LANGS = { ko: '한국어', en: 'English', ja: '日本語', es: 'Español', ru: 'Русский' };
 // [한국어, English, 日本語, Español, Русский]
 const I18N_SRC = [
+  ['최종본 보기', 'Final version', '最終版を見る', 'Ver versión final', 'Финальная версия'],
   ['온라인 집기도면', 'Online Fixture Plan', 'オンライン什器図面', 'Plano de mobiliario', 'План оборудования'],
   ['집기도면', 'Fixture Plan', '什器図面', 'Plano de mobiliario', 'План оборудования'],
   ['도면에 집기 정보', 'Fixtures on floor plan', '図面に什器情報', 'Mobiliario en el plano', 'Оборудование на плане'],
