@@ -818,10 +818,12 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .acc-grp td { background: #f6f6f7; font-weight: 700; font-size: 13px; color: #555; padding: 6px 10px; }
 
 /* 사이트 언어 (바이어·제품 찾기 계정, 로그인 화면) */
-.topbar .seg.ui-lang { background: rgba(255,255,255,.25); padding: 2px; }
-.topbar .seg.ui-lang button { color: #fff; padding: 3px 9px; font-size: 12px; }
-.topbar .seg.ui-lang button.on { background: #fff; color: var(--or-d); }
+.ui-lang { display: inline-flex; align-items: center; gap: 4px; background: none !important; padding: 0 !important; }
+.ui-lang-i { font-size: 14px; }
+.ui-lang-sel { font: inherit; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 8px; border: 1px solid rgba(255,255,255,.6); background: rgba(255,255,255,.2); color: #fff; cursor: pointer; }
+.ui-lang-sel option { color: #222; }
 .login-lang { align-self: center; margin-top: 10px; }
+.login-lang .ui-lang-sel { color: var(--ink); border-color: var(--line); background: #fff; }
 
 /* POG 만들기 위 막대 줄이기 (사용자): 찾기 종류 고르기, 대표 담당자는 표지 패널, 되돌리기는 한 칸 */
 .find-mode { border: 0; background: transparent; font: inherit; font-size: 13px; font-weight: 600; color: var(--or-d); padding: 0 2px 0 4px; cursor: pointer; }
