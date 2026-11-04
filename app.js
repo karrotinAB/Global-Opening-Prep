@@ -1063,7 +1063,9 @@ function buildFreePage(fx, pog, { editable, field, L = LABELS_KO, box, onItem })
       fx.info ? infoSide(box, field, L, editable) : null)
     : h('div', { class: 'pb free-body' });
   const page = h('div', { class: 'page free' },
-    h('div', { class: 'ph' }, field('headerName', h('input', { class: 'ph-name', placeholder: '제목 (예: 3단 각고리 참고사진)' }))),
+    h('div', { class: 'ph' }, field('headerName', h('input', { class: 'ph-name', placeholder: '제목 (예: 3단 각고리 참고사진)' })),
+      // 빈 페이지도 도면 매대에 연결 (사용자). 고르면 제목에 도면 매대명이 들어감
+      editable ? h('button', { class: 'ph-dw no-print', type: 'button', title: '도면에서 매대를 골라 제목에 넣어요', onclick: () => openHeaderPicker(pog, fx) }, '📐 도면에서 고르기') : null),
     body,
     h('div', { class: 'pf1' }, L.mgr + ' ', h('span', { class: 'pf-mgr' }), editable ? mgrSelect(fx, pog) : null),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
@@ -3814,16 +3816,16 @@ async function openHeaderPicker(pog, fx, after) {
     h('div', { class: 'hp-info' },
       h('div', { class: 'hp-tag' }, `📄 ${pageNo > 1 ? pageNo + '쪽 · ' : ''}이 페이지의 매대를 고르는 중`),
       h('div', { class: 'hp-name' }, displayName(fx)),
-      h('div', {}, `POG 원본: ${origName(fx) || '-'}`),
+      h('div', {}, fx.kind === 'free' ? '추가 페이지 (빈 페이지)' : `POG 원본: ${origName(fx) || '-'}`),
       h('div', { class: 'mut' }, `${fx.teamName ? '카테고리 ' + catName(fx.teamName) + ' · ' : ''}제품 ${(cfx.items || []).length}개`),
-      fx.drawingRef ? h('div', { class: 'hp-now' }, '지금 연결된 도면 매대: ', h('b', {}, fx.drawingRef.ko), ' (도면에서 깜빡이는 주황 칸)') : h('div', { class: 'hp-now none' }, '아직 도면과 연결 안 됨')));
+      fx.drawingRef ? h('div', { class: 'hp-now' }, '지금 연결된 도면 매대: ', h('b', {}, fx.drawingRef.ko), ' (도면에서 주황 칸)') : h('div', { class: 'hp-now none' }, '아직 도면과 연결 안 됨')));
   // 지금 연결된 칸: 같은 버전이면 그 칸, 다른 버전에서 골랐으면 같은 한글 이름 칸 (사용자: 표시가 안 됐음)
   const r0 = fx.drawingRef, curG = r0 ? (r0.vId === v.id ? (v.groups || []).find(x => x.id === r0.gid) : null) || (v.groups || []).find(x => norm(x.ko) === norm(r0.ko)) : null;
   if (curG) used.delete(curG.id); // 이 페이지 칸은 초록(다른 페이지)보다 주황(지금 연결)으로
   const close = modal(h('div', { class: 'hp-pick' },
     h('h3', {}, `도면에서 매대 고르기 · ${storeName(st0)} ver.${v.no}${dwFinal(d) === v.id ? ' ★최종본' : ''}`),
     cur,
-    h('p', { class: 'mut' }, '매대를 누르면 헤더에 들어가요. 진한 초록 = 다른 페이지에서 이미 고른 매대. 넣은 뒤에 뒤에 숫자(1, 2…)를 붙여도 돼요.'),
+    h('p', { class: 'mut' }, '매대를 누르면 헤더에 들어가요. 주황 = 이 페이지 · 초록 = 다른 페이지에 연결된 매대. 넣은 뒤에 뒤에 숫자(1, 2…)를 붙여도 돼요.'),
     drawingView(v, 'ko', { used, selId: curG?.id || null, onPick: g => {
       const ref = { storeId: st0.id, vId: v.id, vNo: v.no, gid: g.id, ko: g.ko };
       const ug = undoGroup(); saveFx(pog.id, fx.id, 'headerName', g.ko, ug); saveFx(pog.id, fx.id, 'drawingRef', ref, ug);
@@ -3883,8 +3885,8 @@ async function openPogDwLink(pog) {
       return h('div', { class: 'pdl-row' + (fx.drawingRef ? ' on' : '') },
         h('span', { class: 'pdl-no' }, i + 2), h('span', { class: 'pdl-name' }, displayName(fx)),
         h('span', { class: 'pdl-orig', title: 'POG 사이트의 원래 매대 이름' }, fx.kind === 'free' ? '' : origName(fx)),
-        h('span', { class: 'pdl-ref' }, fx.kind === 'free' ? '추가 페이지' : fx.drawingRef ? `📐 ${fx.drawingRef.ko}${n ? ` · 도면 ${n}번` : ''}` : '연결 안 됨'),
-        fx.kind === 'free' ? h('span') : h('button', { class: 'btn small' + (fx.drawingRef ? ' ghost' : ''), onclick: () => openHeaderPicker(pog, fx, () => setTimeout(paint, 700)) }, fx.drawingRef ? '다시 연결' : '도면 연결하기'));
+        h('span', { class: 'pdl-ref' }, fx.drawingRef ? `📐 ${fx.drawingRef.ko}${n ? ` · 도면 ${n}번` : ''}` : fx.kind === 'free' ? '추가 페이지 · 연결 안 됨' : '연결 안 됨'),
+        h('button', { class: 'btn small' + (fx.drawingRef ? ' ghost' : ''), onclick: () => openHeaderPicker(pog, fx, () => setTimeout(paint, 700)) }, fx.drawingRef ? '다시 연결' : '도면 연결하기'));
     }));
     sortBtn.disabled = !order.length;
   };
@@ -4004,7 +4006,7 @@ function renderViewer() {
   shownFx.forEach(f => {
     const fx = fxV(f); const el = buildPage(fx, pogV, { editable: false, onItem: showItem, L }); syncPage(el, fx, pogV); wrap.append(el); blocks.set(fx.id, el);
     // 헤더(매대명)를 누르면 도면에서 이 매대 위치 (사용자)
-    const ph = el.querySelector('.ph'); if (ph && f.kind !== 'free') { ph.classList.add('ph-dwlink'); ph.title = '누르면 도면에서 위치를 보여줘요'; ph.onclick = () => showFxDrawing(f, fx); }
+    const ph = el.querySelector('.ph'); if (ph && (f.kind !== 'free' || f.drawingRef)) { ph.classList.add('ph-dwlink'); ph.title = '누르면 도면에서 위치를 보여줘요'; ph.onclick = () => showFxDrawing(f, fx); }
   });
   vwThumbs.sync(slideEntries(cover, v.pog, shownFx, fx => blocks.get(fx.id)));
   v.blocks = blocks; vwFind();
