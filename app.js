@@ -3818,14 +3818,14 @@ async function openHeaderPicker(pog, fx, after) {
       h('div', { class: 'hp-name' }, displayName(fx)),
       h('div', {}, fx.kind === 'free' ? '추가 페이지 (빈 페이지)' : `POG 원본: ${origName(fx) || '-'}`),
       h('div', { class: 'mut' }, `${fx.teamName ? '카테고리 ' + catName(fx.teamName) + ' · ' : ''}제품 ${(cfx.items || []).length}개`),
-      fx.drawingRef ? h('div', { class: 'hp-now' }, '지금 연결된 도면 매대: ', h('b', {}, fx.drawingRef.ko), ' (도면에서 깜빡이는 주황 칸)') : h('div', { class: 'hp-now none' }, '아직 도면과 연결 안 됨')));
+      fx.drawingRef ? h('div', { class: 'hp-now' }, '지금 연결된 도면 매대: ', h('b', {}, fx.drawingRef.ko), ' (도면에서 주황 칸)') : h('div', { class: 'hp-now none' }, '아직 도면과 연결 안 됨')));
   // 지금 연결된 칸: 같은 버전이면 그 칸, 다른 버전에서 골랐으면 같은 한글 이름 칸 (사용자: 표시가 안 됐음)
   const r0 = fx.drawingRef, curG = r0 ? (r0.vId === v.id ? (v.groups || []).find(x => x.id === r0.gid) : null) || (v.groups || []).find(x => norm(x.ko) === norm(r0.ko)) : null;
   if (curG) used.delete(curG.id); // 이 페이지 칸은 초록(다른 페이지)보다 주황(지금 연결)으로
   const close = modal(h('div', { class: 'hp-pick' },
     h('h3', {}, `도면에서 매대 고르기 · ${storeName(st0)} ver.${v.no}${dwFinal(d) === v.id ? ' ★최종본' : ''}`),
     cur,
-    h('p', { class: 'mut' }, '매대를 누르면 헤더에 들어가요. 진한 초록 = 다른 페이지에서 이미 고른 매대. 넣은 뒤에 뒤에 숫자(1, 2…)를 붙여도 돼요.'),
+    h('p', { class: 'mut' }, '매대를 누르면 헤더에 들어가요. 주황 = 이 페이지 · 초록 = 다른 페이지에 연결된 매대. 넣은 뒤에 뒤에 숫자(1, 2…)를 붙여도 돼요.'),
     drawingView(v, 'ko', { used, selId: curG?.id || null, onPick: g => {
       const ref = { storeId: st0.id, vId: v.id, vNo: v.no, gid: g.id, ko: g.ko };
       const ug = undoGroup(); saveFx(pog.id, fx.id, 'headerName', g.ko, ug); saveFx(pog.id, fx.id, 'drawingRef', ref, ug);
