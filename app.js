@@ -2221,42 +2221,59 @@ async function doImport(text) {
 }
 
 /* ---------- 고리·집기 수량 엑셀: 페이지마다 넣은 고리타입×갯수, 이외집기×수량을 제품코드와 함께 합계 ---------- */
-async function exportCounts(pog, fixtures) {
+// 언어 고르기 (사용자: 원하는 언어로도 받기) → 한국어면 예전 그대로, 다른 언어면 이름·매대명·머리글을 그 언어로 + 한국어 이름 열
+function exportCountsAsk(pog, fixtures) {
+  if (!pog) return;
+  const langs = ['한국어', ...new Set(['English', ...glLangs()])];
+  const close = modal(h('div', {}, h('h3', {}, '고리·집기 수량 엑셀'), h('p', { class: 'mut' }, '어떤 언어로 받을까요? 이름은 POG 번역에 넣은 것 → 용어 사전 순서로 찾고, 없으면 한국어 그대로 들어가요.'),
+    h('div', { class: 'se-btns' }, ...langs.map(l => h('button', { class: 'btn' + (l === '한국어' ? ' primary' : ''), onclick: () => { close(); exportCounts(pog, fixtures, l); } }, l)))));
+}
+async function exportCounts(pog, fixtures, lang = '한국어') {
   if (!pog) return;
   try {
     const X = await loadXLSX();
+    const ko = lang === '한국어';
+    let trd = {};
+    if (!ko) { try { const t = await getDoc(doc(db, 'pogs', pog.id, 'translations', lang)); trd = t.exists() ? t.data() : {}; } catch { } }
+    const trOfFx = (fxId, key) => trd.out?.[fxId]?.[key] || trd.fx?.[fxId]?.[key] || '';
+    const word = (cat, name) => { if (ko) return name; const g = state.glossary.find(x => x.cat === cat && norm(x.ko) === norm(name)); const t = g && trOf(g, lang); if (t) return t; const a = autoTranslate(name, lang, [cat]); return a.missing.length ? name : a.text; };
     const pages = composeFx([...fixtures].sort((a, b) => a.order - b.order));
     const codeOf = (cat, name) => state.glossary.find(g => g.cat === cat && norm(g.ko) === norm(name))?.code || '';
     const detail = [], sum = new Map();
     pages.forEach((f, i) => {
       if (f.kind === 'free' && !f.info) return;
       const no = i + 2; // 1번은 표지
-      const add = (kind, cat, name, qty) => {
+      const pageName = ko ? displayName(f) : trOfFx(f.id, 'headerName') || displayName(f);
+      const add = (kind, cat, name, qty, trKey) => {
         name = (name || '').trim(); if (!name) return;
-        const q = Number(qty) || 0, code = codeOf(cat, name);
-        detail.push([no, displayName(f), kind, code, name, q]);
-        const k = kind + '|' + norm(name), r = sum.get(k) || { kind, code, name, qty: 0, pages: [] };
+        const q = Number(qty) || 0, code = codeOf(cat, name), shown = ko ? name : (trKey && trOfFx(f.id, trKey)) || word(cat, name);
+        detail.push(ko ? [no, pageName, kind, code, name, q] : [no, pageName, kind === '고리' ? 'Hook' : 'Fixture', code, shown, name, q]);
+        const k = kind + '|' + norm(name), r = sum.get(k) || { kind, code, name, shown, qty: 0, pages: [] };
         r.qty += q; if (!r.pages.includes(no)) r.pages.push(no); sum.set(k, r);
       };
-      add('고리', '고리타입', f.hookType, f.hookCount);
-      (f.extras || []).forEach(x => add('집기', '집기', x.name, x.qty));
+      add('고리', '고리타입', f.hookType, f.hookCount, 'hookType');
+      (f.extras || []).forEach(x => add('집기', '집기', x.name, x.qty, 'x_' + x.id));
     });
     if (!detail.length) { toast('입력된 고리·집기가 없어요'); return; }
     const total = [...sum.values()].sort((a, b) => a.kind.localeCompare(b.kind, 'ko') || a.name.localeCompare(b.name, 'ko'));
-    const ws1 = X.utils.aoa_to_sheet([['구분', '제품코드', '이름', '합계 수량', '들어간 페이지'],
-      ...total.map(r => [r.kind, r.code || '(사전에 코드 없음)', r.name, r.qty, r.pages.join(', ')])]);
-    ws1['!cols'] = [{ wch: 6 }, { wch: 18 }, { wch: 28 }, { wch: 10 }, { wch: 30 }];
-    const ws2 = X.utils.aoa_to_sheet([['페이지', '매대명', '구분', '제품코드', '이름', '수량'], ...detail]);
-    ws2['!cols'] = [{ wch: 6 }, { wch: 30 }, { wch: 6 }, { wch: 14 }, { wch: 28 }, { wch: 8 }];
+    const ws1 = X.utils.aoa_to_sheet(ko ? [['구분', '제품코드', '이름', '합계 수량', '들어간 페이지'],
+      ...total.map(r => [r.kind, r.code || '(사전에 코드 없음)', r.name, r.qty, r.pages.join(', ')])]
+      : [['Type', 'Product Code', 'Name', 'Name (Korean)', 'Total Qty', 'Pages'],
+      ...total.map(r => [r.kind === '고리' ? 'Hook' : 'Fixture', r.code || '-', r.shown, r.name, r.qty, r.pages.join(', ')])]);
+    ws1['!cols'] = ko ? [{ wch: 6 }, { wch: 18 }, { wch: 28 }, { wch: 10 }, { wch: 30 }] : [{ wch: 8 }, { wch: 16 }, { wch: 30 }, { wch: 26 }, { wch: 10 }, { wch: 30 }];
+    const ws2 = X.utils.aoa_to_sheet([ko ? ['페이지', '매대명', '구분', '제품코드', '이름', '수량'] : ['Page', 'Fixture Name', 'Type', 'Product Code', 'Name', 'Name (Korean)', 'Qty'], ...detail]);
+    ws2['!cols'] = ko ? [{ wch: 6 }, { wch: 30 }, { wch: 6 }, { wch: 14 }, { wch: 28 }, { wch: 8 }] : [{ wch: 6 }, { wch: 30 }, { wch: 8 }, { wch: 14 }, { wch: 30 }, { wch: 26 }, { wch: 8 }];
     const wb = X.utils.book_new();
-    X.utils.book_append_sheet(wb, ws1, '합계'); X.utils.book_append_sheet(wb, ws2, '페이지별');
-    X.writeFile(wb, `고리집기수량_${footStore(pog)}_${fmtDate(new Date()).replace(/\./g, '')}.xlsx`.replace(/[\\/:*?"<>|]/g, ''));
+    X.utils.book_append_sheet(wb, ws1, ko ? '합계' : 'Summary'); X.utils.book_append_sheet(wb, ws2, ko ? '페이지별' : 'By Page');
+    X.writeFile(wb, `${ko ? '고리집기수량' : 'Hooks_Fixtures'}_${footStore(pog)}${ko ? '' : '_' + lang}_${fmtDate(new Date()).replace(/\./g, '')}.xlsx`.replace(/[\\/:*?"<>|]/g, ''));
+    const untr = ko ? 0 : total.filter(r => r.shown === r.name && /[가-힣]/.test(r.name)).length;
+    if (untr) toast(`번역이 없어 한국어로 들어간 이름 ${untr}개`);
     const noCode = total.filter(r => !r.code).length;
     toast('엑셀을 저장했어요' + (noCode ? ` · 사전에 제품코드가 없는 것 ${noCode}개` : ''));
   } catch (e) { toast(e.message); }
 }
-$('#ed-counts').onclick = () => exportCounts(state.currentPog, [...state.fixtures.values()]);
-$('#vw-counts').onclick = () => exportCounts(state.viewer.pog, state.viewer.fixtures);
+$('#ed-counts').onclick = () => exportCountsAsk(state.currentPog, [...state.fixtures.values()]);
+$('#vw-counts').onclick = () => exportCountsAsk(state.viewer.pog, state.viewer.fixtures);
 $('#vw-calc').onclick = () => exportCalc(state.viewer.pog, state.viewer.fixtures);
 $('#vw-nobc').onclick = () => exportNoBarcode(state.viewer.pog, state.viewer.fixtures);
 // 관리자용: 이 POG 제품 중 바코드 등록이 안 된 제품코드만 엑셀로 (바코드 업로드 양식과 같은 열: 제품코드 · 바코드 · 제품명)
@@ -5216,11 +5233,22 @@ function fxdLines(fx) {
 function fxdWord(name, k) {
   const lang = fxd.lang; if (lang === '한국어') return { text: name, need: false };
   const out = fxd.trDoc?.fxdOut?.[name], mine = fxd.trDoc?.fxd?.[name];
-  if (fxd.mode === 'on') return { text: out || mine || (isStaff() ? autoTranslate(name, lang, FXD_CATS[k]).text : '') || name, need: false };
+  if (fxd.mode === 'on') return { text: out || mine || fxdFromPogOut(name) || (isStaff() ? autoTranslate(name, lang, FXD_CATS[k]).text : '') || name, need: false };
   if (mine) return { text: mine, need: false, saved: true };
   const base = lang === 'English' && { '선반': 'Shelf', '파이프': 'Pipe' }[name]; if (base && !glossaryOf('선반/파이프').some(g => g.ko === name && trOf(g, lang))) return { text: base, need: false, auto: true }; // 기본 선반·파이프
   const a = autoTranslate(name, lang, FXD_CATS[k]);
   return { text: a.missing.length ? name : a.text, need: !!a.missing.length, auto: !a.missing.length };
+}
+// POG 번역(온라인에 반영한 out)에서 집기 이름 번역 찾기: 페이지마다 hookType · x_{id}(이외집기) · s_{id}(선반/파이프)
+function fxdFromPogOut(name) {
+  const out = fxd.trDoc?.out; if (!out) return '';
+  for (const f of fxd.fixtures) {
+    const o = out[f.id]; if (!o) continue;
+    if (o.hookType && (f.hookType || '').trim() === name) return o.hookType;
+    for (const x of f.extras || []) if (o['x_' + x.id] && (x.name || '').trim() === name) return o['x_' + x.id];
+    for (const x of spRows(f)) if (o['s_' + x.id] && (x.name || '').trim() === name) return o['s_' + x.id];
+  }
+  return '';
 }
 function renderFxdList() {
   const box = $('#fxd-list'); if (!box) return;
@@ -5262,7 +5290,7 @@ async function fxdLoad() {
     try { const v = await getDoc(doc(db, 'drawings', storeId, 'versions', vId)); fxd.v = v.exists() ? { id: v.id, ...v.data() } : null; fxd.storeId = storeId; } catch { fxd.v = null; }
     let langs = [];
     if (fxd.mode === 'tr') langs = ['English', ...glLangs()];
-    else if (fxd.mode === 'on') { try { langs = (await getDocs(collection(db, 'pogs', fxd.pogId, 'translations'))).docs.filter(d => d.data().fxdOut).map(d => d.id); } catch { } langs = ['한국어', ...langs]; }
+    else if (fxd.mode === 'on') { try { langs = (await getDocs(collection(db, 'pogs', fxd.pogId, 'translations'))).docs.filter(d => d.data().fxdOut || d.data().out).map(d => d.id); } catch { } langs = ['한국어', ...langs]; } // POG 번역만 반영돼 있어도 그 언어로 (사용자)
     else langs = ['한국어'];
     fxd.langs = [...new Set(langs)];
     if (!fxd.langs.includes(fxd.lang)) fxd.lang = fxd.mode === 'on' && !isStaff() && fxd.langs.includes('English') ? 'English' : fxd.langs[0];
@@ -5304,7 +5332,8 @@ function renderFxd() {
   const pog = state.pogs.find(p => p.id === fxd.pogId), stage = $('#fxd-stage'); if (!pog || !stage) return;
   $('#fxd-title').textContent = `${pog.branchName || pog.storeName || ''} · ${T('집기도면', 'Fixture Plan')}`;
   // 언어 알약
-  $('#fxd-seg').replaceChildren(...(fxd.langs.length > 1 ? fxd.langs.map(l => h('button', { class: l === fxd.lang ? 'on' : '', onclick: () => fxdLang(l) }, l)) : []));
+  $('#fxd-seg').replaceChildren(...(fxd.langs.length > 1 || fxd.mode === 'on' ? fxd.langs.map(l => h('button', { class: l === fxd.lang ? 'on' : '', onclick: () => fxdLang(l) }, l)) : []),
+    ...(fxd.mode === 'on' && fxd.langs.length < 2 && isStaff() ? [h('span', { class: 'mut small', style: 'margin-left:6px' }, '다른 언어는 POG 번역이나 집기도면 번역에서 \'온라인에 반영\'하면 나와요')] : []));
   const v = fxd.v;
   if (!v) { stage.replaceChildren(h('div', { class: 'empty-state' }, '이 POG 페이지들이 아직 도면과 연결되지 않았어요. POG 만들기에서 헤더의 \'📐 도면에서 고르기\'나 표지의 \'POG랑 도면 연결하기\'로 연결해 주세요.')); renderFxdSide([], []); return; }
   const ko = fxd.lang === '한국어', ed = fxdEdit(), sc = fxdScaleNow(pog);
