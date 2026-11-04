@@ -117,6 +117,9 @@ const origName = fx => (fx.mdName || '') + (fx.bayCount > 1 ? ` (${fx.bayNo}/${f
 const displayName = fx => fx.kind === 'free' ? (fx.headerName || '추가 페이지') : (fx.headerName || origName(fx));
 const glossaryOf = cat => state.glossary.filter(g => g.cat === cat).sort((a, b) => (a.ko || '').localeCompare(b.ko || '', 'ko'));
 
+// 사이트 글자 언어 (바이어·제품 찾기 계정). 아래 '사이트 글자 언어' 부분 참고
+const UI = { lang: 'ko' };
+try { const s0 = localStorage.getItem('uiLang'); if (['ko', 'en', 'ja', 'es', 'ru'].includes(s0)) UI.lang = s0; } catch { }
 const state = {
   user: null, level: null, myName: '', view: 'home', roles: [], glLang: '', stores: [], dwMap: new Map(),
   pogs: [], managers: [], glossary: [], glCat: CATS[0],
@@ -264,7 +267,7 @@ function go(v) {
   $$('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + secOf(v)));
   if (v.startsWith('dw-')) setDwMode({ 'dw-up': 'up', 'dw-tr': 'tr', 'dw-online': 'on' }[v]);
   window.scrollTo(0, 0);
-  if (v === 'finder') { if (!fd.langSet && !isStaff()) fd.lang = UI.content || (UI.lang === 'en' ? 'English' : 'ko'); fdStep(1); renderFdStores(); } // 제품 찾기는 늘 매장 고르기부터 (바이어는 영어부터)
+  if (v === 'finder') { if (!fd.langSet && !isStaff()) fd.lang = contentFor(['English', ...Object.keys(fd.trs || {})]) || 'English'; fdStep(1); renderFdStores(); } // 제품 찾기는 늘 매장 고르기부터 (바이어는 영어부터)
   if (v === 'barcodes') { bcCount(); bcList(true); } else bcReport([], '', 0); // 건너뛴 줄 알림은 이 화면을 나가면 사라짐
 }
 $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
@@ -2647,8 +2650,8 @@ const dwf = { pog: undefined, jump: false }; // 도면 찾기 (아래 dwFindHits
 const DW_TITLE = { up: '도면 업로드', tr: '도면 번역', on: '온라인 도면' };
 function setDwMode(m) {
   if (dw.tab === m && dw.modeSet) return;
-  dw.modeSet = true; dw.tab = m; dw.showKo = m === 'on' && (isStaff() || UI.lang !== 'en'); // 온라인 도면: 직원은 한국어부터, 바이어는 사이트 언어대로
-  if (!isStaff() && UI.content && UI.content !== 'ko') dw.lang = UI.content;
+  dw.modeSet = true; dw.tab = m; dw.showKo = m === 'on' && (isStaff() || UI.lang === 'ko'); // 온라인 도면: 직원은 한국어부터, 바이어는 사이트 글자 언어대로
+  if (!isStaff() && UI.lang !== 'ko') dw.lang = CONTENT_NAMES[UI.lang]?.[0] || 'English'; // 그 번역이 없으면 그릴 때 English로
   $('#dw-mode-title').textContent = DW_TITLE[m];
   const id = dw.id; closeDw(); renderDwList();
   if (id && dwListRows().some(x => x.id === id)) openDw(id);
@@ -2742,7 +2745,6 @@ function renderDw() {
   if (!up) {
     const langs = trLangs(); if (!langs.includes(dw.lang)) dw.lang = 'English';
     segButtons($('#dw-seg'), [['ko', dw.tab === 'tr' ? '한글 원본' : '한국어'], ...langs.map(l => [l, l])], dw.showKo ? 'ko' : dw.lang, v => {
-      if (!isStaff()) return setUiLang(v === 'ko' ? 'ko' : 'en', v); // 바이어: 사이트 전체 언어도 같이
       if (v === 'ko') dw.showKo = true; else { dw.showKo = false; if (v !== dw.lang) { dw.lang = v; dw.tr = {}; subDwTr(); } }
       renderDw();
     });
@@ -3585,7 +3587,7 @@ function renderOnlineList() {
 }
 function closeViewer() {
   const v = state.viewer; v.unsubPog?.(); v.unsubFx?.(); v.unsubTr?.();
-  v.unsubPog = v.unsubFx = v.unsubTr = null; v.pog = null; v.fixtures = []; v.trs = {}; v.lang = v.wantLang || (!isStaff() && UI.lang === 'en' ? (UI.content || 'English') : 'ko'); v.wantLang = null;
+  v.unsubPog = v.unsubFx = v.unsubTr = null; v.pog = null; v.fixtures = []; v.trs = {}; v.lang = v.wantLang || (!isStaff() && UI.lang !== 'ko' ? (CONTENT_NAMES[UI.lang]?.[0] || 'English') : 'ko'); v.wantLang = null;
   vwThumbs.clear();
   $('#viewer-body')?.classList.add('hidden'); $('#viewer-empty')?.classList.remove('hidden');
   $('#v-pog-online .split')?.classList.remove('list-off');
@@ -3603,13 +3605,13 @@ function openViewer(id) {
   // 번역본: 2.2에서 '온라인 POG에 반영'한 언어만 고를 수 있음
   v.unsubTr = onSnapshot(collection(db, 'pogs', id, 'translations'), s => {
     v.trs = Object.fromEntries(s.docs.map(d => [d.id, d.data()]).filter(([, d]) => d.out));
-    if (v.lang !== 'ko' && !v.trs[v.lang]) v.lang = 'ko';
+    if (v.lang !== 'ko' && !v.trs[v.lang]) v.lang = (!isStaff() && UI.lang !== 'ko' && (contentFor(Object.keys(v.trs)) || (v.trs.English ? 'English' : null))) || 'ko';
     renderVwSeg(); renderViewer();
   }, () => { });
 }
 function renderVwSeg() {
   const v = state.viewer;
-  segButtons($('#vw-seg'), [['ko', '한국어'], ...Object.keys(v.trs || {}).map(l => [l, l])], v.lang, l => { if (!isStaff()) return setUiLang(l === 'ko' ? 'ko' : 'en', l); v.lang = l; renderVwSeg(); renderViewer(); });
+  segButtons($('#vw-seg'), [['ko', '한국어'], ...Object.keys(v.trs || {}).map(l => [l, l])], v.lang, l => { v.lang = l; renderVwSeg(); renderViewer(); });
 }
 function renderViewer() {
   const v = state.viewer; if (!v.pog?.status) return;
@@ -3627,7 +3629,7 @@ function renderViewer() {
   shownFx.forEach(f => {
     const fx = fxV(f); const el = buildPage(fx, pogV, { editable: false, onItem: showItem, L }); syncPage(el, fx, pogV); wrap.append(el); blocks.set(fx.id, el);
     // 헤더(매대명)를 누르면 도면에서 이 매대 위치 (사용자)
-    const ph = el.querySelector('.ph'); if (ph && f.kind !== 'free') { ph.classList.add('ph-dwlink'); ph.title = v.lang !== 'ko' ? 'Click to see on floor plan' : '누르면 도면에서 위치를 보여줘요'; ph.onclick = () => showFxDrawing(f, fx); }
+    const ph = el.querySelector('.ph'); if (ph && f.kind !== 'free') { ph.classList.add('ph-dwlink'); ph.title = '누르면 도면에서 위치를 보여줘요'; ph.onclick = () => showFxDrawing(f, fx); }
   });
   vwThumbs.sync(slideEntries(cover, v.pog, shownFx, fx => blocks.get(fx.id)));
   v.blocks = blocks; vwFind();
@@ -3677,9 +3679,9 @@ $('#vw-find-prev').onclick = () => vwFind(-1);
 $('#vw-pdf').onclick = () => printPages($('#vw-pages'), state.viewer.pog);
 // 온라인 POG: 헤더 누르면 도면 위치 창 (제품 찾기와 같은 빨간 칸·화살표)
 function showFxDrawing(f, fx) {
-  const lang = state.viewer.lang || 'ko', en = lang !== 'ko';
-  const box = h('div', { class: 'fd-dw vw-dwpop' }, h('div', { class: 'mut' }, en ? 'Loading floor plan…' : '도면 불러오는 중…'));
-  modal(h('div', {}, h('h3', {}, (en ? 'Floor plan · ' : '도면 위치 · ') + displayName(fx)), box), { wide: true });
+  const lang = state.viewer.lang || 'ko';
+  const box = h('div', { class: 'fd-dw vw-dwpop' }, h('div', { class: 'mut' }, '도면 불러오는 중…'));
+  modal(h('div', {}, h('h3', {}, '도면 위치 · ' + displayName(fx)), box), { wide: true }); // 글자는 사이트 글자 언어로 바뀜
   fdDrawing(box, f.drawingRef, lang);
 }
 function showItem(it, fx) {
@@ -3887,8 +3889,9 @@ function bcReport(skip, fileName, okN, sameN = 0) {
    → POG 위치(위에서 몇 번째 선반·파이프, 왼쪽에서 몇 번째) + 그림에 강조 + 도면에서 그 매대(drawingRef) 강조.
    바코드 읽기: 휴대폰 기본 기능(BarcodeDetector, 안드로이드 크롬) → 없으면 ZXing(아이폰 등, 누를 때만 불러옴) */
 const fd = { pogId: null, fixtures: null, shown: [], trs: {}, lang: 'ko', last: null, dwCache: new Map() };
-const FD_EN = () => fd.lang !== 'ko';
-const T = (ko, en) => FD_EN() ? en : ko;
+// 화면 글자 (제품 찾기 등): 사이트 글자 언어를 따름. 한국어·영어는 그대로, 일본어·스페인어·러시아어는 사전(I18N)에서, 없으면 영어
+const T = (ko, en) => UI.lang === 'ko' ? ko : UI.lang === 'en' ? en : (i18nStr(ko) ?? en);
+const TL = o => o[UI.lang] ?? o.en ?? o.ko; // 숫자가 들어간 글자 {ko, en, ja, es, ru}
 function fdStores() { // 최종 POG가 있는 매장 (매장코드마다 가장 최근 최종본)
   const m = new Map();
   for (const p of state.pogs) {
@@ -3944,7 +3947,7 @@ async function fdOpen(pogId) {
 }
 function renderFdSeg() { // 언어: 한국어·English는 늘, 그 밖의 언어는 번역이 있는 POG일 때
   const langs = [...new Set(['English', ...Object.keys(fd.trs || {})])];
-  segButtons($('#fd-seg'), [['ko', '한국어'], ...langs.map(l => [l, l])], fd.lang, l => { if (!isStaff()) return setUiLang(l === 'ko' ? 'ko' : 'en', l); fd.lang = l; fd.langSet = true; renderFdSeg(); if (fd.step !== 2) renderFdStores(); if (fd.last) fdShow(fd.last); });
+  segButtons($('#fd-seg'), [['ko', '한국어'], ...langs.map(l => [l, l])], fd.lang, l => { fd.lang = l; fd.langSet = true; renderFdSeg(); if (fd.step !== 2) renderFdStores(); if (fd.last) fdShow(fd.last); });
   renderFdStoresText();
 }
 function renderFdStoresText() {
@@ -4035,7 +4038,7 @@ function fdShow({ q, code, barcode, hits }) {
   $('#fd-step2').classList.add('has-result'); // 휴대폰: 찾은 뒤에는 위쪽 찍기 칸을 한 줄로 줄여서 결과가 한 화면에 (사용자)
   if (!hits.length) {
     box.replaceChildren(h('div', { class: 'fd-card fd-err' }, h('b', {}, q), h('div', {}, barcode
-      ? T(`제품코드 ${code} · 이 매장 POG에 없는 제품이에요.`, `Item code ${code} · not in this store's POG.`)
+      ? TL({ ko: `제품코드 ${code} · 이 매장 POG에 없는 제품이에요.`, en: `Item code ${code} · not in this store's POG.`, ja: `商品コード ${code} · この店舗のPOGにはありません。`, es: `Código ${code} · no está en el POG de esta tienda.`, ru: `Код товара ${code} · нет в POG этого магазина.` })
       : T('등록된 바코드가 아니고, 이 매장 POG의 제품코드도 아니에요.', 'Not a registered barcode or an item code in this POG.'))));
     return;
   }
@@ -4047,7 +4050,7 @@ function fdShow({ q, code, barcode, hits }) {
     h('div', { class: 'fd-pi' }, h('b', {}, it0.name || code),
       h('div', {}, T('제품코드 ', 'Item ') + code), h('div', {}, T('바코드 ', 'Barcode '), bcTd),
       it0.price ? h('div', {}, '₩' + Number(it0.price).toLocaleString()) : null,
-      hits.length > 1 ? h('div', { class: 'fd-many' }, T(`이 매장에 ${hits.length}곳 있어요`, `${hits.length} locations in this store`)) : null))];
+      hits.length > 1 ? h('div', { class: 'fd-many' }, TL({ ko: `이 매장에 ${hits.length}곳 있어요`, en: `${hits.length} locations in this store`, ja: `この店舗に${hits.length}か所あります`, es: `${hits.length} ubicaciones en esta tienda`, ru: `Мест в этом магазине: ${hits.length}` })) : null))];
   // 여러 곳이면 휴대폰에서는 탭으로 한 곳씩 (PC는 모두 펼침)
   if (hits.length > 1) {
     const tabs = h('div', { class: 'fd-tabs' }, ...hits.map((x, n) => h('button', { type: 'button', class: 'fd-tab' + (n ? '' : ' on'),
@@ -4059,8 +4062,13 @@ function fdShow({ q, code, barcode, hits }) {
     const part = (fx._parts || [fx])[it._g || 0] || fx, fxT = applyTr(fx, out?.[part.id] || out?.[fx.id]);
     const name = (out?.[part.id]?.headerName) || displayName(part), pos = fdPos(fx, it);
     const posTxt = !pos ? T('위치를 계산하지 못했어요 (집기 정보 없음)', 'Position unknown')
-      : FD_EN() ? `${pos.pipe ? 'Pipe' : 'Shelf'} ${pos.row} from top${pos.col ? ` · ${ordinal(pos.col)} from left` : ''}`
-      : `위에서 ${pos.row}번째 ${pos.pipe ? '파이프' : '선반'}${pos.col ? ` · 왼쪽에서 ${pos.col}번째` : ''}`;
+      : TL({
+        ko: `위에서 ${pos.row}번째 ${pos.pipe ? '파이프' : '선반'}${pos.col ? ` · 왼쪽에서 ${pos.col}번째` : ''}`,
+        en: `${pos.pipe ? 'Pipe' : 'Shelf'} ${pos.row} from top${pos.col ? ` · ${ordinal(pos.col)} from left` : ''}`,
+        ja: `上から${pos.row}番目の${pos.pipe ? 'パイプ' : '棚'}${pos.col ? ` · 左から${pos.col}番目` : ''}`,
+        es: `${pos.pipe ? 'Tubo' : 'Estante'} ${pos.row}.º desde arriba${pos.col ? ` · ${pos.col}.º desde la izquierda` : ''}`,
+        ru: `${pos.pipe ? 'Труба' : 'Полка'} ${pos.row}-я сверху${pos.col ? ` · ${pos.col}-й слева` : ''}`,
+      });
     const W = window.innerWidth >= 900 ? Math.min(520, Math.floor((Math.min(window.innerWidth, 1160) - 32 - 28 - 18) / 2)) : Math.min(window.innerWidth - 56, 520), cv = buildCanvas(fxT, W, fdCanvasH(fxT, W));
     cv.classList.add('fd-dim');
     cv.querySelector(`.cv-item[data-id="${CSS.escape(String(it.id))}"]`)?.classList.add('fd-hit');
@@ -4088,8 +4096,7 @@ function fdCanvasH(fx, W) {
 }
 const ordinal = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
 // lang: 제품 찾기는 lang, 온라인 POG 헤더 누르기는 그 화면 언어
-async function fdDrawing(box, ref, lang = fd.lang) {
-  const T = (ko, en) => lang !== 'ko' ? en : ko;
+async function fdDrawing(box, ref, lang = fd.lang) { // lang = 도면 내용 언어 (글자는 사이트 글자 언어 T)
   if (!ref?.storeId || !ref.vId) { box.replaceChildren(h('div', { class: 'mut' }, T('이 매대는 도면과 연결되지 않았어요.', 'This fixture is not linked to the floor plan.'))); return; }
   try {
     const key = `${ref.storeId}|${ref.vId}|${lang}`;
@@ -4566,70 +4573,140 @@ $('#acc-add').addEventListener('submit', async e => {
   } catch (e) { alert(e.code === 'auth/invalid-email' ? '이메일 형식이 맞지 않아요.' : e.code === 'auth/admin-restricted-operation' || e.code === 'auth/operation-not-allowed' ? 'Firebase에서 계정 만들기가 꺼져 있어요. Firebase 콘솔 → Authentication → 설정 → 사용자 작업에서 \'만들기(가입) 사용 설정\'을 켜주세요.' : '만들지 못했어요: ' + (e.code || e.message)); }
 });
 
-/* ---------- 사이트 전체 영어 (바이어·제품 찾기 계정 · 사용자) ----------
-   화면 글자(메뉴·버튼·안내·창)를 사전으로 바꿔 보여줌. 원래 글자는 기억해 두었다가 한국어로 돌아가면 되돌림.
-   POG 페이지(.page)·도면 글자(.dw-full)·매대 그림(.cv)은 건드리지 않음 — 그 내용은 POG·도면 번역(out/pub)이 맡음.
-   직원 계정은 늘 한국어. 언어는 브라우저에 기억(localStorage 'uiLang'). 새 화면 글자를 넣을 때 바이어에게 보이면 I18N에도 넣을 것 */
-const I18N = new Map(Object.entries({
-  // 상단·처음 화면
-  '홈': 'Home', '처음 화면': 'Home', '1. 도면': '1. Floor Plan', '2. POG': '2. POG', '3. 제품 찾기': '3. Product Finder',
-  '1. 온라인 도면': '1. Online Floor Plan', '2. 온라인 POG': '2. Online POG', '온라인 도면': 'Online Floor Plan', '온라인 POG': 'Online POG',
-  '도면': 'Floor Plan', '제품 찾기': 'Product Finder', '비밀번호 바꾸기': 'Change password', '내 비밀번호 바꾸기': 'Change my password', '로그아웃': 'Log out',
-  '바이어': 'Buyer', '제품 찾기만': 'Product finder', '최종본 보기 (한/영)': 'Final version (KO/EN)', '← 처음 화면으로': '← Back to home',
-  '볼 수 있는 화면이 없어요': 'No screens available for this account',
-  '관리자가 이 계정의 접속을 막았어요. 다시 쓰려면 관리자에게 말해주세요.': 'This account has been blocked by the administrator. Please contact them to use it again.',
-  '아직 사용 권한이 없는 계정이에요. 관리자에게 계정 관리에서 레벨을 받아주세요.': 'This account has no access yet. Please ask the administrator to grant access.',
+/* ---------- 사이트 글자 언어 (바이어·제품 찾기 계정 · 사용자) ----------
+   위쪽 언어 고르기(한국어·English·日本語·Español·Русский)는 **화면 글자만**(메뉴·버튼·안내·창·알림) 바꿈.
+   도면·POG 내용 언어는 화면마다 있는 언어 알약으로 따로 고름 (사용자: 위는 영어, 도면은 한국어도 되게).
+   사전으로 글자 노드·placeholder·title을 바꾸고 원래 한국어는 기억했다가 되돌림. POG 페이지(.page)·도면 글자(.dw-full)·매대 그림(.cv)은 건드리지 않음.
+   직원 계정은 늘 한국어. 고른 언어는 브라우저에 기억(localStorage 'uiLang'). 바이어에게 보이는 새 글자를 만들면 I18N_SRC에도 넣을 것 */
+const UI_LANGS = { ko: '한국어', en: 'English', ja: '日本語', es: 'Español', ru: 'Русский' };
+// [한국어, English, 日本語, Español, Русский]
+const I18N_SRC = [
+  ['홈', 'Home', 'ホーム', 'Inicio', 'Главная'],
+  ['처음 화면', 'Home', 'ホーム', 'Inicio', 'Главная'],
+  ['1. 도면', '1. Floor Plan', '1. 図面', '1. Plano', '1. План'],
+  ['2. POG', '2. POG', '2. POG', '2. POG', '2. POG'],
+  ['3. 제품 찾기', '3. Product Finder', '3. 商品検索', '3. Buscar producto', '3. Поиск товара'],
+  ['1. 온라인 도면', '1. Online Floor Plan', '1. オンライン図面', '1. Plano en línea', '1. План онлайн'],
+  ['2. 온라인 POG', '2. Online POG', '2. オンラインPOG', '2. POG en línea', '2. POG онлайн'],
+  ['온라인 도면', 'Online Floor Plan', 'オンライン図面', 'Plano en línea', 'План онлайн'],
+  ['온라인 POG', 'Online POG', 'オンラインPOG', 'POG en línea', 'POG онлайн'],
+  ['도면', 'Floor plan', '図面', 'Plano', 'План'],
+  ['제품 찾기', 'Product Finder', '商品検索', 'Buscar producto', 'Поиск товара'],
+  ['비밀번호 바꾸기', 'Change password', 'パスワード変更', 'Cambiar contraseña', 'Сменить пароль'],
+  ['내 비밀번호 바꾸기', 'Change my password', 'パスワードを変更', 'Cambiar mi contraseña', 'Сменить мой пароль'],
+  ['로그아웃', 'Log out', 'ログアウト', 'Cerrar sesión', 'Выйти'],
+  ['바이어', 'Buyer', 'バイヤー', 'Comprador', 'Покупатель'],
+  ['제품 찾기만', 'Product finder', '商品検索のみ', 'Solo búsqueda', 'Только поиск'],
+  ['최종본 보기 (한/영)', 'Final version (KO/EN)', '最終版 (韓/英)', 'Versión final (KO/EN)', 'Финальная версия (KO/EN)'],
+  ['← 처음 화면으로', '← Back to home', '← ホームへ', '← Volver al inicio', '← На главную'],
+  ['볼 수 있는 화면이 없어요', 'No screens available for this account', 'このアカウントで見られる画面はありません', 'No hay pantallas disponibles para esta cuenta', 'Для этой учётной записи нет доступных экранов'],
+  ['관리자가 이 계정의 접속을 막았어요. 다시 쓰려면 관리자에게 말해주세요.', 'This account has been blocked by the administrator. Please contact them to use it again.', 'このアカウントは管理者によってブロックされています。管理者にお問い合わせください。', 'El administrador ha bloqueado esta cuenta. Contacte con él para volver a usarla.', 'Администратор заблокировал эту учётную запись. Обратитесь к нему, чтобы снова её использовать.'],
+  ['아직 사용 권한이 없는 계정이에요. 관리자에게 계정 관리에서 레벨을 받아주세요.', 'This account has no access yet. Please ask the administrator to grant access.', 'このアカウントにはまだ権限がありません。管理者に権限を依頼してください。', 'Esta cuenta aún no tiene acceso. Pida acceso al administrador.', 'У этой учётной записи пока нет доступа. Попросите администратора выдать доступ.'],
   // 로그인·비밀번호
-  '이메일': 'Email', '비밀번호': 'Password', '로그인': 'Log in', '비밀번호를 잊어버리셨나요?': 'Forgot your password?',
-  '로그인 실패: 이메일 또는 비밀번호를 확인해주세요.': 'Login failed: please check your email and password.',
-  '가입한 이메일을 넣어주세요. 비밀번호를 바꾸는 메일을 보내드려요.': 'Enter your email. We will send you a link to reset your password.',
-  '이메일 형식이 맞지 않아요.': 'Please enter a valid email address.', '메일을 보내지 못했어요: ': 'Could not send the email: ',
-  '지금 비밀번호': 'Current password', '새 비밀번호 (6자 이상)': 'New password (6+ characters)', '새 비밀번호 한 번 더': 'Confirm new password', '바꾸기': 'Change',
-  '새 비밀번호는 6자 이상이에요.': 'The new password must be at least 6 characters.', '새 비밀번호 두 칸이 달라요.': 'The new passwords do not match.',
-  '지금 비밀번호가 맞지 않아요.': 'Your current password is incorrect.', '비밀번호를 바꿨어요': 'Password changed', '바꾸지 못했어요: ': 'Could not change it: ',
-  // 목록·도구 막대 (공통)
-  '☰ 목록': '☰ List', '매장 목록 열기/닫기': 'Open/close the store list', 'POG 목록 열기/닫기': 'Open/close the POG list', 'PDF 저장': 'Save PDF',
-  '이전': 'Previous', '다음': 'Next', '없어요': 'No results', '찾는 중…': 'Searching…', '검색 지우기': 'Clear search', '최종': 'Final', '작성 중': 'Draft',
+  ['이메일', 'Email', 'メールアドレス', 'Correo electrónico', 'Эл. почта'],
+  ['비밀번호', 'Password', 'パスワード', 'Contraseña', 'Пароль'],
+  ['로그인', 'Log in', 'ログイン', 'Iniciar sesión', 'Войти'],
+  ['비밀번호를 잊어버리셨나요?', 'Forgot your password?', 'パスワードをお忘れですか？', '¿Olvidó su contraseña?', 'Забыли пароль?'],
+  ['로그인 실패: 이메일 또는 비밀번호를 확인해주세요.', 'Login failed: please check your email and password.', 'ログインに失敗しました。メールアドレスとパスワードを確認してください。', 'Error al iniciar sesión: compruebe su correo y contraseña.', 'Не удалось войти: проверьте эл. почту и пароль.'],
+  ['가입한 이메일을 넣어주세요. 비밀번호를 바꾸는 메일을 보내드려요.', 'Enter your email. We will send you a link to reset your password.', 'メールアドレスを入力してください。パスワード再設定のメールを送ります。', 'Introduzca su correo. Le enviaremos un enlace para restablecer la contraseña.', 'Введите эл. почту. Мы отправим ссылку для сброса пароля.'],
+  ['이메일 형식이 맞지 않아요.', 'Please enter a valid email address.', 'メールアドレスの形式が正しくありません。', 'Introduzca un correo válido.', 'Введите корректный адрес эл. почты.'],
+  ['메일을 보내지 못했어요:', 'Could not send the email:', 'メールを送信できませんでした:', 'No se pudo enviar el correo:', 'Не удалось отправить письмо:'],
+  ['지금 비밀번호', 'Current password', '現在のパスワード', 'Contraseña actual', 'Текущий пароль'],
+  ['새 비밀번호 (6자 이상)', 'New password (6+ characters)', '新しいパスワード (6文字以上)', 'Nueva contraseña (mín. 6 caracteres)', 'Новый пароль (не менее 6 символов)'],
+  ['새 비밀번호 한 번 더', 'Confirm new password', '新しいパスワード (確認)', 'Repita la nueva contraseña', 'Повторите новый пароль'],
+  ['바꾸기', 'Change', '変更', 'Cambiar', 'Изменить'],
+  ['새 비밀번호는 6자 이상이에요.', 'The new password must be at least 6 characters.', '新しいパスワードは6文字以上にしてください。', 'La nueva contraseña debe tener al menos 6 caracteres.', 'Новый пароль должен быть не короче 6 символов.'],
+  ['새 비밀번호 두 칸이 달라요.', 'The new passwords do not match.', '新しいパスワードが一致しません。', 'Las nuevas contraseñas no coinciden.', 'Новые пароли не совпадают.'],
+  ['지금 비밀번호가 맞지 않아요.', 'Your current password is incorrect.', '現在のパスワードが正しくありません。', 'La contraseña actual es incorrecta.', 'Текущий пароль неверный.'],
+  ['비밀번호를 바꿨어요', 'Password changed', 'パスワードを変更しました', 'Contraseña cambiada', 'Пароль изменён'],
+  ['바꾸지 못했어요:', 'Could not change it:', '変更できませんでした:', 'No se pudo cambiar:', 'Не удалось изменить:'],
+  // 목록·도구 막대
+  ['☰ 목록', '☰ List', '☰ 一覧', '☰ Lista', '☰ Список'],
+  ['매장 목록 열기/닫기', 'Open/close the store list', '店舗一覧を開く/閉じる', 'Abrir/cerrar la lista de tiendas', 'Открыть/закрыть список магазинов'],
+  ['POG 목록 열기/닫기', 'Open/close the POG list', 'POG一覧を開く/閉じる', 'Abrir/cerrar la lista de POG', 'Открыть/закрыть список POG'],
+  ['PDF 저장', 'Save PDF', 'PDF保存', 'Guardar PDF', 'Сохранить PDF'],
+  ['이전', 'Previous', '前へ', 'Anterior', 'Назад'],
+  ['다음', 'Next', '次へ', 'Siguiente', 'Далее'],
+  ['없어요', 'No results', '該当なし', 'Sin resultados', 'Ничего не найдено'],
+  ['찾는 중…', 'Searching…', '検索中…', 'Buscando…', 'Поиск…'],
+  ['검색 지우기', 'Clear search', '検索をクリア', 'Borrar búsqueda', 'Очистить поиск'],
+  ['최종', 'Final', '最終', 'Final', 'Финал'],
+  ['작성 중', 'Draft', '作成中', 'Borrador', 'Черновик'],
   // 온라인 도면
-  '매장 검색': 'Search stores', '평수': 'Area', '볼 매장을 고르세요.': 'Choose a store.', 'VMD실이 내보낸 도면만 나와요.': 'Only published floor plans are listed.',
-  '내보낸 도면이 있는 매장이 없어요.': 'No stores with a published floor plan yet.', '도면 없음': 'No floor plan', '내보냄': 'Published',
-  'Alt + 마우스 휠로 크게·작게. 누르면 원래 크기': 'Alt + mouse wheel to zoom. Click to reset', '🔍 매대·카테고리·제품 찾기': '🔍 Search fixtures, categories, products',
+  ['매장 검색', 'Search stores', '店舗を検索', 'Buscar tiendas', 'Поиск магазинов'],
+  ['평수', 'Area', '面積', 'Área', 'Площадь'],
+  ['볼 매장을 고르세요.', 'Choose a store.', '店舗を選んでください。', 'Elija una tienda.', 'Выберите магазин.'],
+  ['VMD실이 내보낸 도면만 나와요.', 'Only published floor plans are listed.', '公開された図面のみ表示されます。', 'Solo se muestran los planos publicados.', 'Показаны только опубликованные планы.'],
+  ['내보낸 도면이 있는 매장이 없어요.', 'No stores with a published floor plan yet.', '公開された図面のある店舗はまだありません。', 'Aún no hay tiendas con plano publicado.', 'Пока нет магазинов с опубликованным планом.'],
+  ['도면 없음', 'No floor plan', '図面なし', 'Sin plano', 'Нет плана'],
+  ['도면 있음', 'Floor plan', '図面あり', 'Con plano', 'Есть план'],
+  ['내보냄', 'Published', '公開済み', 'Publicado', 'Опубликовано'],
+  ['Alt + 마우스 휠로 크게·작게. 누르면 원래 크기', 'Alt + mouse wheel to zoom. Click to reset', 'Alt + マウスホイールで拡大・縮小。クリックで元に戻す', 'Alt + rueda del ratón para ampliar. Clic para restablecer', 'Alt + колесо мыши — масштаб. Нажмите для сброса'],
+  ['🔍 매대·카테고리·제품 찾기', '🔍 Search fixtures, categories, products', '🔍 什器・カテゴリ・商品を検索', '🔍 Buscar muebles, categorías, productos', '🔍 Поиск стеллажей, категорий, товаров'],
   // 온라인 POG
-  '최종 POG': 'Final POG', '매장·지점 검색': 'Search stores', '최종 POG를 선택하세요. 제품을 누르면 정보가 떠요.': 'Choose a final POG. Click a product to see its details.',
-  '최종 POG가 없어요.': 'No final POGs yet.', '🔍 제품·매대·카테고리 찾기': '🔍 Search products, fixtures, categories',
-  '누르면 도면에서 위치를 보여줘요': 'Click to see it on the floor plan', '제품코드': 'Item code', '가격': 'Price', '바코드': 'Barcode', '매대': 'Fixture', '등록 안 됨': 'Not registered',
-  '도면 불러오는 중…': 'Loading floor plan…', '이 매대는 도면과 연결되지 않았어요.': 'This fixture is not linked to the floor plan.', '도면을 불러오지 못했어요.': 'Could not load the floor plan.',
-  // 제품 찾기 (화면 글자는 대부분 fd 언어로 바뀜. 처음 그려지기 전 글자용)
-  '매장 선택': 'Choose a store', '제품을 찾을 매장을 골라주세요.': 'Choose a store to search.', '바코드 찍기': 'Scan barcode', '바코드 또는 제품코드': 'Barcode or item code',
-  '찾기': 'Search', '바코드가 화면에 크게, 흔들리지 않게 찍어주세요.': 'Hold the barcode large and steady in the frame.', '매장': 'Stores',
-}));
-// 숫자·이름이 들어간 글자
-const I18N_RE = [
-  [/^'(.+)'와 맞는 매장이 없어요\. ?$/, "No stores match '$1'. "],
-  [/^도면 위치 · /, 'Floor plan · '],
-  [/ · 최종( |$)/, ' · Final$1'],
-  [/★최종본/g, '★Final'],
-  [/ 작성 중/g, ' Draft'],
-  [/^매대 (\d+)개/, '$1 fixtures'],
-  [/^매대 (\d+)곳/, '$1 fixtures'],
-  [/^(\d+)쪽/, '$1 pages'],
-  [/제품 (\d+)개/g, '$1 products'],
-  [/ · 한국어$/, ' · Korean'],
+  ['최종 POG', 'Final POG', '最終POG', 'POG final', 'Финальный POG'],
+  ['매장·지점 검색', 'Search stores', '店舗を検索', 'Buscar tiendas', 'Поиск магазинов'],
+  ['최종 POG를 선택하세요. 제품을 누르면 정보가 떠요.', 'Choose a final POG. Click a product to see its details.', '最終POGを選んでください。商品をクリックすると詳細が表示されます。', 'Elija un POG final. Haga clic en un producto para ver sus datos.', 'Выберите финальный POG. Нажмите на товар, чтобы увидеть сведения.'],
+  ['최종 POG가 없어요.', 'No final POGs yet.', '最終POGはまだありません。', 'Aún no hay POG finales.', 'Финальных POG пока нет.'],
+  ['🔍 제품·매대·카테고리 찾기', '🔍 Search products, fixtures, categories', '🔍 商品・什器・カテゴリを検索', '🔍 Buscar productos, muebles, categorías', '🔍 Поиск товаров, стеллажей, категорий'],
+  ['누르면 도면에서 위치를 보여줘요', 'Click to see it on the floor plan', 'クリックすると図面上の位置を表示', 'Haga clic para verlo en el plano', 'Нажмите, чтобы увидеть на плане'],
+  ['제품코드', 'Item code', '商品コード', 'Código de artículo', 'Код товара'],
+  ['가격', 'Price', '価格', 'Precio', 'Цена'],
+  ['바코드', 'Barcode', 'バーコード', 'Código de barras', 'Штрихкод'],
+  ['매대', 'Fixture', '什器', 'Mueble', 'Стеллаж'],
+  ['등록 안 됨', 'Not registered', '未登録', 'No registrado', 'Не зарегистрирован'],
+  ['도면 불러오는 중…', 'Loading floor plan…', '図面を読み込み中…', 'Cargando plano…', 'Загрузка плана…'],
+  ['이 매대는 도면과 연결되지 않았어요.', 'This fixture is not linked to the floor plan.', 'この什器は図面とつながっていません。', 'Este mueble no está vinculado al plano.', 'Этот стеллаж не привязан к плану.'],
+  ['도면을 불러오지 못했어요.', 'Could not load the floor plan.', '図面を読み込めませんでした。', 'No se pudo cargar el plano.', 'Не удалось загрузить план.'],
+  // 제품 찾기
+  ['매장 선택', 'Choose a store', '店舗を選択', 'Elegir tienda', 'Выбор магазина'],
+  ['제품을 찾을 매장을 골라주세요.', 'Choose the store to find products in.', '商品を探す店舗を選んでください。', 'Elija la tienda donde buscar productos.', 'Выберите магазин для поиска товаров.'],
+  ['바코드 찍기', 'Scan barcode', 'バーコードを撮影', 'Escanear código', 'Сканировать штрихкод'],
+  ['바코드 또는 제품코드', 'Barcode or item code', 'バーコードまたは商品コード', 'Código de barras o de artículo', 'Штрихкод или код товара'],
+  ['찾기', 'Find', '検索', 'Buscar', 'Найти'],
+  ['바코드가 화면에 크게, 흔들리지 않게 찍어주세요.', 'Take a close, steady photo of the barcode.', 'バーコードを大きく、ぶれないように撮影してください。', 'Tome una foto cercana y estable del código de barras.', 'Сфотографируйте штрихкод крупно и без смазывания.'],
+  ['매장', 'Stores', '店舗', 'Tiendas', 'Магазины'],
+  ['최근', 'Recent', '最近', 'Reciente', 'Недавний'],
+  ['POG를 불러오는 중이에요', 'Loading POG…', 'POGを読み込み中…', 'Cargando POG…', 'Загрузка POG…'],
+  ['POG를 읽지 못했어요:', 'Could not load POG:', 'POGを読み込めませんでした:', 'No se pudo cargar el POG:', 'Не удалось загрузить POG:'],
+  ['등록된 바코드가 아니고, 이 매장 POG의 제품코드도 아니에요.', 'Not a registered barcode or an item code in this POG.', '登録されたバーコードでも、この店舗のPOGの商品コードでもありません。', 'No es un código de barras registrado ni un código de artículo de este POG.', 'Это не зарегистрированный штрихкод и не код товара из POG этого магазина.'],
+  ['먼저 매장을 골라주세요', 'Choose a store first', '先に店舗を選んでください', 'Primero elija una tienda', 'Сначала выберите магазин'],
+  ['바코드 읽기 도구를 불러오지 못했어요. 인터넷 연결을 확인해주세요.', 'Could not load the barcode reader. Check your connection.', 'バーコード読み取りツールを読み込めませんでした。接続を確認してください。', 'No se pudo cargar el lector de códigos. Compruebe su conexión.', 'Не удалось загрузить сканер штрихкодов. Проверьте подключение.'],
+  ['바코드를 읽는 중…', 'Reading barcode…', 'バーコードを読み取り中…', 'Leyendo código…', 'Чтение штрихкода…'],
+  ['바코드를 읽지 못했어요. 더 가까이, 밝은 곳에서 다시 찍거나 숫자를 직접 넣어주세요.', 'Could not read the barcode. Try closer, in better light, or type the number.', 'バーコードを読み取れませんでした。近づけて明るい場所で撮るか、数字を入力してください。', 'No se pudo leer el código. Acérquese, use más luz o escriba el número.', 'Не удалось прочитать штрихкод. Снимите ближе, при хорошем свете, или введите номер.'],
+  ['볼 수 있는 매장이 없어요. 최종 POG가 있는 매장만 나와요.', 'No store available. Only stores with a final POG are shown.', '表示できる店舗がありません。最終POGのある店舗のみ表示されます。', 'No hay tiendas disponibles. Solo se muestran tiendas con POG final.', 'Нет доступных магазинов. Показаны только магазины с финальным POG.'],
+  ['사진을 열지 못했어요', 'Could not open the photo', '写真を開けませんでした', 'No se pudo abrir la foto', 'Не удалось открыть фото'],
+  ['위치를 계산하지 못했어요 (집기 정보 없음)', 'Position unknown', '位置を計算できませんでした', 'Posición desconocida', 'Положение неизвестно'],
 ];
-const UI = { lang: 'ko', content: null };
-try { UI.lang = localStorage.getItem('uiLang') === 'en' ? 'en' : 'ko'; } catch { }
+const UI_CODES = ['en', 'ja', 'es', 'ru'];
+const I18N = new Map(I18N_SRC.map(([ko, ...t]) => [ko, Object.fromEntries(UI_CODES.map((c, i) => [c, t[i]]))]));
+// 숫자·이름이 들어간 글자: [찾을 글자, { 언어: 바꿀 글자 }]
+const I18N_RE = [
+  [/^'(.+)'와 맞는 매장이 없어요\. ?$/, { en: "No stores match '$1'. ", ja: '「$1」に一致する店舗はありません。', es: "Ninguna tienda coincide con '$1'. ", ru: 'Нет магазинов по запросу «$1». ' }],
+  [/^도면 위치 · /, { en: 'Floor plan · ', ja: '図面上の位置 · ', es: 'Plano · ', ru: 'План · ' }],
+  [/ · 최종( |$)/, { en: ' · Final$1', ja: ' · 最終$1', es: ' · Final$1', ru: ' · Финал$1' }],
+  [/★최종본/g, { en: '★Final', ja: '★最終版', es: '★Final', ru: '★Финал' }],
+  [/ 작성 중/g, { en: ' Draft', ja: ' 作成中', es: ' Borrador', ru: ' Черновик' }],
+  [/^매대 (\d+)(개|곳)/, { en: '$1 fixtures', ja: '什器 $1 件', es: '$1 muebles', ru: 'Стеллажей: $1' }],
+  [/^(\d+)쪽/, { en: '$1 pages', ja: '$1 ページ', es: '$1 páginas', ru: 'Страниц: $1' }],
+  [/제품 (\d+)개/g, { en: '$1 products', ja: '商品 $1 件', es: '$1 productos', ru: 'товаров: $1' }],
+  [/ · 한국어$/, { en: ' · Korean', ja: ' · 韓国語', es: ' · Coreano', ru: ' · Корейский' }],
+];
 const i18nSkip = '.page, .dw-full, .cv, script, style, svg, .ui-lang, .login-chars';
 const i18nOrig = new WeakMap(); // 글자 노드 → 원래 한국어 / 요소 → { placeholder, title }
-function i18nStr(s) {
+function i18nStr(s, lang = UI.lang) {
+  if (lang === 'ko') return null;
   const t = String(s ?? '').trim(); if (!t || !/[가-힣]/.test(t)) return null;
-  const hit = I18N.get(t); if (hit != null) return String(s).replace(t, hit);
-  let r = t; for (const [re, to] of I18N_RE) r = r.replace(re, to);
+  const hit = I18N.get(t)?.[lang];
+  if (hit != null) return String(s).replace(t, hit);
+  let r = t; for (const [re, to] of I18N_RE) if (to[lang] != null) r = r.replace(re, to[lang]);
   return r !== t ? String(s).replace(t, r) : null;
 }
 function i18nText(n) {
-  if (UI.lang === 'en') {
+  if (UI.lang !== 'ko') {
     const src = i18nOrig.has(n) ? i18nOrig.get(n) : n.nodeValue, r = i18nStr(src);
     if (r != null) { i18nOrig.set(n, src); if (n.nodeValue !== r) n.nodeValue = r; }
+    else if (i18nOrig.has(n)) { n.nodeValue = i18nOrig.get(n); i18nOrig.delete(n); }
   } else if (i18nOrig.has(n)) { n.nodeValue = i18nOrig.get(n); i18nOrig.delete(n); }
 }
 function i18nAttrs(el) {
@@ -4637,7 +4714,7 @@ function i18nAttrs(el) {
     if (!el.hasAttribute?.(a)) continue;
     const o = i18nOrig.get(el) || {};
     const cur = el.getAttribute(a);
-    if (UI.lang === 'en') { const src = /[가-힣]/.test(cur) ? cur : (o[a] ?? cur), r = i18nStr(src); if (r != null) { o[a] = src; i18nOrig.set(el, o); if (cur !== r) el.setAttribute(a, r); } } // 같은 값이면 다시 쓰지 않음 (무한 반복 방지)
+    if (UI.lang !== 'ko') { const src = /[가-힣]/.test(cur) ? cur : (o[a] ?? cur), r = i18nStr(src); if (r != null) { o[a] = src; i18nOrig.set(el, o); if (cur !== r) el.setAttribute(a, r); } } // 같은 값이면 다시 쓰지 않음 (무한 반복 방지)
     else if (o[a] != null) { if (!/[가-힣]/.test(cur)) el.setAttribute(a, o[a]); delete o[a]; }
   }
 }
@@ -4649,9 +4726,9 @@ function i18nTree(root) {
   const w = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, { acceptNode: n => n.nodeType === 1 && n.matches(i18nSkip) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
   for (let n = w.nextNode(); n; n = w.nextNode()) n.nodeType === 3 ? i18nText(n) : i18nAttrs(n);
 }
-// 나중에 그려지는 글자도 바꿈 (영어일 때만)
+// 나중에 그려지는 글자도 바꿈 (한국어가 아닐 때만)
 new MutationObserver(ms => {
-  if (UI.lang !== 'en') return;
+  if (UI.lang === 'ko') return;
   for (const m of ms) {
     if (m.type === 'attributes') { i18nAttrs(m.target); continue; }
     m.addedNodes.forEach(n => i18nTree(n));
@@ -4659,35 +4736,43 @@ new MutationObserver(ms => {
 }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['placeholder', 'title'] });
 // 알림 창 글자도
 { const a0 = window.alert.bind(window), c0 = window.confirm.bind(window);
-  window.alert = m => a0(UI.lang === 'en' ? (i18nStr(m) ?? m) : m);
-  window.confirm = m => c0(UI.lang === 'en' ? (i18nStr(m) ?? m) : m); }
+  window.alert = m => a0(i18nStr(m) ?? m);
+  window.confirm = m => c0(i18nStr(m) ?? m); }
 const uiLangOn = () => !state.level ? true : !isStaff(); // 로그인 화면·바이어·제품 찾기 계정만 언어를 고름
 function paintUiLang() {
   $$('.ui-lang').forEach(box => {
     box.classList.toggle('hidden', !(box.closest('#login') || uiLangOn()));
-    box.replaceChildren(...[['ko', '한국어'], ['en', 'English']].map(([k, label]) => h('button', { type: 'button', class: UI.lang === k ? 'on' : '', onclick: () => { if (UI.lang !== k) setUiLang(k); } }, label)));
+    const sel = h('select', { class: 'ui-lang-sel', title: 'Language', 'aria-label': 'Language', onchange: e => setUiLang(e.target.value) },
+      ...Object.entries(UI_LANGS).map(([k, label]) => h('option', { value: k }, label)));
+    sel.value = UI.lang;
+    box.replaceChildren(h('span', { class: 'ui-lang-i', 'aria-hidden': 'true' }, '🌐'), sel);
   });
 }
-// content: 도면·POG·제품 찾기 내용 언어 ('ko' | 'English' | 사전 추가 언어). 없으면 화면 언어대로
-function setUiLang(l, content) {
-  UI.lang = l === 'en' ? 'en' : 'ko';
+// 화면 언어에 맞는 도면·POG 번역 이름 (위쪽 언어를 바꾸면 그 번역이 있을 때만 내용도 그 언어로)
+const CONTENT_NAMES = { ko: ['ko'], en: ['English', '영어'], ja: ['日本語', 'Japanese', '일본어'], es: ['Español', 'Spanish', '스페인어'], ru: ['Русский', 'Russian', '러시아어'] };
+const contentFor = (avail, l = UI.lang) => (CONTENT_NAMES[l] || []).find(c => c === 'ko' || avail.includes(c)) || null;
+function setUiLang(l) {
+  UI.lang = UI_LANGS[l] ? l : 'ko';
   try { localStorage.setItem('uiLang', UI.lang); } catch { }
   document.documentElement.lang = UI.lang;
   i18nTree(document.body); paintUiLang();
   if (!state.level || isStaff()) return;
-  const c = UI.content = content || (UI.lang === 'en' ? 'English' : 'ko');
-  fd.lang = c; fd.langSet = true;
+  // 화면 글자 다시 그리기 + 그 언어 번역이 있으면 내용도 그 언어로 (없으면 내용은 그대로. 화면 알약으로 따로 바꿈)
+  const fc = contentFor([...new Set(['English', ...Object.keys(fd.trs || {})])]); if (fc) { fd.lang = fc; fd.langSet = true; }
   if (state.view === 'finder') { renderFdSeg(); if (fd.step !== 2) renderFdStores(); if (fd.last) fdShow(fd.last); }
-  if (c === 'ko') dw.showKo = true; else { dw.showKo = false; if (dw.lang !== c) { dw.lang = c; dw.tr = {}; if (dw.id) subDwTr(); } }
-  if (dw.id) renderDw();
-  const v = state.viewer; v.lang = c !== 'ko' && v.trs?.[c] ? c : 'ko';
+  if (dw.id) {
+    const dc = contentFor(trLangs());
+    if (dc === 'ko') dw.showKo = true; else if (dc) { dw.showKo = false; if (dw.lang !== dc) { dw.lang = dc; dw.tr = {}; subDwTr(); } }
+    renderDw();
+  }
+  const v = state.viewer; const vc = contentFor(Object.keys(v.trs || {})); if (vc) v.lang = vc;
   if (v.pog) { renderVwSeg(); renderViewer(); }
 }
 // 로그인한 뒤: 직원은 한국어, 바이어·제품 찾기 계정은 고른 언어(처음엔 영어)
 function initUiLang() {
   if (isStaff()) { if (UI.lang !== 'ko') { UI.lang = 'ko'; i18nTree(document.body); document.documentElement.lang = 'ko'; } paintUiLang(); return; }
   let saved = null; try { saved = localStorage.getItem('uiLang'); } catch { }
-  setUiLang(saved === 'ko' ? 'ko' : 'en');
+  setUiLang(saved && UI_LANGS[saved] ? saved : 'en');
 }
 paintUiLang();
-if (UI.lang === 'en') { document.documentElement.lang = 'en'; i18nTree(document.body); }
+if (UI.lang !== 'ko') { document.documentElement.lang = UI.lang; i18nTree(document.body); }
