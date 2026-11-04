@@ -806,3 +806,13 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 /* 묶음·원래 매대 크기 조절 손잡이 (오른쪽 아래 네모) */
 .cv-blk-r { position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px; background: #fff; border: 2px solid #1e6fd9; border-radius: 2px; cursor: nwse-resize; pointer-events: auto; }
 .cv-blk.on .cv-blk-r { background: #1e6fd9; }
+
+/* 계정 관리: 찾기·부서 거르기·부서별 나열 (사용자) */
+.acc-tools { display: flex; align-items: center; gap: 10px; margin: 16px 0 8px; }
+.acc-tools .search { flex: 1; max-width: 360px; padding: 9px 12px; font-size: 14px; }
+.acc-filter { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.acc-chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; color: var(--ink); }
+.acc-chip:hover { border-color: var(--or); }
+.acc-chip.on { background: var(--or); border-color: var(--or); color: #fff; font-weight: 700; }
+.acc-chip-n { margin-left: 5px; font-size: 11px; opacity: .75; }
+.acc-grp td { background: #f6f6f7; font-weight: 700; font-size: 13px; color: #555; padding: 6px 10px; }
