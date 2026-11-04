@@ -822,3 +822,10 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .topbar .seg.ui-lang button { color: #fff; padding: 3px 9px; font-size: 12px; }
 .topbar .seg.ui-lang button.on { background: #fff; color: var(--or-d); }
 .login-lang { align-self: center; margin-top: 10px; }
+
+/* POG 만들기 위 막대 줄이기 (사용자): 찾기 종류 고르기, 대표 담당자는 표지 패널, 되돌리기는 한 칸 */
+.find-mode { border: 0; background: transparent; font: inherit; font-size: 13px; font-weight: 600; color: var(--or-d); padding: 0 2px 0 4px; cursor: pointer; }
+.find-mode:focus { outline: none; }
+.mgr-box { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.mgr-box select { flex: 1; min-width: 120px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+#ed-undo, #ed-redo { min-width: 32px; padding-left: 8px; padding-right: 8px; font-size: 16px; }
