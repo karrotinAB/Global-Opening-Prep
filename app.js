@@ -1054,6 +1054,16 @@ function finishBlock(fx, pog, page, editable) {
 }
 
 /* ---------- 추가 페이지 (POG 없이 사진·글·메모만) ---------- */
+// 빈 페이지 팀명 선택지: 사전 '팀명' + 이 POG 페이지들의 팀명 (지금 값도 남겨 둠)
+function teamOptions(cur) {
+  const names = [...glossaryOf('팀명').map(g => g.ko), ...[...(state.fixtures?.values?.() || [])].filter(f => f.kind !== 'free').map(f => catName(f.teamName))].filter(Boolean);
+  return ['', ...new Set([...names.sort((a, b) => a.localeCompare(b, 'ko')), ...(cur ? [catName(cur)] : [])])];
+}
+function fillTeamSelect(sel, v) {
+  const opts = teamOptions(v), sig = opts.join('|');
+  if (sel.dataset.sig !== sig) { sel.replaceChildren(...opts.map(t => h('option', { value: t }, t || '팀명 고르기'))); sel.dataset.sig = sig; }
+  if (sel !== document.activeElement) sel.value = catName(v || '');
+}
 function buildFreePage(fx, pog, { editable, field, L = LABELS_KO, box, onItem }) {
   // 빈 페이지 (사용자): fx.info = 오른쪽 집기 정보 칸, 다른 페이지에서 잘라 붙인 매대(items·props)가 있으면 그림
   const hasCv = (fx.items || []).length || (fx.props || []).length;
@@ -1065,7 +1075,10 @@ function buildFreePage(fx, pog, { editable, field, L = LABELS_KO, box, onItem })
   const page = h('div', { class: 'page free' },
     h('div', { class: 'ph' }, field('headerName', h('input', { class: 'ph-name', placeholder: '제목 (예: 3단 각고리 참고사진)' })),
       // 빈 페이지도 도면 매대에 연결 (사용자). 고르면 제목에 도면 매대명이 들어감
-      editable ? h('button', { class: 'ph-dw no-print', type: 'button', title: '도면에서 매대를 골라 제목에 넣어요', onclick: () => openHeaderPicker(pog, fx) }, '📐 도면에서 고르기') : null),
+      editable ? h('button', { class: 'ph-dw no-print', type: 'button', title: '도면에서 매대를 골라 제목에 넣어요', onclick: () => openHeaderPicker(pog, fx) }, '📐 도면에서 고르기') : null,
+      // 팀명(카테고리): 있는 것 중에서만 고름 (사용자) — 사전 '팀명' + 이 POG에 있는 팀명
+      editable ? field('teamName', h('select', { class: 'ph-cat ph-cat-sel', title: '팀명(카테고리) 고르기' }, ...teamOptions(fx.teamName).map(t => h('option', { value: t }, t || '팀명 고르기'))))
+        : h('div', { class: 'ph-cat' }, fx._cat ?? catName(fx.teamName))),
     body,
     h('div', { class: 'pf1' }, L.mgr + ' ', h('span', { class: 'pf-mgr' }), editable ? mgrSelect(fx, pog) : null),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
@@ -1360,7 +1373,8 @@ function fillHookSelect(sel, v) {
 function syncPage(block, fx, pog) {
   $$('[data-f]', block).forEach(el => {
     const v = fx[el.dataset.f] ?? '';
-    if (el.tagName === 'SELECT') fillHookSelect(el, v);
+    if (el.dataset.f === 'teamName' && el.tagName === 'SELECT') fillTeamSelect(el, v); // 빈 페이지 팀명
+    else if (el.tagName === 'SELECT') fillHookSelect(el, v);
     else if (el !== document.activeElement && el.value !== String(v)) el.value = v;
   });
   $('.pf-mgr', block).textContent = fx.manager || pog.manager || ''; // 페이지마다 다른 담당자를 정할 수 있음 (비우면 POG 담당자)
@@ -2581,7 +2595,7 @@ function trFields(fx) {
     ...(fx.extras || []).filter(x => (x.name || '').trim()).map((x, i) => ({ key: 'x_' + x.id, label: `이외집기 ${i + 1}`, ko: x.name, cats: ['집기'], dict: '집기', qty: x.qty })),
     { key: 'otherFixtures', label: LABELS_KO.other + ' (메모)', ko: fx.otherFixtures, cats: ['집기'], addCat: '집기' },
   ];
-  if (fx.kind === 'free') return [{ key: 'headerName', label: '제목', ko: fx.headerName, addCat: '카테고리' }, ...(fx.info ? info : []), ...notes].filter(r => (r.ko || '').trim());
+  if (fx.kind === 'free') return [{ key: 'cat', label: '카테고리(팀명)', ko: catName(fx.teamName), cats: ['팀명'], dict: '팀명' }, { key: 'headerName', label: '제목', ko: fx.headerName, addCat: '카테고리' }, ...(fx.info ? info : []), ...notes].filter(r => (r.ko || '').trim());
   return [
     { key: 'cat', label: '카테고리(팀명)', ko: catName(fx.teamName), cats: ['팀명'], dict: '팀명' },
     { key: 'headerName', label: '매대명', ko: fx.headerName || origName(fx), cats: ['카테고리'], addCat: '카테고리',
