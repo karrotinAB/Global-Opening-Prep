@@ -62,6 +62,7 @@ Firestore `roles/{이메일(소문자)}` 문서의 `level`. **문서가 없는 �
 | `editor` | 편집 (예전 레벨) | 모든 편집 가능. 새로 지정할 수 없고, 계정 관리에 '다시 골라주세요'로 표시 |
 
 - **바이어 바로가기 (사용자):** 바이어는 처음 화면 타일·상단 메뉴의 '도면'/'POG'가 '온라인 도면'/'온라인 POG'로 바로 감(`buyerShortcuts`, `applyAccess`에서. 원래 값은 `data-orig`에 두고 다른 계정이면 되돌림).
+- **사이트 전체 영어 (사용자):** 바이어·제품 찾기 계정은 상단 오른쪽(로그인 화면에도) '한국어 | English'(`.ui-lang`, `setUiLang`)로 화면 글자 전체(메뉴·버튼·안내·창·알림)를 영어로. 사전 `I18N`(정확히 같은 글자)·`I18N_RE`(숫자 들어간 글자)로 글자 노드·placeholder·title을 바꾸고 원래 글자는 기억했다가 되돌림(`i18nTree`, 새로 그려지는 것은 `MutationObserver`, `alert`/`confirm`도). POG 페이지(.page)·도면 글자(.dw-full)·매대 그림(.cv)은 건드리지 않음(그 내용은 번역 out/pub). 사이트 언어를 바꾸면 온라인 도면·온라인 POG·제품 찾기 내용 언어도 같이 바뀌고(`UI.content`), 화면마다 있는 언어 알약을 눌러도 사이트 언어가 같이 바뀜. 처음엔 영어, 고른 언어는 브라우저에 기억(`uiLang`). 직원 계정은 늘 한국어(버튼 없음). **바이어에게 보이는 새 글자를 만들면 `I18N`에도 넣을 것.**
 - 앱: `ACCESS` 표(app.js)의 `views`(볼 수 있는 화면)·`edit`(편집 영역: `drawing`, `drawing-trans`, `pog-make`, `pog-trans`, `glossary`). `[data-view]`/`[data-go]`/`[data-edit]` 속성으로 메뉴·버튼을 숨기고, `go()`가 권한 없는 화면을 막는다. **진짜 차단은 보안 규칙**이 한다.
 - 규칙: POG 문서·매대는 POG팀, `pogs/{id}/translations/**`는 글사부가 쓴다. 도면은 VMD팀, `drawings/{id}/translations/**`는 글사부. 2.2 POG 번역·1. 도면 번역은 **이 translations 하위 컬렉션에 저장할 것** (원본 문서는 글사부가 못 고침).
 - **바이어는 roles 문서의 `prefix`(매장코드 앞 4자리, 계정 관리에서 입력)와 `storePrefix`가 같은 최종 POG·도면만** 읽는다. 앱은 `where('status','==','final') + where('storePrefix','==',prefix)`로 조회. `storePrefix`는 POG 가져올 때·도면 올릴 때 저장하고, 예전 문서는 POG팀·VMD·관리자 화면에서 자동으로 채운다(`fillPrefixes`). 바이어는 사전을 못 읽어서 도면 번역 화면이 보이는 번역을 `translations/{lang}.pub`에 저장한다(`publishDw`).
