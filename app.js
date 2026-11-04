@@ -601,15 +601,19 @@ const autoCoverTitle = pog => (pog.branchName || pog.storeName || '').trim().rep
 const footStore = pog => pog.branchName || pog.storeName || '';
 const coverTitle = pog => pog.coverTitle || autoCoverTitle(pog);
 function buildCover(pog, { editable, L = LABELS_KO }) {
-  const title = h('input', { class: 'f cover-title' });
-  if (!editable) title.disabled = true;
-  else title.addEventListener('input', () => savePog(pog.id, 'coverTitle', title.value));
+  const title = h('input', { class: 'f cover-title', title: '눌러서 표지 매장명 고치기' });
+  // 표지 아래 매장명도 여기서 고침 (사용자) = branchName. 모든 페이지 아래 매장명도 같이 바뀜
+  const store = h('input', { class: 'f cover-store', title: '눌러서 매장명 고치기 (모든 페이지 아래 매장명도 같이 바뀌어요)' });
+  if (!editable) { title.disabled = true; store.disabled = true; }
+  else { title.addEventListener('input', () => savePog(pog.id, 'coverTitle', title.value)); store.addEventListener('input', () => savePog(pog.id, 'branchName', store.value)); }
+  // 표지의 담당자 글자는 'POG 팀' (사용자). 번역에서 아직 'team' 문구가 없는 예전 번역이면 영어 기본값
+  const team = L === LABELS_KO || L.team !== LABELS_KO.team ? L.team || LABELS_KO.team : L.mgr === LABELS_KO.mgr ? LABELS_KO.team : LABELS_EN.team;
   const page = h('div', { class: 'page cover' },
     h('div', { class: 'ph' }),
     h('div', { class: 'cover-gap' }),
     h('div', { class: 'cover-body' }, title, h('div', { class: 'cover-pog' }, 'POG')),
-    h('div', { class: 'pf1' }, L.mgr + ' ', h('span', { class: 'pf-mgr' })),
-    h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
+    h('div', { class: 'pf1' }, team + ' ', h('span', { class: 'pf-mgr' })),
+    h('div', { class: 'pf2' }, store));
   return h('div', { class: 'page-block cover-block', 'data-id': '__cover' }, page);
 }
 function syncCover(block, pog) {
@@ -617,7 +621,9 @@ function syncCover(block, pog) {
   t.placeholder = autoCoverTitle(pog) || '매장명';
   if (t !== document.activeElement && t.value !== (pog.coverTitle || '')) t.value = pog.coverTitle || '';
   $('.pf-mgr', block).textContent = pog.manager || '';
-  $('.pf-branch', block).textContent = footStore(pog);
+  const s = $('.cover-store', block);
+  s.placeholder = pog.storeName || '매장명';
+  if (s !== document.activeElement && s.value !== (pog.branchName || '')) s.value = pog.branchName || '';
 }
 
 /* ---------- 슬라이드 목록 (PPT처럼 왼쪽 썸네일) ---------- */
@@ -1705,7 +1711,12 @@ function renderSidePanel() {
   const mgrBox = $('#ed-mgr-box'), holder = $('#ed-mgr-holder'), narrow = NARROW.matches;
   holder.append(mgrBox); holder.classList.toggle('hidden', !narrow);
   if (id === '__cover') {
-    nodes.push(h('div', { class: 'se-head' }, h('b', {}, '표지'), h('span', { class: 'mut' }, '매장명은 표지 가운데에서 바로 고칠 수 있어요')));
+    nodes.push(h('div', { class: 'se-head' }, h('b', {}, '표지'), h('span', { class: 'mut' }, '매장명은 표지에서 바로 눌러 고쳐도 돼요')));
+    // 표지 매장명 (가운데 큰 글씨) · 아래 매장명 (모든 페이지 아래) (사용자)
+    const inp = (f, ph) => { const el = h('input', { class: 'se-input', value: pog[f] || '', placeholder: ph }); el.disabled = !ed; el.addEventListener('input', () => { savePog(pog.id, f, el.value); const c = state.coverEl && $(f === 'coverTitle' ? '.cover-title' : '.cover-store', state.coverEl); if (c) c.value = el.value; }); return el; };
+    nodes.push(sec('매장명', h('label', { class: 'se-lab' }, '표지 가운데 큰 글씨'), inp('coverTitle', autoCoverTitle(pog) || '매장명'),
+      h('label', { class: 'se-lab' }, '표지·모든 페이지 아래'), inp('branchName', pog.storeName || '매장명'),
+      h('p', { class: 'se-help' }, '비우면 POG 사이트 매장명이 들어가요.')));
     if (!narrow) nodes.push(sec('대표 POG 담당자', h('p', { class: 'se-help' }, '모든 페이지 아래 \'POG 담당자\'에 들어가요. 페이지마다 다르면 그 페이지 아래 칸에서 따로 고를 수 있어요.'), mgrBox));
     nodes.push(hookPicker(pog, ed));
     const emp = emptyPages();
@@ -2377,8 +2388,8 @@ $('#ed-regrab').onclick = () => openRegrab(null);
    저장: pogs/{id}/translations/{언어}
      fx:  { fxId: { 항목: 사람이 고친 번역 } }   (__labels = 페이지 고정 문구, __pog = 표지·매장명)
      out: '온라인 POG에 반영'을 누른 순간의 최종 번역 (사전 자동 + 사람이 고친 것). 바이어는 사전을 못 읽으므로 이걸로 보여줌 */
-const LABELS_KO = { type: '매대 타입', hook: '고리타입/갯수', sp: '선반/파이프여부', other: '이외집기(8코드포함)', mgr: 'POG 담당자' };
-const LABELS_EN = { type: 'Fixture Type', hook: 'Hook Type / Qty', sp: 'Shelf / Pipe', other: 'Other Fixtures (incl. 8-code)', mgr: 'POG Manager' };
+const LABELS_KO = { type: '매대 타입', hook: '고리타입/갯수', sp: '선반/파이프여부', other: '이외집기(8코드포함)', mgr: 'POG 담당자', team: 'POG 팀' };
+const LABELS_EN = { type: 'Fixture Type', hook: 'Hook Type / Qty', sp: 'Shelf / Pipe', other: 'Other Fixtures (incl. 8-code)', mgr: 'POG Manager', team: 'POG Team' };
 const trOf = (g, lang) => lang === 'English' ? (g.en || '') : (g.tr?.[lang] || '');
 const hasKo = t => /[가-힣]/.test(t || '');
 function findWord(ko, lang, cats) {
