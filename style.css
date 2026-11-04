@@ -888,8 +888,12 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .log-btn.top-btn { right: 476px; }
 .side-edit:empty ~ .log-btn.top-btn, .side-edit.hidden ~ .log-btn.top-btn { right: 176px; }
 /* 도면에서 고르기: 지금 고르는 페이지 (사용자) */
-.hp-cur { display: flex; gap: 12px; align-items: center; padding: 8px 10px; margin: 6px 0; border: 1px solid #f7931e; border-radius: 8px; background: #fff8ef; font-size: 13px; }
-.hp-cv { width: 150px; height: 110px; position: relative; flex: none; background: #fff; border-radius: 4px; overflow: hidden; }
+.hp-cur { display: flex; gap: 14px; align-items: center; padding: 10px 12px; margin: 8px 0; border: 2px solid #f7931e; border-radius: 10px; background: #fff8ef; font-size: 13px; position: sticky; top: -24px; z-index: 5; }
+.hp-cv { width: 200px; height: 150px; position: relative; flex: none; background: #fff; border-radius: 6px; overflow: hidden; border: 1px solid #eee; }
+.hp-info { display: flex; flex-direction: column; gap: 3px; }
+.hp-tag { display: inline-block; align-self: flex-start; background: #f7931e; color: #fff; font-weight: 700; font-size: 12px; padding: 2px 8px; border-radius: 10px; }
+.hp-name { font-size: 20px; font-weight: 800; color: #222; }
+.hp-now { margin-top: 2px; } .hp-now b { color: #e07b00; } .hp-now.none { color: #d61518; }
 .yn-pop { min-width: 320px; }
 
 /* 수정 기록 잔상 (사용자: 지워진 것을 흐리게 보여주기) */

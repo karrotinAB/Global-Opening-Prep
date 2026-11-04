@@ -3807,11 +3807,16 @@ async function openHeaderPicker(pog, fx, after) {
   const used = new Set([...state.fixtures.values()].filter(x => x.id !== fx.id && x.drawingRef?.vId === v.id).map(x => x.drawingRef.gid));
   // 지금 어느 페이지의 매대를 고르는지 (사용자): 페이지 이름·POG 원래 이름·카테고리·작은 그림
   const cfx = state.edComposed?.get(fx.id) || fx;
+  const pageNo = [...(state.edComposed?.keys() || [])].indexOf(fx.id) + 2; // 표지가 1쪽
+  if (state.edActive !== fx.id) setEdActive(fx.id); // 오른쪽 패널도 이 페이지로
   const cur = h('div', { class: 'hp-cur' },
-    (cfx.items || []).length ? h('div', { class: 'hp-cv' }, buildCanvas(cfx, 150, 110, null, { lazy: true })) : null,
-    h('div', {}, h('div', { class: 'mut' }, '지금 고르는 페이지'), h('b', {}, displayName(fx)),
-      h('div', { class: 'mut' }, `POG 원본: ${origName(fx)}${fx.teamName ? ' · ' + catName(fx.teamName) : ''} · 제품 ${(cfx.items || []).length}개`),
-      fx.drawingRef ? h('div', { class: 'mut' }, `지금 연결: ${fx.drawingRef.ko} (파란 칸)`) : h('div', { class: 'mut' }, '아직 연결 안 됨')));
+    (cfx.items || []).length ? h('div', { class: 'hp-cv' }, buildCanvas(cfx, 200, 150, null, { lazy: true })) : null,
+    h('div', { class: 'hp-info' },
+      h('div', { class: 'hp-tag' }, `📄 ${pageNo > 1 ? pageNo + '쪽 · ' : ''}이 페이지의 매대를 고르는 중`),
+      h('div', { class: 'hp-name' }, displayName(fx)),
+      h('div', {}, `POG 원본: ${origName(fx) || '-'}`),
+      h('div', { class: 'mut' }, `${fx.teamName ? '카테고리 ' + catName(fx.teamName) + ' · ' : ''}제품 ${(cfx.items || []).length}개`),
+      fx.drawingRef ? h('div', { class: 'hp-now' }, '지금 연결된 도면 매대: ', h('b', {}, fx.drawingRef.ko), ' (도면에서 주황 칸)') : h('div', { class: 'hp-now none' }, '아직 도면과 연결 안 됨')));
   const close = modal(h('div', {},
     h('h3', {}, `도면에서 매대 고르기 · ${storeName(st0)} ver.${v.no}${dwFinal(d) === v.id ? ' ★최종본' : ''}`),
     cur,
