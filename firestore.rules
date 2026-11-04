@@ -102,6 +102,16 @@ service cloud.firestore {
       allow create: if (hasLevel(['admin', 'global', 'editor']) || (hasLevel(['pog']) && request.resource.data.cat == '선반/파이프'))
         && request.resource.data.by == myEmail();
     }
+    // POG 계산기(초도 계산) 서버 저장: 관리자·글로벌사업부만 보고 고침
+    match /calc/{pogId} {
+      allow read, write: if hasLevel(['admin', 'global', 'editor']);
+      match /parts/{partId} {
+        allow read, write: if hasLevel(['admin', 'global', 'editor']);
+      }
+    }
+    match /calcSettings/{id} {
+      allow read, write: if hasLevel(['admin', 'global', 'editor']);
+    }
     // 매장 등록: 직원은 보기, 등록·수정은 글로벌사업부, 삭제는 관리자만
     match /stores/{id} {
       allow read: if staff();
