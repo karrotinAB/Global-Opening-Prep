@@ -831,3 +831,9 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .mgr-box { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .mgr-box select { flex: 1; min-width: 120px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
 #ed-undo, #ed-redo { min-width: 32px; padding-left: 8px; padding-right: 8px; font-size: 16px; }
+
+/* 로그인 카드 아래쪽 줄이기 (사용자): 오류 글이 없으면 그 자리를 비우지 않고, 비밀번호 찾기·언어를 위로 */
+.login-card #login-err:empty { display: none; }
+.login-card .login-forgot { margin-top: 4px; }
+.login-card .login-lang { margin-top: 0; }
+.login-card { padding-bottom: 22px; }
