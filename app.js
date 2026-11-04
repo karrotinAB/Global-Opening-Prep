@@ -54,6 +54,23 @@ function applyAccess() {
   $('#subnav-dw').classList.toggle('hidden', !canSee('dw-up'));
   $$('[data-staff]').forEach(el => el.classList.toggle('hidden', !isStaff()));
   $$('[data-admin]').forEach(el => el.classList.toggle('hidden', state.level !== 'admin')); // 관리자만 보이는 버튼
+  buyerShortcuts();
+}
+// 바이어: 처음 화면 타일·상단 메뉴의 '도면'/'POG'가 바로 온라인 도면/온라인 POG로 (사용자). 다른 계정은 원래대로
+function buyerShortcuts() {
+  const buyer = state.level === 'buyer';
+  const set = (el, attr, to, label) => {
+    if (!el) return;
+    const lab = el.querySelector('span') || el;
+    el.dataset.orig ||= el.dataset[attr]; el.dataset.origLabel ||= lab.textContent;
+    el.dataset[attr] = buyer ? to : el.dataset.orig;
+    lab.textContent = buyer ? label : el.dataset.origLabel;
+    el.classList.toggle('hidden', !canSee(el.dataset[attr]));
+  };
+  set($('#v-home .tile[data-orig="drawing"]') || $('#v-home .tile[data-go="drawing"]'), 'go', 'dw-online', '온라인 도면');
+  set($('#v-home .tile[data-orig="pog-home"]') || $('#v-home .tile[data-go="pog-home"]'), 'go', 'pog-online', '온라인 POG');
+  set($('#nav button[data-orig="drawing"]') || $('#nav button[data-view="drawing"]'), 'view', 'dw-online', '1. 온라인 도면');
+  set($('#nav button[data-orig="pog-home"]') || $('#nav button[data-view="pog-home"]'), 'view', 'pog-online', '2. 온라인 POG');
 }
 const CANVAS_W = 540, CANVAS_H = 930;
 
@@ -1337,7 +1354,48 @@ function renderEditorPages() {
   });
   edThumbs.sync(slideEntries(state.coverEl, pog, order, fx => state.pageEls.get(fx.id)));
   renderSidePanel();
+  if ($('#ed-find')?.value) edFind(); // 다시 그린 뒤에도 찾기 표시 유지
 }
+/* POG 만들기 안에서 찾기 (사용자): 매대명(헤더·POG 원래 이름)·카테고리(팀명)·매대 타입·제품명·제품코드·추가 페이지 제목.
+   온라인 POG 찾기(vwFind)와 같은 방식 — 맞는 페이지는 빨간 테두리, 제품은 깜빡임, 썸네일도 빨간 테두리, ◀ ▶·Enter로 이동 */
+const ef = { hits: [], i: -1 };
+function edFind(jump = 0) {
+  const q = findNorm($('#ed-find').value), pages = $('#ed-pages');
+  $$('.fd-dim', pages).forEach(x => x.classList.remove('fd-dim'));
+  $$('.fd-hit', pages).forEach(x => x.classList.remove('fd-hit'));
+  $$('.find-page', pages).forEach(x => x.classList.remove('find-page'));
+  $$('#ed-thumbs .thumb.find-hit').forEach(x => x.classList.remove('find-hit'));
+  const n = $('#ed-find-n'), prev = ef.hits[ef.i];
+  ef.hits = []; ef.i = -1;
+  $('#ed-find-prev').classList.toggle('hidden', !q); $('#ed-find-next').classList.toggle('hidden', !q);
+  if (!q) { n.textContent = ''; return; }
+  let items = 0;
+  for (const f of composeFx(sortedFx())) {
+    const blk = state.pageEls.get(f.id); if (!blk) continue;
+    const fxHit = findNorm([displayName(f), f.headerName, f.mdName, f.teamName, f.fixtureType].join('|')).includes(q);
+    const its = (f.items || []).filter(it => findNorm(it.name).includes(q) || findNorm(it.code).includes(q));
+    if (!fxHit && !its.length) continue;
+    ef.hits.push(f.id); items += its.length;
+    if (fxHit) blk.classList.add('find-page');
+    const cv = $('.pcanvas .cv', blk);
+    if (its.length && cv) { cv.classList.add('fd-dim'); its.forEach(it => cv.querySelector(`.cv-item[data-id="${CSS.escape(String(it.id))}"]`)?.classList.add('fd-hit')); }
+  }
+  $$('#ed-thumbs .thumb').forEach(t => { if (ef.hits.includes(t._fxId)) t.classList.add('find-hit'); });
+  n.textContent = ef.hits.length ? `${ef.hits.length}쪽${items ? ` · 제품 ${items}개` : ''}` : '없어요';
+  n.classList.toggle('none', !ef.hits.length);
+  ef.i = Math.max(0, ef.hits.indexOf(prev));
+  if (jump && ef.hits.length) {
+    ef.i = prev && ef.hits.includes(prev) ? (ef.hits.indexOf(prev) + jump + ef.hits.length) % ef.hits.length : 0;
+    const id = ef.hits[ef.i];
+    state.pageEls.get(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setEdActive(id);
+  }
+}
+let edFindT = 0;
+$('#ed-find').addEventListener('input', () => { clearTimeout(edFindT); edFindT = setTimeout(() => { ef.hits = []; edFind(1); }, 250); });
+$('#ed-find').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); edFind(e.shiftKey ? -1 : 1); } });
+$('#ed-find-next').onclick = () => edFind(1);
+$('#ed-find-prev').onclick = () => edFind(-1);
 
 // 제품 선택 (앞뒤 순서 바꾸기용)
 function selectItem(block, id) {
@@ -4421,9 +4479,19 @@ function renderAccounts() {
   renderMgrAdmin();
   const body = $('#acc-body'); body.innerHTML = '';
   const me = state.user?.email.toLowerCase();
-  const rows = [...state.roles].sort((a, b) => a.id.localeCompare(b.id));
-  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 5, class: 'mut pad' }, '등록된 계정이 없어요.')));
+  // 부서(레벨)별로 나열 + 검색·부서 거르기 (사용자)
+  const lvOf = r => LEVELS[r.level] ? r.level : 'none';
+  const ord = k => { const i = ACC_ORDER.indexOf(k); return i < 0 ? 99 : i; };
+  const all = [...state.roles].sort((a, b) => ord(lvOf(a)) - ord(lvOf(b)) || (a.name || '').localeCompare(b.name || '', 'ko') || a.id.localeCompare(b.id));
+  renderAccFilter(all.map(lvOf));
+  const q = norm($('#acc-search')?.value || ''), f = accFilter;
+  const rows = all.filter(r => (f === 'all' || lvOf(r) === f) && (!q || norm(`${r.id} ${r.name || ''} ${LEVELS[lvOf(r)]} ${r.prefix || ''}`).includes(q)));
+  const cnt = $('#acc-count'); if (cnt) cnt.textContent = q || f !== 'all' ? `${rows.length} / ${all.length}명` : `${all.length}명`;
+  if (!all.length) body.append(h('tr', {}, h('td', { colspan: 5, class: 'mut pad' }, '등록된 계정이 없어요.')));
+  else if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 5, class: 'mut pad' }, '맞는 계정이 없어요.')));
+  let lastLv = null;
   rows.forEach(r => {
+    if (lvOf(r) !== lastLv) { lastLv = lvOf(r); body.append(h('tr', { class: 'acc-grp' }, h('td', { colspan: 5 }, `${LEVELS[lastLv]} · ${rows.filter(x => lvOf(x) === lastLv).length}명`))); }
     const sel = levelSelect(LEVELS[r.level] ? r.level : 'finder');
     sel.addEventListener('change', async () => {
       if (r.id === me && sel.value !== 'admin' && !confirm('내 계정의 관리자 권한을 내리면 계정 관리 화면에 다시 들어올 수 없어요. 계속할까요?')) { sel.value = r.level; return; }
@@ -4455,6 +4523,16 @@ function renderAccounts() {
         } }, '삭제 (접속 막기)'))));
   });
 }
+// 계정 목록 부서 순서 · 거르기 (사용자)
+const ACC_ORDER = ['admin', 'global', 'pog', 'vmd', 'buyer', 'finder', 'editor', 'none', 'blocked'];
+let accFilter = 'all';
+function renderAccFilter(levels) {
+  const box = $('#acc-filter'); if (!box) return;
+  const n = k => levels.filter(l => l === k).length;
+  const chip = (k, label, c) => h('button', { type: 'button', class: 'acc-chip' + (accFilter === k ? ' on' : ''), onclick: () => { accFilter = k; renderAccounts(); } }, label, h('span', { class: 'acc-chip-n' }, c));
+  box.replaceChildren(chip('all', '전체', levels.length), ...ACC_ORDER.filter(k => n(k)).map(k => chip(k, LEVELS[k], n(k))));
+}
+$('#acc-search')?.addEventListener('input', () => renderAccounts());
 $('#acc-add-level').append(...ASSIGNABLE.map(k => h('option', { value: k }, LEVELS[k])));
 $('#acc-add-level').value = 'pog';
 const accPf = () => $('#acc-add [name=prefix]').classList.toggle('hidden', $('#acc-add-level').value !== 'buyer');
