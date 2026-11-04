@@ -927,3 +927,8 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 
 /* 도면에서 고르기 (사용자: 단순하게): 다른 페이지에 연결된 칸 = 초록, 이 페이지 칸 = 주황. 번호 동그라미 칸(.dw-seq)은 빼고 */
 .hp-pick .dw-box.on:not(.dw-seq) { border: 2px solid #f7931e !important; background: rgba(247,147,30,.55) !important; z-index: 3; }
+
+/* 빈 페이지 팀명 고르기 (사용자): 헤더 오른쪽 아래, 있는 팀명 중에서 */
+.ph-cat-sel { font: 700 16px 'Malgun Gothic', 'Noto Sans KR', sans-serif; text-align: right; border: 1px dashed #999; background: rgba(255,255,255,.6); border-radius: 4px; padding: 1px 4px; max-width: 220px; cursor: pointer; }
+.ph-cat-sel:has(option[value=""]:checked) { color: #888; font-weight: 400; font-size: 13px; }
+@media print { .ph-cat-sel { border: 0 !important; background: none !important; appearance: none; -webkit-appearance: none; } .ph-cat-sel:has(option[value=""]:checked) { visibility: hidden; } }
