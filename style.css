@@ -937,3 +937,6 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .tiles.three.few, .tiles.five.few { grid-template-columns: repeat(2, 170px); }
 @media (max-width: 700px) { .tiles.three.few, .tiles.five.few { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 300px; } }
 .tiles.few > .tile { background: #f7f7f7; } /* 두 개뿐이면 같은 색 */
+
+/* 초도 계산 타일: POG 화면 세 번째 줄 가운데 (글로벌사업부·관리자만) */
+.tiles.three > .tile.calc-tile { grid-column: 2; background: #fff4e6; }

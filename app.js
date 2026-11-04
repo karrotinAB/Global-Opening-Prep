@@ -2277,7 +2277,11 @@ async function exportCounts(pog, fixtures, lang = '한국어') {
 }
 $('#ed-counts').onclick = () => exportCountsAsk(state.currentPog, [...state.fixtures.values()]);
 $('#vw-counts').onclick = () => exportCountsAsk(state.viewer.pog, state.viewer.fixtures);
-$('#vw-calc').onclick = () => exportCalc(state.viewer.pog, state.viewer.fixtures);
+// 초도 계산 (사용자): POG 계산기를 새 탭으로. 같은 Firebase·같은 주소라 로그인이 이어지고, 계산기가 이 POG를 서버에서 직접 읽어 옴 (파일 받기 필요 없음)
+const CALC_URL = 'https://karrotinab.github.io/POG-calculator2/';
+const openCalc = pogId => window.open(CALC_URL + (pogId ? '?pog=' + encodeURIComponent(pogId) : ''), 'pogcalc');
+$('#vw-calc').onclick = () => openCalc(state.viewer.pog?.id);
+$('#tile-calc').onclick = () => openCalc(null);
 $('#vw-nobc').onclick = () => exportNoBarcode(state.viewer.pog, state.viewer.fixtures);
 // 관리자용: 이 POG 제품 중 바코드 등록이 안 된 제품코드만 엑셀로 (바코드 업로드 양식과 같은 열: 제품코드 · 바코드 · 제품명)
 async function exportNoBarcode(pog, fixtures) {
@@ -2305,45 +2309,6 @@ async function exportNoBarcode(pog, fixtures) {
   } catch (e) { alert('만들지 못했어요: ' + (e.code || e.message)); }
   finally { b.disabled = false; b.textContent = t0; }
 }
-/* POG 계산기(POG-calculator2)용 파일: 계산기의 수집 파일(POG_FL_DATA)과 같은 모양. 상품 상세정보(뎁스·팩킹수량)는 비어 있고,
-   계산기에서 '상품 상세정보 채우기'로 POG 사이트에서 가져온다. 칸으로 나눈 페이지는 POG 사이트 매대(mdidx)별로 다시 합침 */
-function exportCalc(pog, fixtures) {
-  if (!pog) return;
-  const by = new Map();
-  for (const f of [...fixtures].sort((a, b) => a.order - b.order)) {
-    if (f.kind === 'free' || !f.mdidx) continue;
-    if (!by.has(f.mdidx)) by.set(f.mdidx, []);
-    by.get(f.mdidx).push(f);
-  }
-  let noSrc = 0;
-  const mds = [...by.entries()].map(([mdidx, parts]) => {
-    const f0 = parts[0], src = parts.find(p => p.src)?.src;
-    if (!src) noSrc++;
-    const seenI = new Set(), seenP = new Set(), items = [], props = [];
-    for (const p of parts) {
-      for (const it of p.items || []) if (!seenI.has(String(it.id))) {
-        seenI.add(String(it.id));
-        const gp = String(it.group || '').split('_'), dims = gp.length >= 4 && gp.slice(-3).every(x => /^\d+(\.\d+)?$/.test(x)) ? { w: +gp.at(-3), h: +gp.at(-2), d: +gp.at(-1) } : null;
-        items.push({ objidx: String(it.id), code: it.code, name: it.name, price: it.price || 0, group: dims ? gp.slice(0, -3).join('_') : it.group || '', dims, image: it.img || '', x: it.x, y: it.y, w: it.w, h: it.h, z: it.z || 0 });
-      }
-      (p.props || []).forEach((pr, i) => { const key = pr.id != null && pr.id !== '' ? String(pr.id) : `${p.id}#${i}`; if (seenP.has(key)) return;
-        seenP.add(key);
-        props.push({ objidx: pr.id != null ? String(pr.id) : '', kind: pr.opt !== undefined && pr.opt !== '' ? (pr.opt === 'Y' ? '파이프' : '선반') : (/파이프/.test(pr.kind || '') ? '파이프' : '선반'), x: pr.x, y: pr.y, w: pr.w, h: pr.h });
-      });
-    }
-    return { mdidx, team: f0.teamName || '', mdname: f0.mdName || '', note: '', mdtype: src?.mdtype || '', listItem: String(items.length), url: '',
-      detail: { title: f0.mdName || '', mdidx, mdtype: src?.mdtype || '', mdcnt: src?.mdcnt || 1, bays: src?.bays || [], bodies: src?.bodies || [], items, props, memos: src?.memos || [] } };
-  });
-  if (!mds.length) { alert('계산기로 보낼 매대가 없어요.'); return; }
-  if (noSrc && !confirm(`매대 ${noSrc}개는 예전에 가져와서 계산기용 정보(매대 크기 mm 등)가 없어요.\n계산기에서 매대 모양·추천 수량이 정확하지 않을 수 있어요. 정확하게 하려면 POG 만들기에서 '↻ 다시 가져오기'를 한 번 해주세요.\n그래도 받을까요?`)) return;
-  const payload = { type: 'POG_FL_DATA', version: 1, source: 'global-pog', collectedAt: pog.grabbedAt || new Date().toISOString(),
-    store: { code: pog.storeCode || '', name: pog.storeName || '', saup: pog.saup || '00' }, mds, products: {} };
-  const a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(payload)], { type: 'application/json' })),
-    download: `pog_${(pog.storeName || pog.storeCode || 'store').replace(/[^\w가-힣]+/g, '_')}_${new Date().toISOString().slice(0, 10)}.json` });
-  a.click();
-  toast('계산기용 파일을 받았어요. POG 계산기에 올린 뒤 \'상품 상세정보 채우기\'를 눌러주세요');
-}
-
 /* ---------- POG 사이트에서 다시 가져오기 (POG팀이 일부 매대만 고쳤을 때) ----------
    고유번호(mdidx)로 이 POG의 페이지를 찾아 제품·집기 모양만 최신으로 바꾼다.
    매대명·매대 타입·고리·이외집기·메모·사진·메모 상자는 그대로. 선반/파이프 칸은 손대지 않았을 때만 새 값으로.

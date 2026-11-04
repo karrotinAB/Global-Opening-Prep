@@ -46,6 +46,7 @@
 | 2.4 집기도면 편집 | `pog-fxd` | POG팀 (위치 옮기기) | **구현됨** — 아래 '집기도면' |
 | 2.5 집기도면 번역 | `pog-fxdtr` | 글사부 | **구현됨** |
 | 2.6 온라인 집기도면 | `pog-fxdon` | 직원·바이어 | **구현됨** |
+| 초도 계산 (POG 화면 세 번째 줄 타일 · 온라인 POG 툴바 '🧮 초도 계산') | (새 탭: POG 계산기) | 글사부·관리자 (`data-edit="calc"`) | **구현됨** — 아래 E |
 | 3. 용어 사전 | `glossary` | 글사부 | **구현됨** — 검색 포함 |
 | 3. 제품 찾기 | `finder` | 전체 (매장 계정 포함) | **구현됨 (v1)** — 휴대폰 화면, 바코드 사진 → POG·도면 위치 |
 | 계정 관리 | `accounts` | 관리자 | 구현됨 (상단 오른쪽 '계정 관리'). 계정 목록은 부서(레벨)별로 나열(`ACC_ORDER`: 관리자→글로벌사업부→POG팀→VMD팀→바이어→제품 찾기만→예전→권한 없음→접속 막힘, 부서마다 머리줄·인원), 위에 찾기(이메일·이름·부서·매장코드, `#acc-search`)와 부서 거르기 알약(`accFilter`) · 사용자. 아래 'POG 담당자 목록'에서 담당자 이름 고치기·지우기 (`renameManager`: 그 이름을 쓰는 POG·페이지도 함께 바꿈) |
@@ -230,6 +231,9 @@ roles/{email}    level, prefix(바이어: 매장코드 앞 4자리), ex(수출�
 exReasons/{코드(소문자, URL 인코딩)}  code, items: { 서류번호: {reason, memo, by, at} }   // 수출서류 사이트: 없는 서류 사유
 exExtra/{PDF 경로(소문자, URL 인코딩)} path('07_GMP\\파일.pdf'), codes[], by, at          // 수출서류 사이트: 추가 제품코드
 exMeta/report    codes[]                                                              // 수출서류 사이트: 누적 엑셀에 들어간 코드
+calc/{pogId}       storeCode, storeName, fxIds[], collectedAt, state(JSON), mdParts, prodParts, updatedAt, updatedBy   // POG 계산기 서버 저장 (아래 9장 E)
+calc/{pogId}/parts/{md_n|pr_n}  json   // 계산기 매대·상품 원본 조각
+calcSettings/shared  json            // 계산기 설정값 (모두 같이)
 glossaryLog/{id} gid, cat, ko, action, changes:[{f, from, to}], by, at   // 용어 사전 변경 기록 (만들기만, 수정·삭제 불가)
 glossary/{id}    cat, ko, en, code, tr, auto, createdBy, updatedBy, updatedAt // cat: 카테고리 | 매대타입 | 고리타입 | 선반/파이프 | 집기 | 팀명
                                  // code: 제품코드 (고리타입·집기만, 고리·집기 수량 엑셀에 씀)
@@ -324,7 +328,7 @@ glossary/{id}    cat, ko, en, code, tr, auto, createdBy, updatedBy, updatedAt //
 
 ### 2.3 온라인 POG
 - `final`인 POG만 목록에 나온다. 읽기 전용.
-- **POG 계산기용 파일 받기** (툴바, 글사부·관리자만 · 편집 영역 `calc`, `exportCalc`): POG-calculator2의 수집 파일과 같은 모양(`POG_FL_DATA`, `source:'global-pog'`). 칸으로 나눈 페이지를 `mdidx`별로 다시 합치고, 집기 종류는 계산기 규칙(`data-propoption` 'Y' = 파이프). 매대 크기 mm·몸통·메모는 fixture `src`. `products`는 비어 있음 → 계산기에서 '상품 상세정보 채우기'. `src`가 없는 예전 POG는 경고 후 받기 (다시 가져오기 권장).
+- **🧮 초도 계산** (툴바, 글사부·관리자만 · 편집 영역 `calc`, `openCalc`): POG 계산기를 새 탭(`pogcalc`)으로 `?pog={id}`와 함께 엶 → 계산기가 이 POG를 서버에서 직접 읽음 (예전 'POG 계산기용 파일 받기'·`exportCalc`는 없앰. 같은 변환은 계산기 `cloud.js`의 `buildPayload`).
 - **바코드 없는 제품 엑셀** (툴바, **관리자만** · `data-admin`, `exportNoBarcode`): 이 POG의 제품코드 중 `barcodes`에 없는 것만 (30개씩 `where('code','in')`로 확인). 열은 바코드 업로드 양식과 같음(제품코드 · 바코드(빈칸) · 제품명) → 바코드만 채워서 바코드 등록에 올리면 됨.
 - **헤더(매대명)를 누르면 도면 위치 창 (사용자):** `showFxDrawing` → 제품 찾기와 같은 `fdDrawing`(빨간 칸·화살표, 지금 언어). 보기 화면의 매대명 칸은 disabled라 `.ph-dwlink *`에 `pointer-events:none`. 연결 안 된 매대는 안내 글.
 - 제품을 클릭하면 팝업: 사진, 제품명, 제품코드, 가격, **바코드(바코드 등록에서 제품코드로 찾음)**, 매대. (진열 그룹은 뺌 · 사용자)
@@ -447,6 +451,13 @@ glossary/{id}    cat, ko, en, code, tr, auto, createdBy, updatedBy, updatedAt //
 - 필요한 것: 제품 DB 시트 URL과 열 구성 (바코드, 제품코드, 제품명). **아직 받지 못했다.**
 
 ### E. POG 계산기(karrotinAB/POG-calculator2) 연결 — 구현됨
+- **초도 계산 + 서버 저장 (사용자):** Global Opening Prep의 POG 화면 '초도 계산' 타일(세 번째 줄 가운데)·온라인 POG '🧮 초도 계산' → 계산기 `https://karrotinab.github.io/POG-calculator2/`(새 탭, `?pog=`). **같은 Firebase·같은 주소(karrotinab.github.io)라 로그인이 이어짐.** 계산기의 `cloud.js`(모듈, 계산기 index.html 끝에서 불러옴):
+  - `?pog=id`(없으면 마지막 연 것 `pogfl:cloudLast`)를 열면 `calc/{pogId}`를 불러오고, 없으면 `pogs/{id}/fixtures`로 새로 만듦(`buildPayload` = 예전 exportCalc와 같은 모양).
+  - 저장: `calc/{pogId}` = { storeCode, storeName, fxIds(매대 페이지 id), collectedAt, state(JSON: edits·mdTypes·propTypes·done), mdParts, prodParts, updatedAt, updatedBy } + `calc/{pogId}/parts/{md_n|pr_n}` = { json } (매대·상품 원본을 700KB씩 나눠). 고친 값은 계산기 자동저장(`saveNow` → `window.cloudSave`, 1초 모아서)마다 `state`만, 상품 정보가 채워지면 `pr_*`도. 설정값은 `calcSettings/shared` = { json } (모두 같이 씀, `saveSettings` → `cloudSaveSettings`).
+  - **POG 페이지가 추가·삭제됐을 때만**(fxIds 비교, 최종 내보내기 풀기·제품만 바뀐 건 아님) 위쪽 알림 '🔔 Global POG 페이지가 바뀌었어요 (추가 n장 · 삭제 m장) [새로 불러오기] [나중에]' → 새로 불러오면 고친 값(수량·종류·완료)은 같은 매대·상품이면 그대로.
+  - 계산기 '새로 수집' 창 맨 위에 '☁ Global POG 매장' 목록(저장된 것은 '열기', 아니면 '새로 만들기').
+  - 관리자·글로벌사업부만(`roles` level admin·global·editor, 규칙도 같음). 그 밖의 계정·로그아웃이면 예전처럼 그 컴퓨터에만 저장 + 안내 띠.
+  - **Global Opening Prep는 계산기 데이터를 읽지 않음** → 이 사이트 속도와 상관없음.
 - 흐름: POG팀은 Global POG로 가져옴 → 글사부가 온라인 POG에서 'POG 계산기용 파일 받기' → 계산기에 끌어다 놓기 → 계산기 상단 **'상품 상세정보 채우기 (n종)'** → POG 사이트 창이 열림 → 거기서 계산기 즐겨찾기('초도리스트 POG 수집')를 누르면 **매대는 다시 안 읽고 빠진 상품 정보(뎁스·팩킹수량·분류)만** 가져와 계산기로 보냄.
 - 계산기 수집기: 창을 연 계산기(opener)에게 `POG_FL_ASK` → 계산기가 기다리는 중이면 `POG_FL_NEED {codes}` → 상품만 읽고 `POG_FL_PRODUCTS`. 대답이 없으면(POG 사이트를 직접 연 경우) 예전처럼 전체 수집. 계산기는 artbox.kr에서 온 메시지만 받음.
 
