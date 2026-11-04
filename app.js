@@ -1360,7 +1360,7 @@ function renderEditorPages() {
    온라인 POG 찾기(vwFind)와 같은 방식 — 맞는 페이지는 빨간 테두리, 제품은 깜빡임, 썸네일도 빨간 테두리, ◀ ▶·Enter로 이동 */
 const ef = { hits: [], i: -1 };
 function edFind(jump = 0) {
-  const q = findNorm($('#ed-find').value), pages = $('#ed-pages');
+  const q = findNorm($('#ed-find').value), pages = $('#ed-pages'), mode = $('#ed-find-mode').value; // page = 매대명(페이지명), item = 제품명·제품코드
   $$('.fd-dim', pages).forEach(x => x.classList.remove('fd-dim'));
   $$('.fd-hit', pages).forEach(x => x.classList.remove('fd-hit'));
   $$('.find-page', pages).forEach(x => x.classList.remove('find-page'));
@@ -1372,8 +1372,8 @@ function edFind(jump = 0) {
   let items = 0;
   for (const f of composeFx(sortedFx())) {
     const blk = state.pageEls.get(f.id); if (!blk) continue;
-    const fxHit = findNorm([displayName(f), f.headerName, f.mdName, f.teamName, f.fixtureType].join('|')).includes(q);
-    const its = (f.items || []).filter(it => findNorm(it.name).includes(q) || findNorm(it.code).includes(q));
+    const fxHit = mode === 'page' && findNorm([displayName(f), f.headerName, f.mdName].join('|')).includes(q);
+    const its = mode === 'item' ? (f.items || []).filter(it => findNorm(it.name).includes(q) || findNorm(it.code).includes(q)) : [];
     if (!fxHit && !its.length) continue;
     ef.hits.push(f.id); items += its.length;
     if (fxHit) blk.classList.add('find-page');
@@ -1384,6 +1384,7 @@ function edFind(jump = 0) {
   n.textContent = ef.hits.length ? `${ef.hits.length}쪽${items ? ` · 제품 ${items}개` : ''}` : '없어요';
   n.classList.toggle('none', !ef.hits.length);
   ef.i = Math.max(0, ef.hits.indexOf(prev));
+  if (jump && ef.hits.length && !ef.hits.includes(prev)) ef.i = -1; // 새로 찾으면 첫 쪽부터
   if (jump && ef.hits.length) {
     ef.i = prev && ef.hits.includes(prev) ? (ef.hits.indexOf(prev) + jump + ef.hits.length) % ef.hits.length : 0;
     const id = ef.hits[ef.i];
@@ -1394,6 +1395,10 @@ function edFind(jump = 0) {
 let edFindT = 0;
 $('#ed-find').addEventListener('input', () => { clearTimeout(edFindT); edFindT = setTimeout(() => { ef.hits = []; edFind(1); }, 250); });
 $('#ed-find').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); edFind(e.shiftKey ? -1 : 1); } });
+$('#ed-find-mode').addEventListener('change', e => {
+  $('#ed-find').placeholder = e.target.value === 'item' ? '제품명·제품코드 찾기' : '매대명(페이지) 찾기';
+  ef.hits = []; edFind(1); $('#ed-find').focus();
+});
 $('#ed-find-next').onclick = () => edFind(1);
 $('#ed-find-prev').onclick = () => edFind(-1);
 
@@ -1647,8 +1652,10 @@ function renderSidePanel() {
   const sec = (title, ...kids) => h('section', { class: 'se-sec' }, h('h4', {}, title), ...kids);
   const btn = (t, fn, cls = '') => h('button', { class: 'btn small ' + cls, onclick: fn }, t);
   const nodes = [];
+  const mgrBox = $('#ed-mgr-box'); $('#ed-mgr-holder').append(mgrBox); // 대표 담당자 칸은 표지에서만 보임 (사용자: 위 막대가 복잡해서 옮김)
   if (id === '__cover') {
     nodes.push(h('div', { class: 'se-head' }, h('b', {}, '표지'), h('span', { class: 'mut' }, '매장명은 표지 가운데에서 바로 고칠 수 있어요')));
+    nodes.push(sec('대표 POG 담당자', h('p', { class: 'se-help' }, '모든 페이지 아래 \'POG 담당자\'에 들어가요. 페이지마다 다르면 그 페이지 아래 칸에서 따로 고를 수 있어요.'), mgrBox));
     nodes.push(hookPicker(pog, ed));
     const emp = emptyPages();
     if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' }, btn('+ 표지 뒤에 빈 페이지 추가', () => addFreePage(pog.id, (sortedFx()[0]?.order ?? 0) - 1)),
