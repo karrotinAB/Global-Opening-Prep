@@ -5200,7 +5200,11 @@ if (UI.lang !== 'ko') { document.documentElement.lang = UI.lang; i18nTree(docume
 const fxd = { mode: 'make', pogId: null, unsub: null, unsubTr: null, fixtures: [], v: null, storeId: null, lang: '한국어', drTr: {}, trDoc: {}, langs: [], sel: null, loadKey: null };
 const FXD_MODES = { 'pog-fxd': 'make', 'pog-fxdtr': 'tr', 'pog-fxdon': 'on' };
 const FXD_CATS = { sp: ['선반/파이프', '집기'], hook: ['고리타입'], ex: ['집기'] };
-const fxdEdit = () => fxd.mode === 'make' && canEdit('pog-make');
+// 위치 옮기기: 편집 화면(한국어) = POG팀, 번역 화면(그 언어) = 글사부 (사용자: 영어 집기도면도 위치를 따로)
+const fxdEdit = () => (fxd.mode === 'make' && canEdit('pog-make')) || (fxd.mode === 'tr' && canEdit('pog-trans'));
+// 언어별 위치·크기: 번역 문서 translations/{언어}.fxdPos·fxdScale (없으면 한국어 위치·크기)
+const fxdTrPos = () => fxd.lang !== '한국어' ? fxd.trDoc?.fxdPos || {} : null;
+const fxdScaleNow = pog => (fxd.lang !== '한국어' && fxd.trDoc?.fxdScale) || pog.fxdScale || 1;
 function fxdLines(fx) {
   const out = [];
   spRows(fx).filter(r => (r.name || '').trim()).forEach(r => out.push({ k: 'sp', name: r.name.trim(), qty: r.qty }));
@@ -5291,7 +5295,8 @@ function fxdEntries() {
     const n = stack.get(g.id) || 0; stack.set(g.id, n + lines.length);
     const lh = g.fs * 0.62 * 1.2;
     const auto = { x: g.x + g.w / 2, y: g.y + g.h + g.fs * 0.15 + n * lh };
-    list.push({ fx, g, lines, pos: pog.fxdPos?.[fx.id] || auto, moved: !!pog.fxdPos?.[fx.id] });
+    const tp = fxdTrPos()?.[fx.id];
+    list.push({ fx, g, lines, pos: tp || pog.fxdPos?.[fx.id] || auto, moved: !!(fxdTrPos() ? tp : pog.fxdPos?.[fx.id]) });
   }
   return { list, miss };
 }
@@ -5302,7 +5307,7 @@ function renderFxd() {
   $('#fxd-seg').replaceChildren(...(fxd.langs.length > 1 ? fxd.langs.map(l => h('button', { class: l === fxd.lang ? 'on' : '', onclick: () => fxdLang(l) }, l)) : []));
   const v = fxd.v;
   if (!v) { stage.replaceChildren(h('div', { class: 'empty-state' }, '이 POG 페이지들이 아직 도면과 연결되지 않았어요. POG 만들기에서 헤더의 \'📐 도면에서 고르기\'나 표지의 \'POG랑 도면 연결하기\'로 연결해 주세요.')); renderFxdSide([], []); return; }
-  const ko = fxd.lang === '한국어', ed = fxdEdit(), sc = pog.fxdScale || 1;
+  const ko = fxd.lang === '한국어', ed = fxdEdit(), sc = fxdScaleNow(pog);
   const view = drawingView(v, ko ? 'ko' : 'en', { plain: true, ctx: { vId: v.id, trDoc: fxd.drTr || {}, lang: fxd.lang } }), wrap = view._full;
   const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
   const { list, miss } = fxdEntries();
@@ -5327,8 +5332,14 @@ function fxdDrag(e, ent, wrap, v, pog) {
     window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up);
     if (!moved) { renderFxdSide(...Object.values(fxdEntries())); return; }
     const val = { x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100 };
-    (pog.fxdPos ||= {})[ent.fx.id] = val;
-    updateDoc(doc(db, 'pogs', pog.id), new FieldPath('fxdPos', ent.fx.id), val).catch(err => toast('저장하지 못했어요: ' + (err.code || err.message)));
+    if (fxd.mode === 'tr') { // 이 언어 위치만
+      ((fxd.trDoc ||= {}).fxdPos ||= {})[ent.fx.id] = val;
+      const ref = doc(db, 'pogs', pog.id, 'translations', fxd.lang);
+      setDoc(ref, { lang: fxd.lang }, { merge: true }).then(() => updateDoc(ref, new FieldPath('fxdPos', ent.fx.id), val)).catch(err => toast('저장하지 못했어요: ' + (err.code || err.message)));
+    } else {
+      (pog.fxdPos ||= {})[ent.fx.id] = val;
+      updateDoc(doc(db, 'pogs', pog.id), new FieldPath('fxdPos', ent.fx.id), val).catch(err => toast('저장하지 못했어요: ' + (err.code || err.message)));
+    }
     addLog(['pogs', pog.id], { fx: ent.fx.id, area: 'make', act: '집기도면 글 위치 옮김', what: displayName(ent.fx) });
   };
   window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
@@ -5352,6 +5363,19 @@ function renderFxdSide(list, miss) {
         h('div', { class: 'se-btns' }, h('button', { class: 'btn small ghost', disabled: !sel.moved, onclick: () => { delete pog.fxdPos?.[sel.fx.id]; updateDoc(doc(db, 'pogs', pog.id), new FieldPath('fxdPos', sel.fx.id), deleteField()); renderFxd(); } }, '매대명 바로 아래로 (자동 위치)'))));
       if (Object.keys(pog.fxdPos || {}).length) nodes.push(h('div', { class: 'se-btns' }, h('button', { class: 'btn small ghost', onclick: () => { if (!confirm('옮긴 글 위치를 모두 처음(매대명 바로 아래)으로 되돌릴까요?')) return; pog.fxdPos = {}; updateDoc(doc(db, 'pogs', pog.id), { fxdPos: deleteField() }); renderFxd(); } }, '모두 자동 위치로')));
     }
+  }
+  if (fxd.mode === 'tr' && canEdit('pog-trans')) {
+    // 이 언어 집기도면의 글 위치·크기 (한국어와 따로 · 사용자)
+    const lang0 = fxd.lang, ref = doc(db, 'pogs', fxd.pogId, 'translations', lang0), tpos = fxd.trDoc?.fxdPos || {}, sel = list.find(e => e.fx.id === fxd.sel);
+    const rng = h('input', { type: 'range', min: 0.5, max: 2.5, step: 0.05, value: fxdScaleNow(pog) });
+    const lab = h('span', { class: 'mut' }, `${Math.round(fxdScaleNow(pog) * 100)}%`);
+    rng.addEventListener('input', () => { lab.textContent = `${Math.round(rng.value * 100)}%`; $$('#fxd-stage .fxd-box').forEach(b => { const e = list.find(x => x.fx.id === b.dataset.fx); if (e) b.style.fontSize = `${(e.g.fs * 0.62 * rng.value / fxd.v.w * 100).toFixed(4)}cqw`; }); });
+    rng.addEventListener('change', () => { (fxd.trDoc ||= {}).fxdScale = +rng.value; setDoc(ref, { lang: lang0, fxdScale: +rng.value }, { merge: true }).catch(err => toast('저장하지 못했어요: ' + (err.code || err.message))); });
+    nodes.push(sec(`${lang0} 집기도면 위치·크기`, h('p', { class: 'se-help' }, `글 상자를 끌어서 ${lang0} 도면에서만 옮길 수 있어요 (한국어 위치는 그대로). 옮기지 않은 글은 한국어 집기도면 위치를 따라가요.`),
+      h('div', { class: 'se-btns' }, rng, lab),
+      sel ? h('div', { class: 'se-kid' }, h('span', {}, '고른 글: ', h('b', {}, displayName(sel.fx)))) : null,
+      sel && tpos[sel.fx.id] ? h('div', { class: 'se-btns' }, h('button', { class: 'btn small ghost', onclick: () => { delete tpos[sel.fx.id]; updateDoc(ref, new FieldPath('fxdPos', sel.fx.id), deleteField()); renderFxd(); } }, '한국어 위치로 되돌리기')) : null,
+      Object.keys(tpos).length ? h('div', { class: 'se-btns' }, h('button', { class: 'btn small ghost', onclick: () => { if (!confirm(`${lang0}에서 옮긴 글 위치를 모두 한국어 위치로 되돌릴까요?`)) return; fxd.trDoc.fxdPos = {}; updateDoc(ref, { fxdPos: deleteField() }); renderFxd(); } }, '모두 한국어 위치로')) : null));
   }
   if (fxd.mode === 'tr') {
     const ed = canEdit('pog-trans'), lang = fxd.lang;
