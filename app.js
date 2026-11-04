@@ -71,7 +71,7 @@ function buyerShortcuts() {
   };
   set($('#v-home .tile[data-orig="drawing"]') || $('#v-home .tile[data-go="drawing"]'), 'go', 'dw-online', '온라인 도면');
   // POG는 바로가기 없이 POG 화면으로 → 온라인 POG · 온라인 집기도면 타일만 보임 (사용자)
-  set($('#nav button[data-orig="drawing"]') || $('#nav button[data-view="drawing"]'), 'view', 'dw-online', '1. 온라인 도면');
+  set($('#nav button[data-orig="drawing"]') || $('#nav button[data-view="drawing"]'), 'view', 'dw-online', '1. 도면'); // 상단 메뉴에는 '온라인' 글자 없이 (사용자)
 
 }
 const CANVAS_W = 540, CANVAS_H = 930;
