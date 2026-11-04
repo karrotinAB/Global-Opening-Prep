@@ -5333,7 +5333,7 @@ function renderFxd() {
   $('#fxd-title').textContent = `${pog.branchName || pog.storeName || ''} · ${T('집기도면', 'Fixture Plan')}`;
   // 언어 알약
   $('#fxd-seg').replaceChildren(...(fxd.langs.length > 1 || fxd.mode === 'on' ? fxd.langs.map(l => h('button', { class: l === fxd.lang ? 'on' : '', onclick: () => fxdLang(l) }, l)) : []),
-    ...(fxd.mode === 'on' && fxd.langs.length < 2 && isStaff() ? [h('span', { class: 'mut small', style: 'margin-left:6px' }, '다른 언어는 POG 번역이나 집기도면 번역에서 \'온라인에 반영\'하면 나와요')] : []));
+  ); // 한국어만 있으면 한국어 알약 하나만, 번역이 생기면 언어 알약 (안내 글은 뺌 · 사용자)
   const v = fxd.v;
   if (!v) { stage.replaceChildren(h('div', { class: 'empty-state' }, '이 POG 페이지들이 아직 도면과 연결되지 않았어요. POG 만들기에서 헤더의 \'📐 도면에서 고르기\'나 표지의 \'POG랑 도면 연결하기\'로 연결해 주세요.')); renderFxdSide([], []); return; }
   const ko = fxd.lang === '한국어', ed = fxdEdit(), sc = fxdScaleNow(pog);
