@@ -672,7 +672,7 @@ function makeThumbs(box, scroller, onActive, tools = null) { // tools = { can(),
       entries.forEach((e, i) => {
         let t = els.get(e.id);
         if (!t) {
-          const body = e.fx && e.fx.kind !== 'free' ? buildCanvas(e.fx, 116, 150, null, { lazy: true }) : h('div', { class: 'th-cover' });
+          const body = thCv(e.fx) ? buildCanvas(e.fx, 116, 150, null, { lazy: true }) : h('div', { class: 'th-cover' });
           t = h('div', { class: 'thumb', title: e.name },
             h('div', { class: 'th-no' }),
             h('div', { class: 'th-page' }, h('div', { class: 'th-head' }, h('span', { class: 'th-name' })), h('div', { class: 'th-body' }, body)));
@@ -699,12 +699,12 @@ function makeThumbs(box, scroller, onActive, tools = null) { // tools = { can(),
         t._block = e.block; t._fxId = e.fx ? e.id : null;
         t.title = e.name;
         const sig = e.fx ? itemSig(e.fx) : '';
-        if (e.fx && e.fx.kind !== 'free' && t._sig !== undefined && t._sig !== sig) $('.th-body', t).replaceChildren(buildCanvas(e.fx, 116, 150, null, { lazy: true }));
+        if (thCv(e.fx) && ((t._sig !== undefined && t._sig !== sig) || $('.th-cover', t))) $('.th-body', t).replaceChildren(buildCanvas(e.fx, 116, 150, null, { lazy: true }));
         t._sig = sig;
         $('.th-no', t).textContent = i + 1;
         t.classList.toggle('need', !!e.need); t.dataset.need = e.need || '';
         $('.th-name', t).textContent = e.fx ? e.name : '';
-        if (!e.fx || e.fx.kind === 'free') { const c = $('.th-cover', t); c.innerHTML = ''; c.append(h('b', {}, e.name), e.fx ? h('small', {}, '추가 페이지') : h('b', {}, 'POG')); }
+        if (!thCv(e.fx)) { let c = $('.th-cover', t); if (!c) $('.th-body', t).replaceChildren(c = h('div', { class: 'th-cover' })); c.innerHTML = ''; c.append(h('b', {}, e.name), e.fx ? h('small', {}, '추가 페이지') : h('b', {}, 'POG')); }
         if (box.children[i] !== t) box.insertBefore(t, box.children[i] || null);
       });
       if (!box.querySelector('.thumb.on') && entries[0]) setActive(entries[0].id);
@@ -717,7 +717,7 @@ function makeThumbs(box, scroller, onActive, tools = null) { // tools = { can(),
 const itemSig = fx => {
   const str = [...(fx.items || []).map(i => `${i.code}@${i.x},${i.y},${i.w},${i.h}`), ...(fx.props || []).map(p => `${p.x},${p.y},${p.w}`), ...(fx.panels || []).map(p => `${p.x},${p.y},${p.w},${p.h}`)].join('|');
   let hh = 0; for (let i = 0; i < str.length; i++) hh = (hh * 31 + str.charCodeAt(i)) | 0;
-  return `${(fx.items || []).length}:${(fx.props || []).length}:${hh}:${JSON.stringify(fx.blocks || [])}:${JSON.stringify(fx.base || null)}`;
+  return `${(fx.items || []).length}:${(fx.props || []).length}:${hh}:${JSON.stringify(fx.blocks || [])}:${JSON.stringify(fx.base || null)}:${fx.info ? 1 : 0}`;
 };
 /* 매대 붙이기: 얇은 매대(스페이스월 등) 두 개를 한 페이지에. 붙인 쪽 fixture.merged = [id…], 붙여진 쪽 .mergedInto = id.
    붙여진 페이지는 따로 안 나오고, 붙인 페이지 그림 오른쪽에 나란히 그린다 (입력칸·번역은 붙인 페이지 것) */
@@ -733,11 +733,11 @@ function withBlocks(fx) {
   if (!bl.length && !fx.base) return fx;
   const ofI = new Map(), ofP = new Map();
   bl.forEach(b => { (b.items || []).forEach(id => ofI.set(String(id), b)); (b.props || []).forEach(id => ofP.set(String(id), b)); });
-  const base = { id: BASE, base: true, dx: fx.base?.dx || 0, dy: fx.base?.dy || 0, s: fx.base?.s || 1 };
+  const base = { id: BASE, base: true, dx: fx.base?.dx || 0, dy: fx.base?.dy || 0, s: fx.base?.s || 1, sx: fx.base?.sx, sy: fx.base?.sy };
   const raw = new Map(), add = (g, o) => { const r = raw.get(g.id) || { x0: Infinity, y0: Infinity }; r.x0 = Math.min(r.x0, o.x); r.y0 = Math.min(r.y0, o.y); raw.set(g.id, r); };
   const gI = o => ofI.get(String(o.id)) || base, gP = o => ofP.get(String(o.id)) || base;
   (fx.items || []).forEach(o => add(gI(o), o)); (fx.props || []).forEach(o => add(gP(o), o)); (fx.panels || []).forEach(o => add(base, o));
-  const tr = (o, g) => { const r = raw.get(g.id), k = g.s || 1; return { ...o, x: r.x0 + (o.x - r.x0) * k + (g.dx || 0), y: r.y0 + (o.y - r.y0) * k + (g.dy || 0), w: o.w * k, h: (o.h || 0) * k, _b: g.id }; };
+  const tr = (o, g) => { const r = raw.get(g.id), kx = g.sx ?? g.s ?? 1, ky = g.sy ?? g.s ?? 1; return { ...o, x: r.x0 + (o.x - r.x0) * kx + (g.dx || 0), y: r.y0 + (o.y - r.y0) * ky + (g.dy || 0), w: o.w * kx, h: (o.h || 0) * ky, _b: g.id }; };
   return { ...fx, items: (fx.items || []).map(o => tr(o, gI(o))), props: (fx.props || []).map(o => tr(o, gP(o))), panels: (fx.panels || []).map(o => tr(o, base)), _blocks: [base, ...bl] };
 }
 // 매대 그림의 범위 (제품·집기·판, 묶음 위치 반영). 묶음을 처음 만들거나 붙여넣기 직전에 fx.frame으로 기억해 두고,
@@ -826,7 +826,7 @@ function buildPage(fx, pog, { editable, onItem, L = LABELS_KO }) {
   };
   const box = (label, ...c) => h('div', { class: 'sbox' }, h('div', { class: 'sbox-l' }, label), h('div', { class: 'sbox-c' }, ...c));
 
-  if (fx.kind === 'free') return buildFreePage(fx, pog, { editable, field, L });
+  if (fx.kind === 'free') return buildFreePage(fx, pog, { editable, field, L, box, onItem });
   const page = h('div', { class: 'page' },
     h('div', { class: 'ph' },
       field('headerName', h('input', { class: 'ph-name', placeholder: origName(fx) || '매대명',
@@ -835,18 +835,23 @@ function buildPage(fx, pog, { editable, onItem, L = LABELS_KO }) {
       h('div', { class: 'ph-cat' }, fx._cat ?? catName(fx.teamName))),
     h('div', { class: 'pb' },
       h('div', { class: 'pcanvas' }, buildCanvas(fx, CANVAS_W, CANVAS_H, onItem, { blockUI: editable && !(fx._parts) })),
-      h('div', { class: 'pside' },
-        box(L.type, field('fixtureType', h('input', { list: 'dl-fixtureType', placeholder: '예: 벽매대1000' }))),
-        box(L.hook, h('div', { class: 'hook-row' },
-          field('hookType', h('select', { class: 'hook-sel' })),
-          h('span', { class: 'x' }, '×'),
-          field('hookCount', h('input', { type: 'number', min: 0, class: 'hook-cnt', placeholder: '0' })))),
-        box(L.sp, h('div', { class: 'sp-list' })),
-        box(L.other, h('div', { class: 'ex-list' }), field('otherFixtures', h('textarea', { rows: 2, class: 'ex-memo', placeholder: editable ? '기타 메모 (선택)' : '' }))))),
+      infoSide(box, field, L, editable)),
     h('div', { class: 'pf1' }, L.mgr + ' ', h('span', { class: 'pf-mgr' }), editable ? mgrSelect(fx, pog) : null),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
 
-  const block = finishBlock(fx, pog, page, editable);
+  return initInfo(finishBlock(fx, pog, page, editable), fx);
+}
+// 오른쪽 집기 정보 칸 (매대 타입·고리·선반/파이프·이외집기)
+const infoSide = (box, field, L, editable) => h('div', { class: 'pside' },
+  box(L.type, field('fixtureType', h('input', { list: 'dl-fixtureType', placeholder: '예: 벽매대1000' }))),
+  box(L.hook, h('div', { class: 'hook-row' },
+    field('hookType', h('select', { class: 'hook-sel' })),
+    h('span', { class: 'x' }, '×'),
+    field('hookCount', h('input', { type: 'number', min: 0, class: 'hook-cnt', placeholder: '0' })))),
+  box(L.sp, h('div', { class: 'sp-list' })),
+  box(L.other, h('div', { class: 'ex-list' }), field('otherFixtures', h('textarea', { rows: 2, class: 'ex-memo', placeholder: editable ? '기타 메모 (선택)' : '' }))));
+function initInfo(block, fx) {
+  if (!block.querySelector('.pside')) return block;
   block._extras = structuredClone(fx.extras || []);
   renderExtras(block);
   block._sp = spRows(fx); renderSp(block);
@@ -932,14 +937,23 @@ function finishBlock(fx, pog, page, editable) {
 }
 
 /* ---------- 추가 페이지 (POG 없이 사진·글·메모만) ---------- */
-function buildFreePage(fx, pog, { editable, field, L = LABELS_KO }) {
+function buildFreePage(fx, pog, { editable, field, L = LABELS_KO, box, onItem }) {
+  // 빈 페이지 (사용자): fx.info = 오른쪽 집기 정보 칸, 다른 페이지에서 잘라 붙인 매대(items·props)가 있으면 그림
+  const hasCv = (fx.items || []).length || (fx.props || []).length;
+  const body = hasCv || fx.info
+    ? h('div', { class: 'pb' + (hasCv ? '' : ' free-body') },
+      hasCv ? h('div', { class: 'pcanvas' }, buildCanvas(fx, fx.info ? CANVAS_W : CANVAS_W + 220, CANVAS_H, onItem, { blockUI: editable })) : h('div', { class: 'pcanvas free-blank' }),
+      fx.info ? infoSide(box, field, L, editable) : null)
+    : h('div', { class: 'pb free-body' });
   const page = h('div', { class: 'page free' },
     h('div', { class: 'ph' }, field('headerName', h('input', { class: 'ph-name', placeholder: '제목 (예: 3단 각고리 참고사진)' }))),
-    h('div', { class: 'pb free-body' }),
+    body,
     h('div', { class: 'pf1' }, L.mgr + ' ', h('span', { class: 'pf-mgr' }), editable ? mgrSelect(fx, pog) : null),
     h('div', { class: 'pf2' }, h('span', { class: 'pf-branch' })));
-  return finishBlock(fx, pog, page, editable);
+  return initInfo(finishBlock(fx, pog, page, editable), fx);
 }
+// 썸네일에 매대 그림을 그릴지: 매대 페이지, 또는 매대를 붙여넣은 빈 페이지
+const thCv = fx => !!fx && (fx.kind !== 'free' || !!(fx.items || []).length || !!(fx.props || []).length);
 const sortedFx = () => [...state.fixtures.values()].sort((a, b) => a.order - b.order);
 async function addFreePage(pogId, afterOrder) {
   const list = sortedFx(), next = list.find(f => f.order > afterOrder);
@@ -1427,7 +1441,7 @@ function splitSection(pog, fx, block) {
   const sec = (t, ...k) => h('section', { class: 'se-sec' }, h('h4', {}, t), ...k);
   if (fx.merged?.length) return sec('매대 나누기', h('p', { class: 'se-help' }, '매대를 붙인 페이지는 나눌 수 없어요. 붙이기를 취소하고 나눠 주세요.'));
   const bl = fx.blocks || [], selBase = block._selBlock === BASE && (bl.length || fx.base), sel = !selBase && block._selBlock && bl.find(b => b.id === block._selBlock);
-  const pct = s => `${Math.round((s || 1) * 100)}%`;
+  const pct = g => { const x = Math.round((g?.sx ?? g?.s ?? 1) * 100), y = Math.round((g?.sy ?? g?.s ?? 1) * 100); return x === y ? `${x}%` : `가로 ${x}% · 세로 ${y}%`; };
   if (state.split?.id === fx.id) {
     const n = state.split.items.size;
     return sec('매대 나누기', h('p', { class: 'se-help' }, '매대 그림 위를 끌어서 떼어낼 제품을 네모로 고르세요 (여러 번 끌면 더해져요). 고른 제품과 그 안의 선반·파이프가 한 묶음이 되고, 나머지는 그대로 남아요.'),
@@ -1436,13 +1450,13 @@ function splitSection(pog, fx, block) {
   return sec('매대 나누기', h('p', { class: 'se-help' }, '제품 일부를 떼어 따로 묶음으로 만들어요. 묶음은 회색 바탕을 따로 칠하고, ✥를 끌어 옮기거나 Ctrl+X → 다른 페이지에서 Ctrl+V로 옮길 수 있어요.'),
     h('div', { class: 'se-btns' }, btn('✂ 매대 나누기', () => { state.split = { id: fx.id, items: new Set(), props: new Set() }; block._selBlock = null; paintSplit(block); renderSidePanel(); }),
       !bl.length && !fx.base ? btn('↔ 매대 위치·크기 조정', () => saveGroup(pog.id, fx, BASE, {}), 'ghost') : null),
-    bl.length || fx.base ? h('p', { class: 'se-help' }, "그림의 '✥' 표시를 끌면 옮겨지고, 오른쪽 아래 작은 네모를 끌면 크기가 바뀌어요. 누르면 골라져요.") : null,
-    selBase ? h('div', { class: 'se-kid' }, h('span', {}, '선택: ', h('b', {}, '원래 매대'), ` · 크기 ${pct(fx.base?.s)}`)) : null,
-    selBase ? h('div', { class: 'se-btns' }, btn('제자리로', () => saveGroup(pog.id, fx, BASE, { dx: 0, dy: 0 }), 'ghost'), btn('원래 크기', () => saveGroup(pog.id, fx, BASE, { s: 1 }), 'ghost'),
+    bl.length || fx.base ? h('p', { class: 'se-help' }, "그림의 '✥' 표시를 끌면 옮겨지고, 오른쪽 아래 작은 네모를 끌면 크기가 바뀌어요 (가로·세로 따로 늘어나 비율도 바뀌어요. Shift를 누른 채 끌면 비율 그대로). 누르면 골라져요.") : null,
+    selBase ? h('div', { class: 'se-kid' }, h('span', {}, '선택: ', h('b', {}, '원래 매대'), ` · 크기 ${pct(fx.base)}`)) : null,
+    selBase ? h('div', { class: 'se-btns' }, btn('제자리로', () => saveGroup(pog.id, fx, BASE, { dx: 0, dy: 0 }), 'ghost'), btn('원래 크기', () => saveGroup(pog.id, fx, BASE, { s: 1, sx: 1, sy: 1 }), 'ghost'),
       fx.base ? btn('처음 상태로', () => resetBase(pog.id, fx), 'ghost') : null) : null,
-    sel ? h('div', { class: 'se-kid' }, h('span', {}, '선택한 묶음: ', h('b', {}, `묶음 ${bl.indexOf(sel) + 1}`), ` · 제품 ${(sel.items || []).length}개 · 크기 ${pct(sel.s)}`)) : null,
+    sel ? h('div', { class: 'se-kid' }, h('span', {}, '선택한 묶음: ', h('b', {}, `묶음 ${bl.indexOf(sel) + 1}`), ` · 제품 ${(sel.items || []).length}개 · 크기 ${pct(sel)}`)) : null,
     sel ? h('div', { class: 'se-btns' }, btn('✂ 잘라내기 (Ctrl+X)', () => cutBlock(pog.id, fx, sel)), btn('제자리로', () => saveGroup(pog.id, fx, sel.id, { dx: 0, dy: 0 }), 'ghost'),
-      btn('원래 크기', () => saveGroup(pog.id, fx, sel.id, { s: 1 }), 'ghost'),
+      btn('원래 크기', () => saveGroup(pog.id, fx, sel.id, { s: 1, sx: 1, sy: 1 }), 'ghost'),
       btn('묶음 풀기', () => saveBlocks(pog.id, fx, bl.filter(b => b.id !== sel.id), sel), 'ghost')) : null);
 }
 // 나누기: 끌어서 네모 → 걸친 제품(과 완전히 들어간 선반·파이프)을 고름
@@ -1518,14 +1532,16 @@ function resizeBlock(e, block, bid) {
   const fx = state.fixtures.get(block._fx), b = fx && groupOf(fx, bid); if (!b) return;
   const cvIn = block.querySelector('.pcanvas .cv-in'), sc = cvIn?._sc || 1;
   const g = cvIn?.querySelector(`.cv-bgrp[data-b="${CSS.escape(bid)}"]`), box = cvIn?.querySelector(`.cv-blk[data-b="${CSS.escape(bid)}"]`); if (!g || !box) return;
-  const l = parseFloat(box.style.left) + 4, t = parseFloat(box.style.top) + 4, w0 = Math.max(10, parseFloat(box.style.width) - 8);
+  const l = parseFloat(box.style.left) + 4, t = parseFloat(box.style.top) + 4, w0 = Math.max(10, parseFloat(box.style.width) - 8), h0 = Math.max(10, parseFloat(box.style.height) - 8);
   g.style.transformOrigin = `${l}px ${t}px`;
-  const sx = e.clientX; let k = 1;
-  const mv = ev => { k = Math.min(5, Math.max(0.2, (w0 + (ev.clientX - sx) / sc) / w0)); g.style.transform = `scale(${k})`; };
+  const sx = e.clientX, sy = e.clientY, lim = v => Math.min(5, Math.max(0.2, v)); let kx = 1, ky = 1;
+  // 가로·세로를 따로 늘리고 줄임 (비율이 바뀜). Shift를 누르고 끌면 비율 그대로
+  const mv = ev => { kx = lim((w0 + (ev.clientX - sx) / sc) / w0); ky = lim((h0 + (ev.clientY - sy) / sc) / h0); if (ev.shiftKey) ky = kx; g.style.transform = `scale(${kx}, ${ky})`; };
   const up = () => {
     window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up);
-    if (Math.abs(k - 1) < 0.01) { g.style.transform = ''; return; }
-    saveGroup(state.currentPog.id, fx, bid, { s: Math.round((b.s || 1) * k * 1000) / 1000 });
+    if (Math.abs(kx - 1) < 0.01 && Math.abs(ky - 1) < 0.01) { g.style.transform = ''; return; }
+    const r3 = v => Math.round(v * 1000) / 1000, bx = b.sx ?? b.s ?? 1, by = b.sy ?? b.s ?? 1;
+    saveGroup(state.currentPog.id, fx, bid, { sx: r3(bx * kx), sy: r3(by * ky), s: r3(bx * kx) });
   };
   window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
 }
@@ -1555,7 +1571,7 @@ function pasteBlock(pogId, to) {
   const from = state.fixtures.get(c.from), b = (from?.blocks || []).find(x => x.id === c.bid);
   if (!from || !b) { state.clip = null; toast('잘라낸 묶음을 찾지 못했어요'); renderSidePanel(); return; }
   if (to.id === from.id) { toast('다른 페이지에서 붙여넣어 주세요'); return; }
-  if (to.kind === 'free' || to.merged?.length) { toast('매대 페이지(붙이기 안 한 페이지)에 붙여넣어 주세요'); return; }
+  if (to.merged?.length) { toast('매대를 붙인 페이지에는 붙여넣을 수 없어요'); return; } // 빈 페이지에도 붙일 수 있음 (사용자)
   const ids = new Set((b.items || []).map(String)), pids = new Set((b.props || []).map(String));
   const mvI = (from.items || []).filter(o => ids.has(String(o.id))), mvP = (from.props || []).filter(o => pids.has(String(o.id)));
   if (!mvI.length && !mvP.length) { state.clip = null; return; }
@@ -1578,7 +1594,7 @@ function pasteBlock(pogId, to) {
   const fB = (from.blocks || []).filter(x => x.id !== b.id);
   saveFx(pogId, from.id, 'items', fI, ug); saveFx(pogId, from.id, 'props', fP, ug); saveFx(pogId, from.id, 'blocks', fB, ug); saveFx(pogId, from.id, 'itemZ', zFrom, ug);
   saveFx(pogId, to.id, 'items', [...(to.items || []), ...nI], ug); saveFx(pogId, to.id, 'props', [...(to.props || []), ...nP], ug);
-  const toFrame = to.frame || cvBox(to), fromFrame = fB.length ? from.frame || null : null; // 붙일 페이지는 붙이기 전 매대 범위를 틀로
+  const toFrame = to.frame || cvBox(to) || cvBox({ items: nI, props: nP }), fromFrame = fB.length ? from.frame || null : null; // 붙일 페이지는 붙이기 전 매대 범위를 틀로
   saveFx(pogId, to.id, 'frame', toFrame, ug); saveFx(pogId, from.id, 'frame', fromFrame, ug);
   saveFx(pogId, to.id, 'blocks', [...(to.blocks || []), nb], ug); saveFx(pogId, to.id, 'itemZ', zTo, ug);
   Object.assign(from, { items: fI, props: fP, blocks: fB, itemZ: zFrom, frame: fromFrame });
@@ -1680,6 +1696,10 @@ function renderSidePanel() {
         btn('선택 해제', () => selectItem(block, null), 'ghost')),
       h('p', { class: 'se-help' }, '겹친 제품 중 어느 것이 앞에 보일지만 바꿔요. 위치는 그대로예요.')));
     if (ed && block._bar) nodes.push(sec('메모 넣기', block._bar));
+    if (ed && free) nodes.push(sec('집기 정보', h('p', { class: 'se-help' }, fx.info ? '오른쪽에 매대 타입·고리·선반/파이프·이외집기 칸이 있어요.' : '매대 페이지처럼 오른쪽에 매대 타입·고리·선반/파이프·이외집기 칸을 넣어요.'),
+      h('div', { class: 'se-btns' }, fx.info ? btn('집기 정보 빼기', () => { if (confirm('집기 정보 칸을 뺄까요? (입력한 값은 남아 있어서 다시 넣으면 보여요)')) saveFx(pog.id, fx.id, 'info', false); }, 'ghost')
+        : btn('🧾 집기 정보 추가하기', () => saveFx(pog.id, fx.id, 'info', true)))));
+    if (ed && free && ((fx.items || []).length || (fx.props || []).length)) nodes.push(splitSection(pog, fx, block)); // 붙여넣은 매대: 옮기기·크기
     if (ed && !free) {
       const list = [...state.edComposed.values()], i = list.findIndex(f => f.id === id), next = list.slice(i + 1).find(f => f.kind !== 'free');
       const kids = (fx.merged || []).map(k => state.fixtures.get(k)).filter(Boolean);
@@ -1688,8 +1708,8 @@ function renderSidePanel() {
         next ? h('div', { class: 'se-btns' }, btn(`⇣ 다음 매대 '${displayName(next)}' 붙이기`, () => mergeNext(pog.id, fx, state.fixtures.get(next.id)))) : null));
       nodes.push(splitSection(pog, fx, block));
     }
-    if (ed && !free && state.clip && state.clip.pogId === pog.id && state.clip.from !== fx.id)
-      nodes.push(sec('붙여넣기', h('p', { class: 'se-help' }, `잘라낸 묶음(제품 ${state.clip.n}개)을 이 페이지 오른쪽에 붙여요.`), h('div', { class: 'se-btns' }, btn('📋 여기에 붙여넣기 (Ctrl+V)', () => pasteBlock(pog.id, fx)), btn('잘라내기 취소', () => { state.clip = null; renderSidePanel(); }, 'ghost'))));
+    if (ed && !fx.merged?.length && state.clip && state.clip.pogId === pog.id && state.clip.from !== fx.id)
+      nodes.push(sec('붙여넣기', h('p', { class: 'se-help' }, free ? `잘라낸 묶음(제품 ${state.clip.n}개)을 이 빈 페이지에 매대로 붙여요.` : `잘라낸 묶음(제품 ${state.clip.n}개)을 이 페이지 오른쪽에 붙여요.`), h('div', { class: 'se-btns' }, btn('📋 여기에 붙여넣기 (Ctrl+V)', () => pasteBlock(pog.id, fx)), btn('잘라내기 취소', () => { state.clip = null; renderSidePanel(); }, 'ghost'))));
     if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' },
       btn('▲ 앞으로', () => moveFollow(pog.id, fx.id, -1), 'ghost'),
       btn('▼ 뒤로', () => moveFollow(pog.id, fx.id, 1), 'ghost'),
@@ -2004,7 +2024,7 @@ async function exportCounts(pog, fixtures) {
     const codeOf = (cat, name) => state.glossary.find(g => g.cat === cat && norm(g.ko) === norm(name))?.code || '';
     const detail = [], sum = new Map();
     pages.forEach((f, i) => {
-      if (f.kind === 'free') return;
+      if (f.kind === 'free' && !f.info) return;
       const no = i + 2; // 1번은 표지
       const add = (kind, cat, name, qty) => {
         name = (name || '').trim(); if (!name) return;
@@ -2269,7 +2289,14 @@ function similarWords(ko) {
 function trFields(fx) {
   const notes = (fx.notes || []).filter(n => n.t === 'text' && (n.text || '').trim())
     .map((n, i) => ({ key: 'n_' + n.id, label: `글상자 ${i + 1}`, ko: n.text, addCat: '카테고리' }));
-  if (fx.kind === 'free') return [{ key: 'headerName', label: '제목', ko: fx.headerName, addCat: '카테고리' }, ...notes].filter(r => (r.ko || '').trim());
+  const info = [
+    { key: 'fixtureType', label: LABELS_KO.type, ko: fx.fixtureType, cats: ['매대타입'], dict: '매대타입' },
+    { key: 'hookType', label: '고리타입', ko: fx.hookType, cats: ['고리타입'], dict: '고리타입' },
+    ...spRows(fx).filter(x => (x.name || '').trim()).map((x, i) => ({ key: 's_' + x.id, label: `선반/파이프 ${i + 1}`, ko: x.name, cats: ['선반/파이프', '집기'], dict: '선반/파이프', qty: x.qty })),
+    ...(fx.extras || []).filter(x => (x.name || '').trim()).map((x, i) => ({ key: 'x_' + x.id, label: `이외집기 ${i + 1}`, ko: x.name, cats: ['집기'], dict: '집기', qty: x.qty })),
+    { key: 'otherFixtures', label: LABELS_KO.other + ' (메모)', ko: fx.otherFixtures, cats: ['집기'], addCat: '집기' },
+  ];
+  if (fx.kind === 'free') return [{ key: 'headerName', label: '제목', ko: fx.headerName, addCat: '카테고리' }, ...(fx.info ? info : []), ...notes].filter(r => (r.ko || '').trim());
   return [
     { key: 'cat', label: '카테고리(팀명)', ko: catName(fx.teamName), cats: ['팀명'], dict: '팀명' },
     { key: 'headerName', label: '매대명', ko: fx.headerName || origName(fx), cats: ['카테고리'], addCat: '카테고리',
