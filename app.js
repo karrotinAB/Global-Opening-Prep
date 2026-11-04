@@ -315,10 +315,25 @@ const LOG_F = {
   extras: '이외집기', otherFixtures: '기타 메모', manager: '담당자', notes: '메모 상자', itemZ: '제품 앞뒤', order: '페이지 순서', merged: '매대 붙이기',
   mergedInto: '붙인 곳', drawingRef: '도면 매대 연결', items: '제품', props: '집기', coverTitle: '표지 제목', hooks: '쓸 고리', cat: '카테고리',
   memo: '메모', crop: '저장 구역', tr: '번역', groups: '매대명 묶음', outsideItems: '매대 밖 제품', area: '평수',
+  blocks: '매대 나누기 묶음', base: '원래 매대 위치·크기', info: '집기 정보 칸', mdName: 'POG 사이트 매대', teamName: '카테고리(팀명)',
 };
+// 기록에 안 남기는 칸 (화면에 이름이 없는 내부 값 · 사용자: 기록이 너무 복잡하다고 함)
+const LOG_HIDE = new Set(['frame', 'panels', 'board', 'src', 'mdidx', 'bayNo', 'bayCount', 'itemCount', 'shelfCount', 'pipeCount', 'shelfPipe', 'fixtureCount', 'regrabbedAt', 'updatedAt', 'updatedBy', 'outsideItems', 'kind']);
 const logLabel = (f = '') => LOG_F[f] || LABELS_KO[f] || (f.startsWith('x_') ? '이외집기 줄' : f.startsWith('n_') ? '글상자' : f);
 function logShort(f, v) {
   if (v === undefined || v === null || v === '') return '';
+  if (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length) return '';
+  if (Array.isArray(v) && !v.length) return '';
+  if (typeof v === 'boolean') return v ? '넣음' : '뺌';
+  if (f === 'items') return `제품 ${v.length}개`;
+  if (f === 'props') return `선반·파이프 ${v.length}개`;
+  if (f === 'blocks') return `묶음 ${v.length}개` + v.map((b, i) => { const kx = b.sx ?? b.s ?? 1, ky = b.sy ?? b.s ?? 1, t = [(b.dx || b.dy) ? '옮김' : '', kx !== 1 || ky !== 1 ? `크기 ${Math.round(kx * 100)}%` : ''].filter(Boolean).join('·'); return t ? ` · ${i + 1}: ${t}` : ''; }).join('');
+  if (f === 'itemZ') return `제품 ${Object.keys(v).length}개 순서 바꿈`;
+  if (f === 'base') { const kx = v.sx ?? v.s ?? 1, ky = v.sy ?? v.s ?? 1; return [(v.dx || v.dy) ? '옮김' : '', kx !== 1 || ky !== 1 ? `크기 ${Math.round(kx * 100)}%` + (ky !== kx ? ` × ${Math.round(ky * 100)}%` : '') : ''].filter(Boolean).join(' · ') || '처음 상태'; }
+  if (f === 'merged') return v.map(id => { const x = state.fixtures?.get(id); return x ? displayName(x) : '매대'; }).join(', ');
+  if (f === 'mergedInto') { const x = state.fixtures?.get(v); return x ? displayName(x) : '다른 페이지'; }
+  if (f === 'order') return `${Math.round(v * 10) / 10}번째`;
+  if (f === 'teamName') return catName(v);
   if (f === 'notes' && Array.isArray(v)) return `${v.length}개 (글: ${v.filter(n => n.t === 'text').map(n => n.text).filter(Boolean).join(' / ').slice(0, 60)})`;
   if ((f === 'sp' || f === 'extras') && Array.isArray(v)) return v.map(x => `${x.name || ''}${x.qty ? ' × ' + x.qty : ''}`).join(', ');
   if (Array.isArray(v)) return `${v.length}개`;
@@ -348,14 +363,16 @@ function addLog(path, entry) {
 window.addEventListener('beforeunload', () => [...logBuf.keys()].forEach(flushLog));
 const flushLogs = () => [...logBuf.keys()].forEach(flushLog);
 // 기록 창: rows = 문서 데이터 배열 (최신 먼저)
+const logVal = s => s === '{}' || s === '[]' ? '' : s; // 예전 기록의 빈 값
 function logModal(title, sub, rows, extra) {
+  rows = rows.filter(r => !LOG_HIDE.has(r.field) || r.act); // 예전 기록 중 내부 값(틀 등)은 안 보임
   rows.sort((x, y) => (y.at?.toMillis?.() || 0) - (x.at?.toMillis?.() || 0));
   modal(h('div', { class: 'log-pop' }, h('h3', {}, title), sub ? h('p', { class: 'mut' }, sub) : null, extra || null,
     rows.length ? h('table', { class: 'gl-table log-table' }, h('thead', {}, h('tr', {}, h('th', {}, '언제'), h('th', {}, '누가'), h('th', {}, '무엇을'), h('th', {}, '바뀐 내용'))),
       h('tbody', {}, ...rows.map(r => h('tr', {},
         h('td', { class: 'nowrap' }, fmtTime(r.at)), h('td', {}, nameOf(r.by, r.byName)),
         h('td', {}, (r.lang ? `[${r.lang}] ` : '') + (r.act || logLabel(r.field)) + (r.what ? ` · ${r.what}` : '')),
-        h('td', {}, r.act && !r.from && !r.to ? '' : h('span', {}, h('s', { class: 'mut' }, r.from || '(빈칸)'), ' → ', h('b', {}, r.to || '(빈칸)')))))))
+        h('td', {}, r.act && !r.from && !r.to ? '' : h('span', {}, h('s', { class: 'mut' }, logVal(r.from) || '(없음)'), ' → ', h('b', {}, logVal(r.to) || '(없음)')))))))
       : h('p', { class: 'mut pad' }, '아직 기록이 없어요.')), { wide: true });
 }
 
@@ -388,7 +405,7 @@ function logTrack(pogId, docKey, what, raw) {
   // 지운 페이지는 그 페이지 기록을 볼 수 없으니 표지 기록에 남김 (어느 페이지를 지웠는지 · 사용자)
   if (what === '*') return addLog(['pogs', pogId], { fx: '__cover', area: 'make', act: '페이지 삭제', what: raw ? displayName(raw) : '' });
   const cur = () => docKey === '__pog' ? state.pogRaw : state.fxRaw.get(docKey);
-  for (const f of what) if (!['updatedAt', 'updatedBy', 'fixtureCount'].includes(f)) // 페이지 수(fixtureCount)는 기록 안 함 ('73'처럼 보여 헷갈림 · 사용자)
+  for (const f of what) if (!LOG_HIDE.has(f)) // 내부 값(틀·페이지 수 등)은 기록 안 함 ('73'·{"x0":…}처럼 보여 헷갈림 · 사용자)
     logEdit(['pogs', pogId], `p|${pogId}|${docKey}|${f}`, { fx, area: 'make', field: f }, raw?.[f], () => cur()?.[f]);
 }
 async function applyStep(st) { // 이 단계 전 상태로 되돌리고, 반대로 갈 단계(지금 상태)를 돌려줌
@@ -627,8 +644,8 @@ function makeThumbs(box, scroller, onActive, tools = null) { // tools = { can(),
       const on = k === id;
       if (on && !t.classList.contains('on')) { // 썸네일 목록만 움직임 (페이지 화면은 그대로)
         const a = t.getBoundingClientRect(), b = box.getBoundingClientRect();
-        if (a.top < b.top) box.scrollTop += a.top - b.top;
-        else if (a.bottom > b.bottom) box.scrollTop += a.bottom - b.bottom;
+        if (a.top < b.top) box.scrollTop += (a.top - b.top) / ZM();
+        else if (a.bottom > b.bottom) box.scrollTop += (a.bottom - b.bottom) / ZM();
       }
       t.classList.toggle('on', on);
     });
@@ -1103,6 +1120,7 @@ function fitText(el, fs) {
   while (f > 7 && (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1)) { f -= 1; el.style.fontSize = f + 'px'; }
 }
 function startNoteDrag(e, block, n, mode) {
+  const z = ZM();
   e.preventDefault(); e.stopPropagation();
   if ($('#ed-side')?.contains(document.activeElement)) document.activeElement.blur(); // 패널에서 글 쓰던 중이면 끝내고 이 페이지로
   selectNote(block, n.id);
@@ -1110,7 +1128,7 @@ function startNoteDrag(e, block, n, mode) {
   let moved = false;
   block._dragging = true;
   const mv = ev => {
-    const dx = ev.clientX - sx, dy = ev.clientY - sy;
+    const dx = (ev.clientX - sx) / z, dy = (ev.clientY - sy) / z;
     if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
     if (mode === 'move' && n.t === 'arrow') { n.x1 = o.x1 + dx; n.y1 = o.y1 + dy; n.x2 = o.x2 + dx; n.y2 = o.y2 + dy; }
     else if (mode === 'move') { n.x = Math.round(o.x + dx); n.y = Math.round(o.y + dy); }
@@ -1451,7 +1469,7 @@ function splitSection(pog, fx, block) {
   return sec('매대 나누기', h('p', { class: 'se-help' }, '제품 일부를 떼어 따로 묶음으로 만들어요. 묶음은 회색 바탕을 따로 칠하고, ✥를 끌어 옮기거나 Ctrl+X → 다른 페이지에서 Ctrl+V로 옮길 수 있어요.'),
     h('div', { class: 'se-btns' }, btn('✂ 매대 나누기', () => { state.split = { id: fx.id, items: new Set(), props: new Set() }; block._selBlock = null; paintSplit(block); renderSidePanel(); }),
       !bl.length && !fx.base ? btn('↔ 매대 위치·크기 조정', () => saveGroup(pog.id, fx, BASE, {}), 'ghost') : null),
-    bl.length || fx.base ? h('p', { class: 'se-help' }, "그림의 '✥' 표시를 끌면 옮겨지고, 오른쪽 아래 작은 네모를 끌면 크기가 바뀌어요 (가로·세로 따로 늘어나 비율도 바뀌어요. Shift를 누른 채 끌면 비율 그대로). 누르면 골라져요.") : null,
+    bl.length || fx.base ? h('p', { class: 'se-help' }, "그림의 '✥' 표시를 끌면 옮겨지고, 오른쪽 아래 작은 네모를 끌면 크기가 바뀌어요 (제품이 있으면 비율 그대로, 제품 없는 빈 매대만 가로·세로 따로). 누르면 골라져요.") : null,
     selBase ? h('div', { class: 'se-kid' }, h('span', {}, '선택: ', h('b', {}, '원래 매대'), ` · 크기 ${pct(fx.base)}`)) : null,
     selBase ? h('div', { class: 'se-btns' }, btn('제자리로', () => saveGroup(pog.id, fx, BASE, { dx: 0, dy: 0 }), 'ghost'), btn('원래 크기', () => saveGroup(pog.id, fx, BASE, { s: 1, sx: 1, sy: 1 }), 'ghost'),
       fx.base ? btn('처음 상태로', () => resetBase(pog.id, fx), 'ghost') : null) : null,
@@ -1467,7 +1485,7 @@ function splitBand(e, block) {
   const host = block.querySelector('.pcanvas'), r0 = host.getBoundingClientRect(), sx = e.clientX, sy = e.clientY;
   const band = h('div', { class: 'split-band' }); host.append(band);
   const box = ev => ({ l: Math.min(sx, ev.clientX), t: Math.min(sy, ev.clientY), r: Math.max(sx, ev.clientX), b: Math.max(sy, ev.clientY) });
-  const mv = ev => { const b = box(ev); Object.assign(band.style, { left: b.l - r0.left + 'px', top: b.t - r0.top + 'px', width: b.r - b.l + 'px', height: b.b - b.t + 'px' }); };
+  const mv = ev => { const b = box(ev), z = ZM(); Object.assign(band.style, { left: (b.l - r0.left) / z + 'px', top: (b.t - r0.top) / z + 'px', width: (b.r - b.l) / z + 'px', height: (b.b - b.t) / z + 'px' }); };
   const up = ev => {
     window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); band.remove();
     const b = box(ev); if (b.r - b.l < 3 && b.b - b.t < 3) return;
@@ -1531,7 +1549,7 @@ function resetBase(pogId, fx) {
 function resizeBlock(e, block, bid) {
   e.preventDefault(); e.stopPropagation();
   const fx = state.fixtures.get(block._fx), b = fx && groupOf(fx, bid); if (!b) return;
-  const cvIn = block.querySelector('.pcanvas .cv-in'), sc = cvIn?._sc || 1;
+  const cvIn = block.querySelector('.pcanvas .cv-in'), sc = (cvIn?._sc || 1) * ZM();
   const g = cvIn?.querySelector(`.cv-bgrp[data-b="${CSS.escape(bid)}"]`), box = cvIn?.querySelector(`.cv-blk[data-b="${CSS.escape(bid)}"]`); if (!g || !box) return;
   const l = parseFloat(box.style.left) + 4, t = parseFloat(box.style.top) + 4, w0 = Math.max(10, parseFloat(box.style.width) - 8), h0 = Math.max(10, parseFloat(box.style.height) - 8);
   g.style.transformOrigin = `${l}px ${t}px`;
@@ -1556,7 +1574,7 @@ function resizeBlock(e, block, bid) {
 function dragBlock(e, block, bid) {
   e.preventDefault(); e.stopPropagation();
   const fx = state.fixtures.get(block._fx), b = fx && groupOf(fx, bid); if (!b) return;
-  const cvIn = block.querySelector('.pcanvas .cv-in'), g = cvIn?.querySelector(`.cv-bgrp[data-b="${CSS.escape(bid)}"]`), sc = cvIn?._sc || 1;
+  const cvIn = block.querySelector('.pcanvas .cv-in'), g = cvIn?.querySelector(`.cv-bgrp[data-b="${CSS.escape(bid)}"]`), sc = (cvIn?._sc || 1) * ZM();
   const sx = e.clientX, sy = e.clientY; let moved = false, ddx = 0, ddy = 0;
   const mv = ev => { ddx = (ev.clientX - sx) / sc; ddy = (ev.clientY - sy) / sc; if (Math.abs(ddx) + Math.abs(ddy) > 2) moved = true; if (g) g.style.transform = `translate(${ddx}px, ${ddy}px)`; };
   const up = () => {
@@ -1669,6 +1687,10 @@ function hookPicker(pog, ed) {
       h('button', { class: 'btn small ghost', onclick: () => { picked.clear(); apply(); draw(); } }, '모두 해제'),
       used.size ? h('button', { class: 'btn small ghost', onclick: () => { used.forEach(x => all.includes(x) && picked.add(x)); apply(); draw(); } }, '쓰는 고리 체크') : null) : null);
 }
+const NARROW = matchMedia('(max-width: 900px)');
+// 사이트 전체 크기 (style.css의 html zoom: PC에서 80% · 사용자). 마우스로 끌 때 화면 px → 사이트 안 px로 바꿀 때 나눔
+const ZM = () => parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+NARROW.addEventListener?.('change', () => renderSidePanel());
 function renderSidePanel() {
   const box = $('#ed-side'), pog = state.currentPog;
   if (!box || !pog?.status) return;
@@ -1678,10 +1700,13 @@ function renderSidePanel() {
   const sec = (title, ...kids) => h('section', { class: 'se-sec' }, h('h4', {}, title), ...kids);
   const btn = (t, fn, cls = '') => h('button', { class: 'btn small ' + cls, onclick: fn }, t);
   const nodes = [];
-  const mgrBox = $('#ed-mgr-box'); $('#ed-mgr-holder').append(mgrBox); // 대표 담당자 칸은 표지에서만 보임 (사용자: 위 막대가 복잡해서 옮김)
+  // 대표 담당자 칸은 표지를 볼 때 오른쪽 패널에 (사용자: 위 막대가 복잡해서 옮김).
+  // 화면 폭이 좁아(900px 이하) 오른쪽 패널이 안 보이면 위 막대에 그대로 보여줌 (예전에 여기서 담당자 칸이 사라졌음 · 사용자)
+  const mgrBox = $('#ed-mgr-box'), holder = $('#ed-mgr-holder'), narrow = NARROW.matches;
+  holder.append(mgrBox); holder.classList.toggle('hidden', !narrow);
   if (id === '__cover') {
     nodes.push(h('div', { class: 'se-head' }, h('b', {}, '표지'), h('span', { class: 'mut' }, '매장명은 표지 가운데에서 바로 고칠 수 있어요')));
-    nodes.push(sec('대표 POG 담당자', h('p', { class: 'se-help' }, '모든 페이지 아래 \'POG 담당자\'에 들어가요. 페이지마다 다르면 그 페이지 아래 칸에서 따로 고를 수 있어요.'), mgrBox));
+    if (!narrow) nodes.push(sec('대표 POG 담당자', h('p', { class: 'se-help' }, '모든 페이지 아래 \'POG 담당자\'에 들어가요. 페이지마다 다르면 그 페이지 아래 칸에서 따로 고를 수 있어요.'), mgrBox));
     nodes.push(hookPicker(pog, ed));
     const emp = emptyPages();
     if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' }, btn('+ 표지 뒤에 빈 페이지 추가', () => addFreePage(pog.id, (sortedFx()[0]?.order ?? 0) - 1)),
@@ -3179,7 +3204,7 @@ function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, p
     const r0 = wrap.getBoundingClientRect(), sx = e.clientX, sy = e.clientY;
     const band = h('div', { class: 'dw-band' }); wrap.append(band);
     const box = ev => ({ l: Math.min(sx, ev.clientX), t: Math.min(sy, ev.clientY), r: Math.max(sx, ev.clientX), b: Math.max(sy, ev.clientY) });
-    const mv = ev => { const b = box(ev); Object.assign(band.style, { left: b.l - r0.left + 'px', top: b.t - r0.top + 'px', width: b.r - b.l + 'px', height: b.b - b.t + 'px' }); };
+    const mv = ev => { const b = box(ev), z = ZM(); Object.assign(band.style, { left: (b.l - r0.left) / z + 'px', top: (b.t - r0.top) / z + 'px', width: (b.r - b.l) / z + 'px', height: (b.b - b.t) / z + 'px' }); };
     const up = ev => {
       window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); band.remove();
       const b = box(ev); if (b.r - b.l < 4 && b.b - b.t < 4) return;
@@ -3208,7 +3233,7 @@ function dragLabel(e, g, wrap, v) {
   $$('.dw-lab.on', wrap).forEach(x => x.classList.remove('on')); e.currentTarget.classList.add('on');
   if (!canEdit('drawing-trans')) return;
   e.preventDefault();
-  const el = e.currentTarget, m0 = dwRowState(g).m, k = v.w / wrap.clientWidth, sx = e.clientX, sy = e.clientY, dx0 = m0.dx || 0, dy0 = m0.dy || 0;
+  const el = e.currentTarget, m0 = dwRowState(g).m, k = v.w / wrap.clientWidth / ZM(), sx = e.clientX, sy = e.clientY, dx0 = m0.dx || 0, dy0 = m0.dy || 0;
   let dx = dx0, dy = dy0, moved = false;
   const mv = ev => {
     dx = dx0 + (ev.clientX - sx) * k; dy = dy0 + (ev.clientY - sy) * k; moved = true;
@@ -3265,7 +3290,7 @@ $('#dw-stage').addEventListener('wheel', e => {
   if (Math.abs(dw.zoom - 1) < 0.04) dw.zoom = 1;
   dwZoomApply();
   const r2 = cv.getBoundingClientRect();
-  st.scrollLeft += r2.left + fx * r2.width - e.clientX; st.scrollTop += r2.top + fy * r2.height - e.clientY;
+  const z = ZM(); st.scrollLeft += (r2.left + fx * r2.width - e.clientX) / z; st.scrollTop += (r2.top + fy * r2.height - e.clientY) / z;
 }, { passive: false });
 $('#dw-zoom').onclick = () => { dw.zoom = 1; dwZoomApply(); };
 
@@ -3418,7 +3443,7 @@ $('#dw-stage').addEventListener('mousedown', e => {
   e.preventDefault();
   const st = e.currentTarget, sx = e.clientX, sy = e.clientY, l0 = st.scrollLeft, t0 = st.scrollTop;
   st.classList.add('panning');
-  const mv = ev => { st.scrollLeft = l0 - (ev.clientX - sx); st.scrollTop = t0 - (ev.clientY - sy); };
+  const z = ZM(), mv = ev => { st.scrollLeft = l0 - (ev.clientX - sx) / z; st.scrollTop = t0 - (ev.clientY - sy) / z; };
   const up = () => { st.classList.remove('panning'); window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); };
   window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up);
 });
