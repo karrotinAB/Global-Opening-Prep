@@ -939,13 +939,24 @@ function renderSp(block) {
   const box = block.querySelector('.page .sp-list'); if (!box) return;
   const ed = block._editable, list = block._sp;
   const save = () => { const g = `${block._fx}|sp`; saveFx(block._pog, block._fx, 'sp', structuredClone(list), g); saveFx(block._pog, block._fx, 'shelfPipe', spText(list), g); };
-  const opts = cur => [...new Set([...SP_DEFAULT, ...glossaryOf('선반/파이프').map(g => g.ko), ...(cur ? [cur] : [])])];
+  // 선택지 = 선반·파이프 + 사전 '선반/파이프' + 이 POG에서 직접 넣은 이름. 없으면 '+ 직접 입력…' (사용자: POG팀이 옵션에 없는 것도 넣게)
+  const used = () => [...(state.fixtures?.values?.() || [])].flatMap(f => Array.isArray(f.sp) ? f.sp.map(r => r.name) : []).filter(Boolean);
+  const opts = cur => [...new Set([...SP_DEFAULT, ...glossaryOf('선반/파이프').map(g => g.ko), ...used(), ...(cur ? [cur] : [])])];
+  const CUSTOM = '__custom';
   box.replaceChildren(...list.map(x => {
-    const sel = h('select', { class: 'f sp-sel', disabled: !ed }, h('option', { value: '' }, ''), ...opts(x.name).map(o => h('option', { value: o }, o)));
+    const sel = h('select', { class: 'f sp-sel', disabled: !ed }, h('option', { value: '' }, ''), ...opts(x.name).map(o => h('option', { value: o }, o)),
+      ed ? h('option', { value: CUSTOM }, '+ 직접 입력…') : null);
     sel.value = x.name || '';
     const qty = h('input', { class: 'f ex-qty', type: 'number', min: 0, placeholder: '0', disabled: !ed });
     qty.value = x.qty ?? '';
-    sel.addEventListener('change', () => { x.name = sel.value; save(); });
+    sel.addEventListener('change', () => {
+      if (sel.value === CUSTOM) {
+        const v = (prompt('선반/파이프 이름을 직접 써 주세요 (예: 걸이봉, 아크릴 선반)', '') || '').trim();
+        if (!v) { sel.value = x.name || ''; return; }
+        x.name = v; save(); renderSp(block); return;
+      }
+      x.name = sel.value; save();
+    });
     qty.addEventListener('input', () => { x.qty = qty.value === '' ? '' : Number(qty.value); save(); });
     return h('div', { class: 'ex-row' }, sel, h('span', { class: 'x' }, '×'), qty,
       ed ? h('button', { class: 'ex-del no-print', title: '삭제', onclick: () => { block._sp = list.filter(y => y !== x); save(); renderSp(block); } }, '×') : null);
@@ -1434,6 +1445,21 @@ function renderEditorPages() {
   edThumbs.sync(slideEntries(state.coverEl, pog, order, fx => state.pageEls.get(fx.id)));
   renderSidePanel();
   if ($('#ed-find')?.value) edFind(); // 다시 그린 뒤에도 찾기 표시 유지
+  requestAnimationFrame(() => state.pageEls.forEach(fitHandles));
+}
+// 묶음·매대가 페이지 밖으로 나가도 '✥' 손잡이와 크기 네모는 페이지 안 보이는 곳에 붙여 둠 (사용자: 밖으로 나가면 잡을 수 없었음)
+function fitHandles(block) {
+  const page = block?.querySelector('.page'); if (!page) return;
+  const hs = block.querySelectorAll('.cv-blk-h, .cv-blk-r'); if (!hs.length) return;
+  const pr = page.getBoundingClientRect(); if (!pr.width) return;
+  const box = { l: pr.left + 2, t: pr.top + 2, r: pr.right - 2, b: pr.bottom - 2 };
+  hs.forEach(el => {
+    el.style.transform = '';
+    const r = el.getBoundingClientRect(), k = r.width / (el.offsetWidth || 1) || 1;
+    const x = Math.min(Math.max(r.left, box.l), box.r - r.width) - r.left, y = Math.min(Math.max(r.top, box.t), box.b - r.height) - r.top;
+    el.classList.toggle('pinned', Math.abs(x) > 1 || Math.abs(y) > 1);
+    if (Math.abs(x) > 1 || Math.abs(y) > 1) el.style.transform = `translate(${x / k}px, ${y / k}px)`;
+  });
 }
 /* POG 만들기 안에서 찾기 (사용자): 매대명(헤더·POG 원래 이름)·카테고리(팀명)·매대 타입·제품명·제품코드·추가 페이지 제목.
    온라인 POG 찾기(vwFind)와 같은 방식 — 맞는 페이지는 빨간 테두리, 제품은 깜빡임, 썸네일도 빨간 테두리, ◀ ▶·Enter로 이동 */

@@ -879,3 +879,7 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .mut.small { font-size: 11px; }
 .log-flash { outline: 3px solid #e60012 !important; outline-offset: 2px; animation: log-flash 0.7s ease-in-out 6; }
 @keyframes log-flash { 50% { outline-color: rgba(230, 0, 18, .15); } }
+
+/* 페이지 밖으로 나간 묶음의 손잡이: 페이지 가장자리에 붙어 있음 (사용자) */
+.cv-blk-h.pinned { background: #e07b00; box-shadow: 0 0 0 2px #fff, 0 1px 6px rgba(0,0,0,.35); }
+.cv-blk-r.pinned { border-color: #e07b00; }
