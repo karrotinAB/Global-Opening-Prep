@@ -27,6 +27,48 @@
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   setActs(['취소', 'g', close]);
 
+  /* ---------- POG 계산기의 '상품 상세정보 채우기'로 연 창이면: 상품 정보만 읽어 계산기로 보냄 ----------
+     (즐겨찾기 하나로 쓰려고 계산기 수집기의 상품 모드를 여기에도 넣음 · 사용자) */
+  const CALC_ORIGIN = 'https://karrotinab.github.io';
+  const need = await new Promise(res => {
+    const op = window.opener; if (!op) return res(null);
+    let fin = false;
+    const on = e => { const d = e.data; if (e.source !== op || e.origin !== CALC_ORIGIN || !d || d.type !== 'POG_FL_NEED') return; fin = true; window.removeEventListener('message', on); res(d); };
+    window.addEventListener('message', on);
+    try { op.postMessage({ type: 'POG_FL_ASK' }, CALC_ORIGIN); } catch (e) { window.removeEventListener('message', on); return res(null); }
+    setTimeout(() => { if (!fin) { window.removeEventListener('message', on); res(null); } }, 1500);
+  });
+  if (need && need.codes && need.codes.length) {
+    box.querySelector('h3').textContent = 'POG 계산기: 상품 상세정보 가져오기';
+    const T = s => String(s || '').replace(/\s+/g, ' ').trim();
+    const fetchInfo = async code => {
+      const r = await fetch('/popGodCodeInfo.aspx?iv_god_code=' + encodeURIComponent(code), { credentials: 'include' });
+      if (/login/i.test(r.url)) throw new Error('로그인 필요');
+      const buf = await r.arrayBuffer(), ct = r.headers.get('content-type') || '', m = ct.match(/charset=([\w-]+)/i);
+      let html = new TextDecoder(m ? m[1] : 'utf-8').decode(buf);
+      if (!m) { const mm = html.match(/charset=["']?([\w-]+)/i); if (mm && mm[1].toLowerCase() !== 'utf-8') try { html = new TextDecoder(mm[1]).decode(buf); } catch (e) {} }
+      const info = {};
+      new DOMParser().parseFromString(html, 'text/html').querySelectorAll('tr').forEach(tr => {
+        const c = tr.cells; for (let i = 0; i + 1 < c.length; i += 2) { const k = T(c[i].textContent); if (k) info[k] = T(c[i + 1].textContent); }
+      });
+      if (!Object.keys(info).length) throw new Error('정보 없음');
+      return info;
+    };
+    let stopped = false; setActs(['중지', 'g', () => { stopped = true; }]);
+    const codes = need.codes.slice(), prod = {}; let k = 0, done = 0;
+    const show = () => { $msg.textContent = `상품 상세정보(뎁스·팩킹수량·분류) 읽는 중… ${done} / ${codes.length}`; $bar.style.width = (codes.length ? done / codes.length * 100 : 100) + '%'; };
+    show();
+    const worker = async () => { while (k < codes.length && !stopped) { const c = codes[k++]; try { prod[c] = await fetchInfo(c); } catch (e) { prod[c] = { _error: String(e.message || e) }; } done++; show(); } };
+    await Promise.all([worker(), worker(), worker(), worker(), worker()]);
+    const bad = codes.filter(c => prod[c] && prod[c]._error).length;
+    let sent = false;
+    try { window.opener.postMessage({ type: 'POG_FL_PRODUCTS', store: need.store || '', products: prod }, CALC_ORIGIN); sent = true; } catch (e) {}
+    $msg.innerHTML = (sent ? '✅ POG 계산기로 상품 정보를 보냈어요. 계산기 탭을 확인하세요.' : '⚠️ 계산기 창을 찾지 못했어요. 계산기에서 다시 눌러주세요.')
+      + `<br>상품 ${Object.keys(prod).length}종` + (bad ? ` · <span class="w">못 읽은 상품 ${bad}종</span>` : '') + (stopped ? ' · 중간에 중지됨' : '');
+    setActs(['닫기', 'p', close]);
+    return;
+  }
+
   /* ---------- 매대 화면에서 제품·집기 읽기 ---------- */
   function scrapeDoc(doc) {
     const win = doc.defaultView;
