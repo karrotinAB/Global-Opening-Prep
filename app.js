@@ -384,10 +384,11 @@ function track(pogId, docKey, what, gk) {
 const undoGroup = () => 'g' + Date.now() + Math.random();
 function logTrack(pogId, docKey, what, raw) {
   const fx = docKey === '__pog' ? '__cover' : docKey;
-  if (what === 'new') return addLog(['pogs', pogId], { fx, area: 'make', act: '빈 페이지 추가' });
-  if (what === '*') return addLog(['pogs', pogId], { fx, area: 'make', act: '페이지 삭제', what: raw ? displayName(raw) : '' });
+  if (what === 'new') return addLog(['pogs', pogId], { fx, area: 'make', act: String(docKey).startsWith('free_') ? '빈 페이지 추가' : '매대 페이지 추가' });
+  // 지운 페이지는 그 페이지 기록을 볼 수 없으니 표지 기록에 남김 (어느 페이지를 지웠는지 · 사용자)
+  if (what === '*') return addLog(['pogs', pogId], { fx: '__cover', area: 'make', act: '페이지 삭제', what: raw ? displayName(raw) : '' });
   const cur = () => docKey === '__pog' ? state.pogRaw : state.fxRaw.get(docKey);
-  for (const f of what) if (!['updatedAt', 'updatedBy'].includes(f))
+  for (const f of what) if (!['updatedAt', 'updatedBy', 'fixtureCount'].includes(f)) // 페이지 수(fixtureCount)는 기록 안 함 ('73'처럼 보여 헷갈림 · 사용자)
     logEdit(['pogs', pogId], `p|${pogId}|${docKey}|${f}`, { fx, area: 'make', field: f }, raw?.[f], () => cur()?.[f]);
 }
 async function applyStep(st) { // 이 단계 전 상태로 되돌리고, 반대로 갈 단계(지금 상태)를 돌려줌
@@ -1026,7 +1027,7 @@ async function deletePage(pogId, fx) {
     b.delete(doc(db, 'pogs', pogId, 'fixtures', fx.id));
     if (fx.kind !== 'free') b.update(doc(db, 'pogs', pogId), { fixtureCount: Math.max(0, (state.currentPog?.fixtureCount || 1) - 1), updatedAt: serverTimestamp() });
     await b.commit();
-    toast('페이지를 삭제했어요 · Ctrl+Z로 되돌릴 수 있어요'); // 메모 사진 파일은 되돌릴 수 있게 남겨 둠
+    toast(`'${displayName(fx)}' 페이지를 삭제했어요 · Ctrl+Z로 되돌릴 수 있어요`); // 메모 사진 파일은 되돌릴 수 있게 남겨 둠
   } catch (e) { alert('삭제하지 못했어요: ' + (e.code || e.message)); }
 }
 
@@ -1719,7 +1720,7 @@ function renderSidePanel() {
     if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' },
       btn('▲ 앞으로', () => moveFollow(pog.id, fx.id, -1), 'ghost'),
       btn('▼ 뒤로', () => moveFollow(pog.id, fx.id, 1), 'ghost'),
-      free ? null : btn('↻ 이 매대만 다시 가져오기', () => openRegrab(fx), 'ghost'),
+      free ? null : btn('↻ 이 매대 다시 가져오기 (대체·추가)', () => openRegrab(fx), 'ghost'),
       btn('+ 이 뒤에 빈 페이지 추가', () => addFreePage(pog.id, fx.order), 'ghost'),
       btn('이 페이지 삭제', () => deletePage(pog.id, fx), 'ghost danger'))));
   }
@@ -2129,7 +2130,119 @@ function exportCalc(pog, fixtures) {
    고유번호(mdidx)로 이 POG의 페이지를 찾아 제품·집기 모양만 최신으로 바꾼다.
    매대명·매대 타입·고리·이외집기·메모·사진·메모 상자는 그대로. 선반/파이프 칸은 손대지 않았을 때만 새 값으로.
    칸 수가 늘면 페이지를 그 뒤에 추가, 줄면 남는 페이지를 지움(미리보기에서 알려줌). 처음 보는 매대는 맨 뒤에 추가. */
+/* '다시 가져오기'를 누르면 두 가지 (사용자):
+   대체하기 = 지금 보고 있는 페이지를 새로 읽은 매대(여러 개면 골라서)로 바꿈. 매대명·매대 타입·고리·이외집기·메모 상자·도면 연결은 그대로
+   추가하기 = 새로 읽은 매대를 맨 뒤에 페이지로 추가
+   (예전 방식: 고유번호로 이 POG의 매대를 찾아 한꺼번에 최신으로 = openRegrabAuto) */
 function openRegrab(hintFx) {
+  const pog = state.currentPog; if (!pog) return;
+  if (!state.edEditable) { toast(pog.status === 'final' ? '최종 POG예요. 잠금 해제한 뒤 다시 가져올 수 있어요' : '편집 권한이 없어요'); return; }
+  const cur = hintFx || state.fixtures.get(state.edActive);
+  const canRep = cur && cur.kind !== 'free';
+  const close = modal(h('div', { class: 'rg-pick' },
+    h('h3', {}, 'POG 사이트에서 다시 가져오기'),
+    h('p', { class: 'mut' }, '어떻게 가져올까요?'),
+    h('div', { class: 'rg-opts' },
+      h('button', { class: 'rg-opt', disabled: !canRep, onclick: () => { close(); grabPaste('replace', cur); } },
+        h('b', {}, '↻ 대체하기'), h('span', {}, canRep ? `지금 보고 있는 페이지 '${displayName(cur)}'를 새로 읽은 매대로 바꿔요. 매대명·매대 타입·고리·이외집기·메모 상자는 그대로예요.` : '바꿀 매대 페이지를 먼저 보고 눌러주세요 (표지·추가 페이지는 바꿀 수 없어요).')),
+      h('button', { class: 'rg-opt', onclick: () => { close(); grabPaste('add', null); } },
+        h('b', {}, '+ 추가하기'), h('span', {}, '새로 읽은 매대를 맨 뒤에 새 페이지로 넣어요.'))),
+    h('p', { class: 'mut rg-auto' }, h('a', { href: '#', onclick: e => { e.preventDefault(); close(); openRegrabAuto(hintFx); } }, '고유번호로 여러 매대를 한꺼번에 최신으로 바꾸기 (예전 방식)'))));
+}
+// 북마클릿 결과 붙여넣기 → 읽은 매대(칸)마다 페이지 후보
+function grabPaste(mode, target) {
+  const pog = state.currentPog;
+  const ta = h('textarea', { class: 'import-ta', placeholder: '여기에 붙여넣기 (Ctrl+V)' });
+  const go = h('button', { class: 'btn primary' }, '다음');
+  const close = modal(h('div', {},
+    h('h3', {}, mode === 'replace' ? `대체하기 · '${displayName(target)}'` : '매대 추가하기'),
+    h('ol', { class: 'steps' },
+      h('li', {}, 'POG 사이트에서 매대 보기 화면(여러 개면 매대 목록에서 체크)을 열고 북마크(📥 POG 가져오기)를 누르세요.'),
+      h('li', {}, "'복사하기'를 누르고 아래 칸에 붙여넣으세요.")),
+    ta, h('p', { class: 'mut' }, '매대 밖에 빼둔 제품은 가져오지 않아요.'),
+    h('div', { class: 'modal-act' }, go)));
+  go.onclick = () => {
+    let data;
+    try { data = JSON.parse(ta.value.trim()); } catch { toast('붙여넣은 내용이 올바르지 않아요'); return; }
+    if (!data || data.source !== 'pog.artbox.kr' || !Array.isArray(data.fixtures) || !data.fixtures.length) { toast('POG 데이터가 아니에요'); return; }
+    const cands = [];
+    data.fixtures.forEach((f, i) => {
+      if (!(f.items || []).length && !(f.props || []).length && !(f.panels || []).length) return;
+      cands.push(...pagesFromGrab(f, i).pages.filter(p => (p.items || []).length));
+    });
+    if (!cands.length) { toast('제품이 있는 매대가 없어요'); return; }
+    const warn = data.storeCode && pog.storeCode && String(data.storeCode) !== String(pog.storeCode)
+      ? `매장이 달라요. 붙여넣은 데이터: ${data.storeName} (${data.storeCode}) / 이 POG: ${pog.storeName} (${pog.storeCode})` : '';
+    close(); grabChoose(mode, target, cands, warn);
+  };
+}
+const candName = p => p.mdName + (p.bayCount > 1 ? ` (${p.bayNo}/${p.bayCount})` : '');
+// 후보 고르기: 대체하기는 하나, 추가하기는 여러 개 (체크)
+function grabChoose(mode, target, cands, warn) {
+  const pog = state.currentPog, rep = mode === 'replace';
+  const exist = new Set(sortedFx().filter(x => x.kind !== 'free').map(x => x.mdidx + '|' + (x.bayNo || 1)));
+  let pick = rep ? 0 : null;
+  const sel = new Set(rep ? [] : cands.map((_, i) => i));
+  const go = h('button', { class: 'btn primary' }, rep ? '이 매대로 바꾸기' : '');
+  const paint = () => {
+    rows.forEach((r, i) => r.classList.toggle('on', rep ? pick === i : sel.has(i)));
+    if (!rep) { go.textContent = `${sel.size}장 맨 뒤에 추가하기`; go.disabled = !sel.size; }
+  };
+  const rows = cands.map((p, i) => {
+    const r = h('label', { class: 'rg-cand' },
+      h('input', { type: rep ? 'radio' : 'checkbox', name: 'rgc', checked: rep ? i === 0 : true, onchange: e => { if (rep) pick = i; else e.target.checked ? sel.add(i) : sel.delete(i); paint(); } }),
+      h('div', { class: 'rg-th' }, buildCanvas(p, 96, 72, null, { lazy: true })),
+      h('div', {}, h('b', {}, candName(p)), h('div', { class: 'mut' }, `제품 ${p.items.length}개 · ${catName(p.teamName)}` + (!rep && exist.has(p.mdidx + '|' + p.bayNo) ? ' · 이미 이 POG에 있는 매대예요' : ''))));
+    return r;
+  });
+  const close = modal(h('div', {},
+    h('h3', {}, rep ? `'${displayName(target)}'를 어느 매대로 바꿀까요?` : '추가할 매대를 고르세요'),
+    warn ? h('p', { class: 'err' }, warn) : null,
+    rep ? h('p', { class: 'mut' }, `지금 제품 ${(target.items || []).length}개 → 고른 매대의 제품으로 바뀌어요. 매대 나누기 묶음·옮긴 위치·크기는 처음 상태로 돌아가요. Ctrl+Z로 되돌릴 수 있어요.`) : null,
+    h('div', { class: 'rg-list' }, ...rows),
+    h('div', { class: 'modal-act' }, go)), { wide: true });
+  paint();
+  go.onclick = async () => {
+    go.disabled = true;
+    try {
+      if (rep) await replaceWithGrab(pog, target, cands[pick]);
+      else await addGrabPages(pog, cands.filter((_, i) => sel.has(i)));
+      close();
+    } catch (e) { toast('가져오기 실패: ' + (e.code || e.message)); go.disabled = false; }
+  };
+}
+async function replaceWithGrab(pog, o, pg) {
+  await flushWrites();
+  const patch = {
+    mdidx: pg.mdidx, mdName: pg.mdName, teamName: pg.teamName, bayNo: pg.bayNo, bayCount: pg.bayCount,
+    items: pg.items, props: pg.props, panels: pg.panels, board: pg.board || null, src: pg.src || null, outsideItems: [],
+    itemCount: pg.itemCount, shelfCount: pg.shelfCount, pipeCount: pg.pipeCount,
+    itemZ: {}, blocks: [], base: null, frame: null,
+  };
+  if (JSON.stringify(spRows(o)) === JSON.stringify(autoSp(o.shelfCount, o.pipeCount)) || !spRows(o).length) { patch.shelfPipe = pg.shelfPipe; patch.sp = pg.sp; }
+  track(pog.id, o.id, Object.keys(patch), undoGroup());
+  await updateDoc(doc(db, 'pogs', pog.id, 'fixtures', o.id), { ...patch, regrabbedAt: serverTimestamp(), updatedAt: serverTimestamp(), updatedBy: me() });
+  const t = catName(pg.teamName); if (t && !(pog.teams || []).includes(t)) updateDoc(doc(db, 'pogs', pog.id), { teams: arrayUnion(t) }).catch(() => { });
+  toast(`'${displayName(o)}' 페이지를 '${candName(pg)}' 매대로 바꿨어요`);
+}
+async function addGrabPages(pog, pages) {
+  await flushWrites();
+  const all = sortedFx(), ids = new Set(all.map(x => x.id)), g = undoGroup();
+  const freeId = id => { let v = id; while (ids.has(v)) v = `${id}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 4)}`; ids.add(v); return v; };
+  let end = Math.max(0, ...all.map(x => x.order)), first = null;
+  const b = writeBatch(db);
+  for (const { id, ...rest } of pages) {
+    const nid = freeId(id); first = first || nid;
+    track(pog.id, nid, 'new', g);
+    b.set(doc(db, 'pogs', pog.id, 'fixtures', nid), { order: ++end, ...rest, headerName: '', fixtureType: '', hookType: '', hookCount: '', otherFixtures: '', memo: '', photos: [], notes: [], createdAt: serverTimestamp(), createdBy: me() });
+  }
+  await b.commit();
+  const teams = [...new Set(pages.map(p => catName(p.teamName)).filter(t => t && !(pog.teams || []).includes(t)))];
+  await updateDoc(doc(db, 'pogs', pog.id), { fixtureCount: all.length + pages.length, updatedAt: serverTimestamp(), ...(teams.length ? { teams: arrayUnion(...teams) } : {}) });
+  toast(`매대 페이지 ${pages.length}장을 맨 뒤에 추가했어요`);
+  setTimeout(() => { state.pageEls.get(first)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); setEdActive(first); }, 400);
+}
+function openRegrabAuto(hintFx) {
   const pog = state.currentPog; if (!pog) return;
   if (!state.edEditable) { toast(pog.status === 'final' ? '최종 POG예요. 잠금 해제한 뒤 다시 가져올 수 있어요' : '편집 권한이 없어요'); return; }
   const ta = h('textarea', { class: 'import-ta', placeholder: '여기에 붙여넣기 (Ctrl+V)' });
