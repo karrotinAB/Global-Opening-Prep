@@ -550,10 +550,27 @@ function imgRetry(img) {
   if (n < 2) { setTimeout(() => { img.src = src + (src.includes('?') ? '&' : '?') + 'r=' + Date.now(); }, 700 * (n + 1)); return; }
   if (n === 2) { img.referrerPolicy = 'strict-origin-when-cross-origin'; img.src = src; return; }
   img.dataset.failed = '1';
-  if (img.dataset.fb) img.replaceWith(h('span', { class: 'cv-noimg', title: '사진을 불러오지 못했어요' }, img.dataset.name || ''));
-  else img.style.visibility = 'hidden';
+  if (img.dataset.fb) {
+    // 글자 칸에 사진 주소를 남겨서 나중에 다시 불러올 수 있게 (사용자: 한번 깨진 사진도 복구)
+    const sp = h('span', { class: 'cv-noimg', title: '사진을 불러오지 못했어요 · 잠시 뒤 다시 불러와요' }, img.dataset.name || '');
+    sp.dataset.src0 = img.dataset.src0; sp.dataset.name = img.dataset.name || ''; sp.dataset.round = String(+(img.dataset.round || 0) + 1);
+    img.replaceWith(sp);
+  } else img.style.visibility = 'hidden';
   img.dispatchEvent(new Event('gaveup'));
 }
+// 깨진 사진(제품명 글자 칸)을 다시 불러오기: 20초마다(칸마다 최대 6번), 창으로 돌아오거나 인터넷이 다시 연결될 때, PDF 저장 전
+function retryBroken(root = document, force = false) {
+  const spans = $$('.cv-noimg', root).filter(s => s.dataset.src0 && s.isConnected && (force || +(s.dataset.round || 0) < 6));
+  spans.forEach(s => {
+    const img = prodImg(s.dataset.src0 + (s.dataset.src0.includes('?') ? '&' : '?') + 'k=' + Date.now(), s.dataset.name || '');
+    img.dataset.src0 = s.dataset.src0; img.dataset.round = s.dataset.round || '1';
+    s.replaceWith(img);
+  });
+  return spans.length;
+}
+setInterval(() => { if (document.visibilityState === 'visible') retryBroken(); }, 20000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') retryBroken(); });
+window.addEventListener('online', () => retryBroken(document, true));
 function buildCanvas(fx, W, H, onItem, { lazy = false, blockUI = false } = {}) {
   fx = withBlocks(fx);
   const items = fx.items || [], hasBlocks = !!fx._blocks;
@@ -2020,6 +2037,7 @@ async function printPages(container, pog) {
   const done = () => { document.title = old; window.removeEventListener('afterprint', done); };
   window.addEventListener('afterprint', done);
   // 아직 안 불러온 사진·실패한 사진: 다시 불러오고, 끝날 때까지(최대 20초) 기다렸다가 인쇄
+  retryBroken(container, true); // 깨진 사진도 한 번 더
   const imgs = $$('img', container);
   imgs.forEach(i => { i.loading = 'eager'; if (i.complete && !i.naturalWidth && i.dataset.src0 && !i.dataset.failed) imgRetry(i); });
   const wait = imgs.filter(i => !(i.complete && i.naturalWidth) && !i.dataset.failed && i.isConnected);
