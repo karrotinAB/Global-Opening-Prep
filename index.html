@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20261112d">
+<link rel="stylesheet" href="style.css?v=20261112f">
 </head>
 <body>
 
@@ -22,6 +22,7 @@
     <button class="btn primary w100" type="submit">로그인</button>
     <div id="login-err" class="err"></div>
     <a href="#" id="login-forgot" class="login-forgot">비밀번호를 잊어버리셨나요?</a>
+    <div class="seg ui-lang login-lang"></div>
   </form>
   <!-- 아트박스 캐릭터 (img/login/1~4.png, 없는 파일은 안 보임) -->
   <div class="login-chars" aria-hidden="true">
@@ -74,7 +75,7 @@
         <button data-view="pog-online">온라인 POG</button>
       </span>
     </nav>
-    <div class="me"><span id="me-email"></span><span id="me-level" class="lvl"></span><button class="link" id="btn-pw" title="내 비밀번호 바꾸기">비밀번호 바꾸기</button><button class="link" data-view="accounts" id="btn-accounts">계정 관리</button><button id="logout" class="link">로그아웃</button></div>
+    <div class="me"><span id="me-email"></span><span id="me-level" class="lvl"></span><button class="link" id="btn-pw" title="내 비밀번호 바꾸기">비밀번호 바꾸기</button><button class="link" data-view="accounts" id="btn-accounts">계정 관리</button><span class="seg ui-lang hidden" title="Language"></span><button id="logout" class="link">로그아웃</button></div>
   </header>
 
   <!-- 처음 화면 -->
@@ -461,6 +462,6 @@
 <div class="copyright" aria-label="저작권">© 2026 Karrot in AB</div>
 
 <!-- 파일을 고치면 ?v= 숫자도 바꿀 것 (브라우저가 예전 파일을 쓰지 않도록) -->
-<script type="module" src="app.js?v=20261112d"></script>
+<script type="module" src="app.js?v=20261112f"></script>
 </body>
 </html>
