@@ -1526,7 +1526,7 @@ function resetBase(pogId, fx) {
   if (!(fx.blocks || []).length) { saveFx(pogId, fx.id, 'frame', null, ug); fx.frame = null; }
   rebuildPage(fx.id, null);
 }
-// 크기 조절: 묶음 오른쪽 아래 손잡이를 끌면 왼쪽 위 기준으로 비율대로 커지고 작아짐
+// 크기 조절: 묶음 오른쪽 아래 손잡이를 끌면 왼쪽 위 기준으로 커지고 작아짐
 function resizeBlock(e, block, bid) {
   e.preventDefault(); e.stopPropagation();
   const fx = state.fixtures.get(block._fx), b = fx && groupOf(fx, bid); if (!b) return;
@@ -1535,8 +1535,14 @@ function resizeBlock(e, block, bid) {
   const l = parseFloat(box.style.left) + 4, t = parseFloat(box.style.top) + 4, w0 = Math.max(10, parseFloat(box.style.width) - 8), h0 = Math.max(10, parseFloat(box.style.height) - 8);
   g.style.transformOrigin = `${l}px ${t}px`;
   const sx = e.clientX, sy = e.clientY, lim = v => Math.min(5, Math.max(0.2, v)); let kx = 1, ky = 1;
-  // 가로·세로를 따로 늘리고 줄임 (비율이 바뀜). Shift를 누르고 끌면 비율 그대로
-  const mv = ev => { kx = lim((w0 + (ev.clientX - sx) / sc) / w0); ky = lim((h0 + (ev.clientY - sy) / sc) / h0); if (ev.shiftKey) ky = kx; g.style.transform = `scale(${kx}, ${ky})`; };
+  // 제품이 없는 빈 매대(회색 바탕·집기만)는 가로·세로를 따로 (비율이 바뀜, Shift = 비율 그대로).
+  // 제품이 있는 묶음·매대는 비율 그대로 크기만 (사용자)
+  const free = !g.querySelector('.cv-item');
+  const mv = ev => {
+    kx = (w0 + (ev.clientX - sx) / sc) / w0; ky = (h0 + (ev.clientY - sy) / sc) / h0;
+    if (!free || ev.shiftKey) kx = ky = (kx + ky) / 2;
+    kx = lim(kx); ky = lim(ky); g.style.transform = `scale(${kx}, ${ky})`;
+  };
   const up = () => {
     window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up);
     if (Math.abs(kx - 1) < 0.01 && Math.abs(ky - 1) < 0.01) { g.style.transform = ''; return; }
