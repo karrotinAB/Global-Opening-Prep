@@ -863,3 +863,19 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .page .cover-store::placeholder { color: #000; opacity: 1; }
 .se-input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
 .se-lab { font-size: 12px; color: #666; }
+
+/* 수정 기록: 줄을 누르면 자세히 (사용자: 구글 문서 수정 기록처럼) */
+.log-row { cursor: pointer; }
+.log-row:hover td { background: #fff8ef; }
+.log-row.on td { background: #ffeed6; }
+.log-det td { background: #fffaf3; padding: 10px 14px !important; }
+.ld-box { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.ld-where { font-weight: 700; }
+.ld-what { color: #555; }
+.ld-full { white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
+.ld-full s { color: #999; }
+.ld-sec ul { margin: 4px 0 0; padding-left: 18px; max-height: 180px; overflow: auto; }
+.ld-sec.add b { color: #1f8a4c; } .ld-sec.del b { color: #d61518; } .ld-sec.del li { text-decoration: line-through; color: #888; }
+.mut.small { font-size: 11px; }
+.log-flash { outline: 3px solid #e60012 !important; outline-offset: 2px; animation: log-flash 0.7s ease-in-out 6; }
+@keyframes log-flash { 50% { outline-color: rgba(230, 0, 18, .15); } }

@@ -352,9 +352,27 @@ function logEdit(path, key, info, before, afterFn) {
 }
 function flushLog(key) {
   const b = logBuf.get(key); if (!b) return; logBuf.delete(key); clearTimeout(b.t);
-  const f = b.info.field, from = logShort(f, b.before), to = logShort(f, b.afterFn());
+  const f = b.info.field, after = b.afterFn(), from = logShort(f, b.before), to = logShort(f, after);
   if (from === to) return;
-  addLog(b.path, { ...b.info, from, to });
+  const det = logDetail(f, b.before, after);
+  addLog(b.path, { ...b.info, from, to, ...(det ? { d: det } : {}) });
+}
+// 줄을 눌렀을 때 보여줄 자세한 내용 (사용자: 구글 문서 수정 기록처럼). 추가·빠짐 목록, 긴 글은 전체
+function logDetail(f, a, b) {
+  const cut = (arr, n = 40) => arr.slice(0, n);
+  const lab = o => o?.name ? `${o.name}${o.code ? ` [${o.code}]` : ''}` : o?.kind || o?.text || '';
+  if (['items', 'props', 'notes', 'sp', 'extras'].includes(f) && (Array.isArray(a) || Array.isArray(b))) {
+    const A = Array.isArray(a) ? a : [], B = Array.isArray(b) ? b : [];
+    const key = o => f === 'items' ? `${o.code}|${o.id}` : String(o.id ?? JSON.stringify(o));
+    const ka = new Map(A.map(o => [key(o), o])), kb = new Map(B.map(o => [key(o), o]));
+    const add = B.filter(o => !ka.has(key(o))), del = A.filter(o => !kb.has(key(o)));
+    const chg = B.filter(o => ka.has(key(o)) && JSON.stringify(ka.get(key(o))) !== JSON.stringify(o));
+    const show = o => f === 'notes' ? ({ box: '네모', text: `글상자 '${o.text || ''}'`, arrow: '화살표', img: '사진' }[o.t] || '메모') : f === 'sp' || f === 'extras' ? `${o.name || ''}${o.qty ? ' × ' + o.qty : ''}` : lab(o);
+    return { add: cut(add.map(show)), del: cut(del.map(show)), chg: chg.length, codes: f === 'items' ? cut(add.map(o => o.code), 80) : undefined };
+  }
+  const s = v => v == null ? '' : typeof v === 'object' ? '' : String(v);
+  if ((s(a).length > 110 || s(b).length > 110)) return { full: [s(a).slice(0, 2000), s(b).slice(0, 2000)] };
+  return null;
 }
 function addLog(path, entry) {
   if (!state.user) return;
@@ -364,14 +382,33 @@ window.addEventListener('beforeunload', () => [...logBuf.keys()].forEach(flushLo
 const flushLogs = () => [...logBuf.keys()].forEach(flushLog);
 // 기록 창: rows = 문서 데이터 배열 (최신 먼저)
 const logVal = s => s === '{}' || s === '[]' ? '' : s; // 예전 기록의 빈 값
-function logModal(title, sub, rows, extra) {
+// 줄을 누르면 그 아래에 자세한 내용 (사용자: 구글 문서 수정 기록처럼). opt.where(r) = 어느 페이지인지 글, opt.go(r) = 그 자리로 가서 표시
+function logDetailBox(r, opt) {
+  const d = r.d || {}, kids = [];
+  const list = (t, arr, cls) => arr?.length ? h('div', { class: 'ld-sec ' + cls }, h('b', {}, t), h('ul', {}, ...arr.map(x => h('li', {}, x)))) : null;
+  if (opt.where) { const w = opt.where(r); if (w) kids.push(h('div', { class: 'ld-where' }, '📄 ', w)); }
+  kids.push(h('div', { class: 'ld-what' }, (r.lang ? `[${r.lang}] ` : '') + (r.act || logLabel(r.field)) + (r.what ? ` · ${r.what}` : '')));
+  if (d.full) kids.push(h('div', { class: 'ld-full' }, h('div', {}, h('span', { class: 'mut' }, '전: '), h('s', {}, d.full[0] || '(없음)')), h('div', {}, h('span', { class: 'mut' }, '후: '), h('b', {}, d.full[1] || '(없음)'))));
+  else if (!(r.act && !r.from && !r.to)) kids.push(h('div', { class: 'ld-full' }, h('s', { class: 'mut' }, logVal(r.from) || '(없음)'), ' → ', h('b', {}, logVal(r.to) || '(없음)')));
+  kids.push(list('추가', d.add, 'add'), list('빠짐', d.del, 'del'));
+  if (d.chg) kids.push(h('div', { class: 'mut' }, `위치·내용이 바뀐 것 ${d.chg}개`));
+  if (!d.add && !d.full && ['items', 'props', 'notes'].includes(r.field)) kids.push(h('p', { class: 'mut' }, '예전 기록이라 무엇이 바뀌었는지 자세한 목록은 없어요.'));
+  if (opt.go && opt.go(r, true)) kids.push(h('div', { class: 'se-btns' }, h('button', { class: 'btn small primary', onclick: () => opt.go(r) }, '이 자리로 가서 보기')));
+  return h('div', { class: 'ld-box' }, ...kids.filter(Boolean));
+}
+function logModal(title, sub, rows, extra, opt = {}) {
   rows = rows.filter(r => !LOG_HIDE.has(r.field) || r.act); // 예전 기록 중 내부 값(틀 등)은 안 보임
   rows.sort((x, y) => (y.at?.toMillis?.() || 0) - (x.at?.toMillis?.() || 0));
   modal(h('div', { class: 'log-pop' }, h('h3', {}, title), sub ? h('p', { class: 'mut' }, sub) : null, extra || null,
     rows.length ? h('table', { class: 'gl-table log-table' }, h('thead', {}, h('tr', {}, h('th', {}, '언제'), h('th', {}, '누가'), h('th', {}, '무엇을'), h('th', {}, '바뀐 내용'))),
-      h('tbody', {}, ...rows.map(r => h('tr', {},
+      h('tbody', {}, ...rows.map(r => h('tr', { class: 'log-row', title: '눌러서 자세히 보기', onclick: ev => {
+        const tr0 = ev.currentTarget, nx = tr0.nextElementSibling;
+        if (nx?.classList.contains('log-det')) { nx.remove(); tr0.classList.remove('on'); return; }
+        tr0.closest('tbody').querySelectorAll('.log-det').forEach(x => { x.previousElementSibling?.classList.remove('on'); x.remove(); });
+        tr0.classList.add('on'); tr0.after(h('tr', { class: 'log-det' }, h('td', { colspan: 4 }, logDetailBox(r, opt))));
+      } },
         h('td', { class: 'nowrap' }, fmtTime(r.at)), h('td', {}, nameOf(r.by, r.byName)),
-        h('td', {}, (r.lang ? `[${r.lang}] ` : '') + (r.act || logLabel(r.field)) + (r.what ? ` · ${r.what}` : '')),
+        h('td', {}, opt.page && opt.where ? h('div', { class: 'mut small' }, opt.where(r)) : null, (r.lang ? `[${r.lang}] ` : '') + (r.act || logLabel(r.field)) + (r.what ? ` · ${r.what}` : '')),
         h('td', {}, r.act && !r.from && !r.to ? '' : h('span', {}, h('s', { class: 'mut' }, logVal(r.from) || '(없음)'), ' → ', h('b', {}, logVal(r.to) || '(없음)')))))))
       : h('p', { class: 'mut pad' }, '아직 기록이 없어요.')), { wide: true });
 }
@@ -3466,14 +3503,36 @@ async function readLogs(path, filter) {
   try { const s = await getDocs(filter ? query(collection(db, ...path, 'logs'), where(...filter)) : collection(db, ...path, 'logs')); return s.docs.map(d => d.data()); }
   catch (e) { alert('기록을 읽지 못했어요: ' + (e.code || e.message) + '\n(보안 규칙이 아직 게시되지 않았을 수 있어요)'); return null; }
 }
-async function showPogLogs(pogId, fxId, name) {
-  const pageId = !fxId || fxId === '__cover' ? '__cover' : fxId;
-  const rows = await readLogs(['pogs', pogId], ['fx', '==', pageId]); if (!rows) return;
-  const all = h('button', { class: 'btn small ghost', onclick: async () => { const r = await readLogs(['pogs', pogId]); if (r) logModal('이 POG 전체 수정 기록', `${r.length}개`, r); } }, '이 POG 전체 기록 보기');
-  logModal(`수정 기록 · ${pageId === '__cover' ? '표지·고정 문구' : name}`, '이 페이지에서 POG 만들기·번역으로 고친 것', rows, all);
+// 기록 줄 → 그 페이지로 가서 바뀐 칸·제품을 깜빡여 보여줌 (사용자: 구글 문서 수정 기록처럼). ctx = 'make' | 'tr'
+function pogLogOpt(ctx) {
+  const fxOf = id => ctx === 'tr' ? (tr.fixtures || []).find(f => f.id === id) : state.fixtures.get(id);
+  const blockOf = id => ctx === 'tr' ? document.querySelector(`#tr-pages .page-block[data-id="${CSS.escape(id)}"]`) : id === '__cover' ? state.coverEl : state.pageEls.get(id);
+  return {
+    where: r => r.fx === '__cover' ? '표지·고정 문구' : fxOf(r.fx) ? displayName(fxOf(r.fx)) : '(지금은 없는 페이지)',
+    go: (r, check) => {
+      const id = r.fx || '__cover';
+      if (check) return id === '__cover' || !!fxOf(id);
+      $$('#modal-root .modal-bg').forEach(x => x.remove());
+      if (ctx === 'tr') setTrActive(id); else setEdActive(id);
+      const blk = blockOf(id); if (!blk) return;
+      blk.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const codes = r.d?.codes || [];
+      let marks = codes.length ? [...blk.querySelectorAll('.cv-item')].filter(el => codes.includes(el.dataset.code)) : [];
+      if (!marks.length) marks = [...blk.querySelectorAll(`[data-f="${CSS.escape(r.field || '')}"]`)];
+      if (!marks.length && r.field === 'notes') marks = [...blk.querySelectorAll('.anno .nt')];
+      if (!marks.length) marks = [blk.querySelector('.page') || blk];
+      marks.forEach(el => { el.classList.remove('log-flash'); void el.offsetWidth; el.classList.add('log-flash'); setTimeout(() => el.classList.remove('log-flash'), 4200); });
+    },
+  };
 }
-$('#ed-log').onclick = () => { const p = state.currentPog; if (!p) return; const fx = state.fixtures.get(state.edActive); showPogLogs(p.id, state.edActive, fx ? displayName(fx) : ''); };
-$('#tr-log').onclick = () => { const p = tr.pog; if (!p) return; const fx = (tr.fixtures || []).find(f => f.id === tr.active); showPogLogs(p.id, tr.active, fx ? displayName(fx) : ''); };
+async function showPogLogs(pogId, fxId, name, ctx = 'make') {
+  const pageId = !fxId || fxId === '__cover' ? '__cover' : fxId, opt = pogLogOpt(ctx);
+  const rows = await readLogs(['pogs', pogId], ['fx', '==', pageId]); if (!rows) return;
+  const all = h('button', { class: 'btn small ghost', onclick: async () => { const r = await readLogs(['pogs', pogId]); if (r) logModal('이 POG 전체 수정 기록', `${r.length}개 · 줄을 누르면 자세히 보여요`, r, null, { ...opt, page: true }); } }, '이 POG 전체 기록 보기');
+  logModal(`수정 기록 · ${pageId === '__cover' ? '표지·고정 문구' : name}`, '이 페이지에서 POG 만들기·번역으로 고친 것 · 줄을 누르면 자세히 보여요', rows, all, opt);
+}
+$('#ed-log').onclick = () => { const p = state.currentPog; if (!p) return; const fx = state.fixtures.get(state.edActive); showPogLogs(p.id, state.edActive, fx ? displayName(fx) : '', 'make'); };
+$('#tr-log').onclick = () => { const p = tr.pog; if (!p) return; const fx = (tr.fixtures || []).find(f => f.id === tr.active); showPogLogs(p.id, tr.active, fx ? displayName(fx) : '', 'tr'); };
 $('#dw-log').onclick = async () => {
   const v = curVersion(); if (!dw.id || !v) return;
   const rows0 = await readLogs(['drawings', dw.id]); if (!rows0) return;
@@ -3488,7 +3547,17 @@ $('#dw-log').onclick = async () => {
       area = { x0: c.x + (L - r.left) / r.width * c.w, x1: c.x + (R - r.left) / r.width * c.w, y0: c.y + (T - r.top) / r.height * c.h, y1: c.y + (B - r.top) / r.height * c.h };
   }
   const shown = area ? rows.filter(r => r.x != null && r.x >= area.x0 && r.x <= area.x1 && r.y >= area.y0 && r.y <= area.y1) : rows;
-  logModal(`도면 수정 기록 · ver.${v.no}`, area ? `확대해서 보이는 구역 안에서 생긴 기록만 (${shown.length}개 / 전체 ${rows.length}개). 메모·내보내기처럼 위치가 없는 기록은 100%로 보면 나와요.` : `이 버전 전체 (${rows.length}개). Alt+휠로 확대하면 보이는 구역의 기록만 볼 수 있어요.`, shown);
+  logModal(`도면 수정 기록 · ver.${v.no}`, area ? `확대해서 보이는 구역 안에서 생긴 기록만 (${shown.length}개 / 전체 ${rows.length}개). 메모·내보내기처럼 위치가 없는 기록은 100%로 보면 나와요.` : `이 버전 전체 (${rows.length}개). Alt+휠로 확대하면 보이는 구역의 기록만 볼 수 있어요.` + ' · 줄을 누르면 자세히 보여요', shown, null, {
+    // 매대 기록이면 그 매대로 가서 깜빡임 (사용자)
+    where: r => { const g = r.gid && (v.groups || []).find(x => x.id === r.gid); return g ? `매대 '${g.ko}'` : ''; },
+    go: (r, check) => {
+      const g = r.gid && (v.groups || []).find(x => x.id === r.gid); if (check) return !!g; if (!g) return;
+      $$('#modal-root .modal-bg').forEach(x => x.remove());
+      dw.sel = g.id; renderDwStage(); renderDwSide();
+      const el = document.querySelector(`#dw-stage .dw-box[data-gid="${CSS.escape(g.id)}"]`) || document.querySelector(`#dw-stage [data-gid="${CSS.escape(g.id)}"]`);
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }); el.classList.add('log-flash'); setTimeout(() => el.classList.remove('log-flash'), 4200); }
+    },
+  });
 };
 function verCard(v, { canStar, onOpen }) {
   const fin = dwFinal(dw.doc) === v.id;
