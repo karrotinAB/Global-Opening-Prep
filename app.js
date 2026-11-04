@@ -28,14 +28,14 @@ const CATS = ['카테고리', '매대타입', '고리타입', '선반/파이프'
 const LEVELS = { admin: '관리자', pog: 'POG팀', vmd: 'VMD팀', global: '글로벌사업부', buyer: '바이어', finder: '제품 찾기만', editor: '편집 (예전 레벨)', none: '권한 없음', blocked: '접속 막힘' };
 const ASSIGNABLE = ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder', 'none']; // editor는 예전 레벨: 그대로 동작하지만 새로 고를 수는 없음. none = 이 사이트는 못 씀 (수출서류 사이트만 쓰는 계정)
 // 레벨마다 볼 수 있는 화면(views)과 편집할 수 있는 부분(edit). 진짜 차단은 firestore.rules / storage.rules가 함
-const STAFF_VIEWS = ['home', 'stores', 'barcodes', 'drawing', 'dw-up', 'dw-tr', 'dw-online', 'pog-home', 'pog-make', 'pog-trans', 'pog-online', 'glossary', 'finder'];
+const STAFF_VIEWS = ['home', 'stores', 'barcodes', 'drawing', 'dw-up', 'dw-tr', 'dw-online', 'pog-home', 'pog-make', 'pog-trans', 'pog-online', 'pog-fxd', 'pog-fxdtr', 'pog-fxdon', 'glossary', 'finder'];
 const ALL_EDIT = ['calc', 'stores', 'barcodes', 'drawing', 'drawing-trans', 'pog-make', 'pog-trans', 'glossary'];
 const ACCESS = {
   admin: { views: [...STAFF_VIEWS, 'accounts'], edit: ALL_EDIT },
   pog: { views: STAFF_VIEWS, edit: ['pog-make'] },
   vmd: { views: STAFF_VIEWS, edit: ['drawing'] },
   global: { views: STAFF_VIEWS, edit: ['calc', 'stores', 'barcodes', 'drawing-trans', 'pog-trans', 'glossary'] },
-  buyer: { views: ['home', 'drawing', 'dw-online', 'pog-home', 'pog-online', 'finder'], edit: [] }, // 최종본만 (규칙에서도 막음)
+  buyer: { views: ['home', 'drawing', 'dw-online', 'pog-home', 'pog-online', 'pog-fxdon', 'finder'], edit: [] }, // 온라인 집기도면도 (사용자) // 최종본만 (규칙에서도 막음)
   finder: { views: ['finder'], edit: [] },
   editor: { views: STAFF_VIEWS, edit: ALL_EDIT },
   none: { views: [], edit: [] },    // 관리자가 만들지 않은(레벨 문서가 없는) 계정: 아무것도 못 봄
@@ -68,9 +68,9 @@ function buyerShortcuts() {
     el.classList.toggle('hidden', !canSee(el.dataset[attr]));
   };
   set($('#v-home .tile[data-orig="drawing"]') || $('#v-home .tile[data-go="drawing"]'), 'go', 'dw-online', '온라인 도면');
-  set($('#v-home .tile[data-orig="pog-home"]') || $('#v-home .tile[data-go="pog-home"]'), 'go', 'pog-online', '온라인 POG');
+  // POG는 바로가기 없이 POG 화면으로 → 온라인 POG · 온라인 집기도면 타일만 보임 (사용자)
   set($('#nav button[data-orig="drawing"]') || $('#nav button[data-view="drawing"]'), 'view', 'dw-online', '1. 온라인 도면');
-  set($('#nav button[data-orig="pog-home"]') || $('#nav button[data-view="pog-home"]'), 'view', 'pog-online', '2. 온라인 POG');
+
 }
 const CANVAS_W = 540, CANVAS_H = 930;
 
@@ -97,6 +97,16 @@ function toast(msg, action) { // action = [버튼 글자, 누르면 할 일] (�
   if (action) t.append(h('button', { class: 'toast-act', onclick: () => { t.classList.remove('on'); action[1](); } }, action[0]));
   t.classList.add('on'); t.classList.toggle('act', !!action);
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), action ? 7000 : 2600);
+}
+// 예 / 아니오 창 (닫으면 null)
+function askYesNo(title, text) {
+  return new Promise(res => {
+    let done = false; const fin = v => { if (done) return; done = true; close(); res(v); };
+    const close = modal(h('div', { class: 'yn-pop' }, h('h3', {}, title), text ? h('p', { class: 'mut', style: 'white-space:pre-line' }, text) : null,
+      h('div', { class: 'modal-act' }, h('button', { class: 'btn ghost', onclick: () => fin(false) }, '아니오'), h('button', { class: 'btn primary', onclick: () => fin(true) }, '예'))));
+    const bg = $$('#modal-root .modal-bg').at(-1); bg?.addEventListener('click', e => { if (e.target === bg) fin(null); });
+    bg?.querySelector('.modal-x')?.addEventListener('click', () => fin(null));
+  });
 }
 function modal(content, { wide = false } = {}) {
   const root = $('#modal-root');
@@ -227,7 +237,8 @@ function startListeners() {
   unsubs.push(onSnapshot(pq, s => {
     state.pogs = s.docs.map(d => ({ id: d.id, ...d.data() }))
       .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-    renderPogList(); renderOnlineList(); renderTrList(); scheduleTeamSync(); fillPrefixes(); renderFdStores();
+    renderPogList(); renderOnlineList(); renderTrList(); scheduleTeamSync(); fillPrefixes(); renderFdStores(); renderFxdList();
+    if (fxd.pogId && state.view?.startsWith('pog-fxd')) renderFxd(); // 집기도면: 위치·크기가 바뀌면 다시 그림
   }, e => toast('POG 목록을 읽지 못했어요: ' + e.code)));
   if (state.level === 'admin') unsubs.push(onSnapshot(collection(db, 'roles'), s => {
     state.roles = s.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -255,7 +266,7 @@ function startListeners() {
 function stopListeners() { unsubs.forEach(u => u()); unsubs = []; closePog(); closeViewer(); closeTr(); closeDw(); }
 
 /* ---------- 메뉴 이동 ---------- */
-const secOf = v => v.startsWith('dw-') ? 'dw' : v; // 도면 업로드·번역·온라인 도면은 같은 화면(#v-dw)
+const secOf = v => v.startsWith('dw-') ? 'dw' : v.startsWith('pog-fxd') ? 'fxd' : v; // 도면 업로드·번역·온라인 도면은 같은 화면(#v-dw)
 function go(v) {
   if (!$('#v-' + secOf(v))) v = 'home';
   if (!canSee(v)) v = canSee('home') ? 'home' : canSee('finder') ? 'finder' : 'noaccess';
@@ -266,6 +277,7 @@ function go(v) {
   $('#subnav-dw').classList.toggle('on', v.startsWith('dw-'));
   $$('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + secOf(v)));
   if (v.startsWith('dw-')) setDwMode({ 'dw-up': 'up', 'dw-tr': 'tr', 'dw-online': 'on' }[v]);
+  if (v.startsWith('pog-fxd')) setFxdMode(v);
   window.scrollTo(0, 0);
   if (v === 'finder') { if (!fd.langSet && !isStaff()) fd.lang = contentFor(['English', ...Object.keys(fd.trs || {})]) || 'English'; fdStep(1); renderFdStores(); } // 제품 찾기는 늘 매장 고르기부터 (바이어는 영어부터)
   if (v === 'barcodes') { bcCount(); bcList(true); } else bcReport([], '', 0); // 건너뛴 줄 알림은 이 화면을 나가면 사라짐
@@ -318,7 +330,7 @@ const LOG_F = {
   blocks: '매대 나누기 묶음', base: '원래 매대 위치·크기', info: '집기 정보 칸', mdName: 'POG 사이트 매대', teamName: '카테고리(팀명)',
 };
 // 기록에 안 남기는 칸 (화면에 이름이 없는 내부 값 · 사용자: 기록이 너무 복잡하다고 함)
-const LOG_HIDE = new Set(['frame', 'panels', 'board', 'src', 'mdidx', 'bayNo', 'bayCount', 'itemCount', 'shelfCount', 'pipeCount', 'shelfPipe', 'fixtureCount', 'regrabbedAt', 'updatedAt', 'updatedBy', 'outsideItems', 'kind']);
+const LOG_HIDE = new Set(['order', 'frame', 'panels', 'board', 'src', 'mdidx', 'bayNo', 'bayCount', 'itemCount', 'shelfCount', 'pipeCount', 'shelfPipe', 'fixtureCount', 'regrabbedAt', 'updatedAt', 'updatedBy', 'outsideItems', 'kind']);
 const logLabel = (f = '') => LOG_F[f] || LABELS_KO[f] || (f.startsWith('x_') ? '이외집기 줄' : f.startsWith('n_') ? '글상자' : f);
 function logShort(f, v) {
   if (v === undefined || v === null || v === '') return '';
@@ -368,14 +380,30 @@ function logDetail(f, a, b) {
     const add = B.filter(o => !ka.has(key(o))), del = A.filter(o => !kb.has(key(o)));
     const chg = B.filter(o => ka.has(key(o)) && JSON.stringify(ka.get(key(o))) !== JSON.stringify(o));
     const show = o => f === 'notes' ? ({ box: '네모', text: `글상자 '${o.text || ''}'`, arrow: '화살표', img: '사진' }[o.t] || '메모') : f === 'sp' || f === 'extras' ? `${o.name || ''}${o.qty ? ' × ' + o.qty : ''}` : lab(o);
-    return { add: cut(add.map(show)), del: cut(del.map(show)), chg: chg.length, codes: f === 'items' ? cut(add.map(o => o.code), 80) : undefined };
+    // gone = 지워진 것 자체 (사용자: 기록을 누르면 사라진 것의 잔상을 보여주기)
+    const gone = f === 'items' ? del.slice(0, 120).map(o => ({ code: o.code, name: o.name, img: o.img || '', x: o.x, y: o.y, w: o.w, h: o.h }))
+      : f === 'props' ? del.slice(0, 60).map(o => ({ kind: o.kind || '', x: o.x, y: o.y, w: o.w, h: o.h || 4 }))
+      : f === 'notes' ? del.slice(0, 30).map(o => ({ ...o, path: undefined })) : undefined;
+    return { add: cut(add.map(show)), del: cut(del.map(show)), chg: chg.length, codes: f === 'items' ? cut(add.map(o => o.code), 80) : undefined, ...(gone?.length ? { gone } : {}) };
   }
   const s = v => v == null ? '' : typeof v === 'object' ? '' : String(v);
   if ((s(a).length > 110 || s(b).length > 110)) return { full: [s(a).slice(0, 2000), s(b).slice(0, 2000)] };
   return null;
 }
+// 지운 페이지의 잔상 (제품 사진·위치, 선반, 메모 글)
+const ghostPage = f => ({ name: displayName(f), kind: f.kind || '', team: catName(f.teamName || ''), mdName: f.mdName || '',
+  items: (f.items || []).slice(0, 250).map(o => ({ code: o.code, name: o.name, img: o.img || '', x: o.x, y: o.y, w: o.w, h: o.h })),
+  props: (f.props || []).slice(0, 80).map(o => ({ kind: o.kind || '', x: o.x, y: o.y, w: o.w, h: o.h || 4, color: o.color || '' })),
+  notes: (f.notes || []).filter(n => n.t === 'text' && n.text).slice(0, 20).map(n => n.text) });
+// 잔상 그림: 지워진 제품·선반을 흐리게 + 빨간 점선 (기록 창 안)
+function ghostView(items, props, label) {
+  const fx = { id: 'ghost', items: items || [], props: props || [], panels: [] };
+  const wrap = h('div', { class: 'ld-ghost' }, buildCanvas(fx, 300, 200, null, { lazy: true }), h('span', { class: 'ld-ghost-tag' }, label));
+  return wrap;
+}
 function addLog(path, entry) {
   if (!state.user) return;
+  if (entry.d) entry = { ...entry, d: JSON.parse(JSON.stringify(entry.d)) }; // 안쪽 undefined 빼기 (Firestore가 못 받음)
   addDoc(collection(db, ...path, 'logs'), { ...Object.fromEntries(Object.entries(entry).filter(([, v]) => v !== undefined)), by: me(), byName: myName(), at: serverTimestamp() }).catch(e => console.warn('수정 기록을 남기지 못했어요', e.code || e));
 }
 window.addEventListener('beforeunload', () => [...logBuf.keys()].forEach(flushLog));
@@ -391,6 +419,13 @@ function logDetailBox(r, opt) {
   if (d.full) kids.push(h('div', { class: 'ld-full' }, h('div', {}, h('span', { class: 'mut' }, '전: '), h('s', {}, d.full[0] || '(없음)')), h('div', {}, h('span', { class: 'mut' }, '후: '), h('b', {}, d.full[1] || '(없음)'))));
   else if (!(r.act && !r.from && !r.to)) kids.push(h('div', { class: 'ld-full' }, h('s', { class: 'mut' }, logVal(r.from) || '(없음)'), ' → ', h('b', {}, logVal(r.to) || '(없음)')));
   kids.push(list('추가', d.add, 'add'), list('빠짐', d.del, 'del'));
+  // 잔상 (사용자): 지워진 제품·선반·메모·페이지를 흐리게 보여줌
+  if (d.page) kids.push(h('div', { class: 'ld-sec del' }, h('b', {}, `지워진 페이지 '${d.page.name}'`), d.page.mdName ? h('div', { class: 'mut' }, `POG 원본: ${d.page.mdName}${d.page.team ? ' · ' + d.page.team : ''} · 제품 ${d.page.items.length}개`) : null,
+    d.page.items.length || d.page.props.length ? ghostView(d.page.items, d.page.props, '삭제됨') : null,
+    d.page.notes?.length ? h('div', { class: 'mut' }, '글상자: ' + d.page.notes.join(' / ')) : null,
+    h('div', { class: 'mut' }, '되살리려면 POG 만들기에서 Ctrl+Z (그 자리에서 바로) 또는 \'↻ 다시 가져오기 → 추가하기\'')));
+  if (d.gone?.length && (r.field === 'items' || r.field === 'props')) kids.push(ghostView(r.field === 'items' ? d.gone : [], r.field === 'props' ? d.gone : [], `지워진 ${r.field === 'items' ? '제품' : '선반·파이프'} ${d.gone.length}개`));
+  if (d.gone?.length && r.field === 'notes') kids.push(h('div', { class: 'ld-ghost-notes' }, ...d.gone.map(n => h('span', { class: 'ld-gn' }, n.t === 'text' ? `글상자 '${n.text || ''}'` : n.t === 'img' ? '사진' : n.t === 'arrow' ? '화살표' : '네모'))));
   if (d.chg) kids.push(h('div', { class: 'mut' }, `위치·내용이 바뀐 것 ${d.chg}개`));
   if (!d.add && !d.full && ['items', 'props', 'notes'].includes(r.field)) kids.push(h('p', { class: 'mut' }, '예전 기록이라 무엇이 바뀌었는지 자세한 목록은 없어요.'));
   if (opt.go && opt.go(r, true)) kids.push(h('div', { class: 'se-btns' }, h('button', { class: 'btn small primary', onclick: () => opt.go(r) }, '이 자리로 가서 보기')));
@@ -440,7 +475,7 @@ function logTrack(pogId, docKey, what, raw) {
   const fx = docKey === '__pog' ? '__cover' : docKey;
   if (what === 'new') return addLog(['pogs', pogId], { fx, area: 'make', act: String(docKey).startsWith('free_') ? '빈 페이지 추가' : '매대 페이지 추가' });
   // 지운 페이지는 그 페이지 기록을 볼 수 없으니 표지 기록에 남김 (어느 페이지를 지웠는지 · 사용자)
-  if (what === '*') return addLog(['pogs', pogId], { fx: '__cover', area: 'make', act: '페이지 삭제', what: raw ? displayName(raw) : '' });
+  if (what === '*') return addLog(['pogs', pogId], { fx: '__cover', area: 'make', act: '페이지 삭제', what: raw ? displayName(raw) : '', ...(raw ? { d: { page: ghostPage(raw) } } : {}) });
   const cur = () => docKey === '__pog' ? state.pogRaw : state.fxRaw.get(docKey);
   for (const f of what) if (!LOG_HIDE.has(f)) // 내부 값(틀·페이지 수 등)은 기록 안 함 ('73'·{"x0":…}처럼 보여 헷갈림 · 사용자)
     logEdit(['pogs', pogId], `p|${pogId}|${docKey}|${f}`, { fx, area: 'make', field: f }, raw?.[f], () => cur()?.[f]);
@@ -545,7 +580,7 @@ function buildCanvas(fx, W, H, onItem, { lazy = false, blockUI = false } = {}) {
   const pad = 8, bw = x1 - x0 + pad * 2, bh = y1 - y0 + pad * 2;
   const sc = Math.min(W / bw, H / bh);
   const inner = h('div', { class: 'cv-in', style: `width:${bw}px;height:${bh}px;left:${(W - bw * sc) / 2}px;transform:scale(${sc})` });
-  inner._sc = sc;
+  inner._sc = sc; inner._x0 = x0; inner._y0 = y0; inner._pad = pad;
   // 매대 나누기로 만든 묶음이 있으면: 묶음마다·나머지마다 그 제품·집기를 감싸는 곳만 회색 바탕 (사용자). 묶음은 따로 한 층(.cv-bgrp)이라 끌어서 옮길 수 있음
   const grpOf = new Map(); // 묶음 id → 층
   const layer = o => o._b ? grpOf.get(o._b) : inner;
@@ -953,7 +988,7 @@ function renderSp(block) {
       if (sel.value === CUSTOM) {
         const v = (prompt('선반/파이프 이름을 직접 써 주세요 (예: 걸이봉, 아크릴 선반)', '') || '').trim();
         if (!v) { sel.value = x.name || ''; return; }
-        x.name = v; save(); renderSp(block); return;
+        x.name = v; save(); renderSp(block); addSpGlossary(v); return;
       }
       x.name = sel.value; save();
     });
@@ -963,6 +998,16 @@ function renderSp(block) {
   }), ...(ed ? [h('button', { class: 'ex-add no-print', onclick: () => { list.push({ id: uid(), name: '', qty: '' }); save(); renderSp(block); } }, '+ 추가')] : []));
   roFill(block);
 }
+// POG팀이 새로 넣은 선반/파이프 이름은 사전 '선반/파이프'에도 일단 넣어 둠 (사용자). 번역은 글사부가 나중에 채움
+async function addSpGlossary(name) {
+  const n = norm(name); if (!n || SP_DEFAULT.some(x => norm(x) === n) || glossaryOf('선반/파이프').some(g => norm(g.ko) === n)) return;
+  const id = 'sp_' + name.replace(/[\/.#$\[\]]/g, '_');
+  try {
+    await setDoc(doc(db, 'glossary', id), { cat: '선반/파이프', ko: name, auto: true, createdAt: serverTimestamp(), createdBy: me() }, { merge: true });
+    glLog({ id, cat: '선반/파이프', ko: name }, 'auto', []);
+    toast(`'${name}'을 용어 사전 '선반/파이프'에도 넣었어요`);
+  } catch (e) { console.warn('사전에 넣지 못했어요 (보안 규칙)', e.code || e); }
+}
 function renderExtras(block) {
   const box = block.querySelector('.page .ex-list'); if (!box) return;
   const ed = block._editable, list = block._extras;
@@ -971,9 +1016,9 @@ function renderExtras(block) {
     const name = h('input', { class: 'f ex-name', list: 'dl-extras', placeholder: '집기 고르기', disabled: !ed });
     const qty = h('input', { class: 'f ex-qty', type: 'number', min: 0, placeholder: '0', disabled: !ed });
     name.value = x.name || ''; qty.value = x.qty ?? '';
-    if (x.color) name.style.color = x.color;
+    if (x.color) { name.style.color = x.color; qty.style.color = x.color; } // 수량에도 같은 색 (사용자)
     const col = ed ? h('input', { type: 'color', class: 'ex-color no-print', title: '글자 색', value: x.color || '#000000' }) : null;
-    col?.addEventListener('input', () => { x.color = col.value; name.style.color = col.value; save(); });
+    col?.addEventListener('input', () => { x.color = col.value; name.style.color = col.value; qty.style.color = col.value; save(); });
     name.addEventListener('input', () => { x.name = name.value; save(); });
     qty.addEventListener('input', () => { x.qty = qty.value === '' ? '' : Number(qty.value); save(); });
     return h('div', { class: 'ex-row' }, col, name, h('span', { class: 'x' }, '×'), qty,
@@ -1013,7 +1058,7 @@ function buildFreePage(fx, pog, { editable, field, L = LABELS_KO, box, onItem })
   // 빈 페이지 (사용자): fx.info = 오른쪽 집기 정보 칸, 다른 페이지에서 잘라 붙인 매대(items·props)가 있으면 그림
   const hasCv = (fx.items || []).length || (fx.props || []).length;
   const body = hasCv || fx.info
-    ? h('div', { class: 'pb' + (hasCv ? '' : ' free-body') },
+    ? h('div', { class: 'pb' },
       hasCv ? h('div', { class: 'pcanvas' }, buildCanvas(fx, fx.info ? CANVAS_W : CANVAS_W + 220, CANVAS_H, onItem, { blockUI: editable })) : h('div', { class: 'pcanvas free-blank' }),
       fx.info ? infoSide(box, field, L, editable) : null)
     : h('div', { class: 'pb free-body' });
@@ -1042,9 +1087,12 @@ async function addFreePage(pogId, afterOrder) {
   } catch (e) { toast('추가 실패: ' + e.message); }
 }
 // 페이지 순서 바꾸기 (화면에 보이는 페이지 기준. 붙인 매대는 붙은 페이지를 따라감). 바뀐 순서대로 order를 1, 2, 3… 다시 매김
-async function reorderPages(pogId, ids) {
-  const changed = ids.map((id, i) => [id, i + 1]).filter(([id, o]) => state.fixtures.get(id)?.order !== o), g = undoGroup();
+// opt = { g: 되돌리기 묶음, act: 기록 글, fx: 기록할 페이지, what } — 순서 기록은 줄마다가 아니라 한 줄로 (사용자)
+async function reorderPages(pogId, ids, opt = {}) {
+  const changed = ids.map((id, i) => [id, i + 1]).filter(([id, o]) => state.fixtures.get(id)?.order !== o), g = opt.g || undoGroup();
+  if (!changed.length) return;
   changed.forEach(([id]) => track(pogId, id, ['order'], g));
+  addLog(['pogs', pogId], { fx: opt.fx || '__cover', area: 'make', act: opt.act || '페이지 순서 바꿈', what: opt.what || `${changed.length}장` });
   try {
     for (let i = 0; i < changed.length; i += 400) {
       const b = writeBatch(db);
@@ -1055,12 +1103,13 @@ async function reorderPages(pogId, ids) {
 }
 const shownIds = () => [...(state.edComposed?.keys() || [])];
 // fxIds = 페이지 하나 또는 여러 장 (썸네일에서 Shift·Ctrl로 고른 것). 여러 장이면 서로 순서는 그대로 두고 함께 움직임
-function movePage(pogId, fxIds, dir) {
+function movePage(pogId, fxIds, dir, opt = {}) {
   const ids = shownIds(), mv = new Set([fxIds].flat());
   const idx = ids.map((x, i) => mv.has(x) ? i : -1).filter(i => i >= 0);
   if (!idx.length || (dir < 0 ? idx[0] === 0 : idx.at(-1) === ids.length - 1)) return;
   for (const i of dir < 0 ? idx : idx.reverse()) [ids[i], ids[i + dir]] = [ids[i + dir], ids[i]];
-  return reorderPages(pogId, ids);
+  const names = [...mv].map(id => state.fixtures.get(id)).filter(Boolean).map(displayName);
+  return reorderPages(pogId, ids, { act: dir < 0 ? '페이지 앞으로' : '페이지 뒤로', fx: mv.size === 1 ? [...mv][0] : '__cover', what: names.slice(0, 3).join(', ') + (names.length > 3 ? ` 외 ${names.length - 3}장` : ''), ...opt });
 }
 function placePage(pogId, fxIds, beforeId) { // beforeId 앞으로 (null이면 맨 뒤)
   const all = shownIds(), mv = new Set([fxIds].flat()), moving = all.filter(x => mv.has(x));
@@ -1068,7 +1117,8 @@ function placePage(pogId, fxIds, beforeId) { // beforeId 앞으로 (null이면 �
   const ids = all.filter(x => !mv.has(x)), k = beforeId ? ids.indexOf(beforeId) : ids.length;
   ids.splice(k < 0 ? ids.length : k, 0, ...moving);
   if (ids.every((x, i) => x === all[i])) return;
-  return reorderPages(pogId, ids);
+  const names = moving.map(id => state.fixtures.get(id)).filter(Boolean).map(displayName);
+  return reorderPages(pogId, ids, { act: '페이지 옮김', fx: moving.length === 1 ? moving[0] : '__cover', what: names.slice(0, 3).join(', ') + (names.length > 3 ? ` 외 ${names.length - 3}장` : '') });
 }
 // 페이지 삭제 (매대 페이지·추가 페이지 모두). 붙여 둔 매대가 있으면 떼어서 따로 페이지로 남김
 // 제품이 하나도 없는 매대 페이지 (추가 페이지·붙여진 매대 제외, 붙인 페이지는 붙은 매대까지 합쳐서 봄)
@@ -1537,7 +1587,7 @@ function splitSection(pog, fx, block) {
   }
   return sec('매대 나누기', h('p', { class: 'se-help' }, '제품 일부를 떼어 따로 묶음으로 만들어요. 묶음은 회색 바탕을 따로 칠하고, ✥를 끌어 옮기거나 Ctrl+X → 다른 페이지에서 Ctrl+V로 옮길 수 있어요.'),
     h('div', { class: 'se-btns' }, btn('✂ 매대 나누기', () => { state.split = { id: fx.id, items: new Set(), props: new Set() }; block._selBlock = null; paintSplit(block); renderSidePanel(); }),
-      !bl.length && !fx.base ? btn('↔ 매대 위치·크기 조정', () => saveGroup(pog.id, fx, BASE, {}), 'ghost') : null),
+      btn('↔ 매대 위치·크기 조정', () => { if (!bl.length && !fx.base) saveGroup(pog.id, fx, BASE, {}); else { block._selBlock = BASE; paintBlockSel(block); renderSidePanel(); } }, 'ghost')), // 늘 보임 (사용자)
     bl.length || fx.base ? h('p', { class: 'se-help' }, "그림의 '✥' 표시를 끌면 옮겨지고, 오른쪽 아래 작은 네모를 끌면 크기가 바뀌어요 (제품이 있으면 비율 그대로, 제품 없는 빈 매대만 가로·세로 따로). 누르면 골라져요.") : null,
     selBase ? h('div', { class: 'se-kid' }, h('span', {}, '선택: ', h('b', {}, '원래 매대'), ` · 크기 ${pct(fx.base)}`)) : null,
     selBase ? h('div', { class: 'se-btns' }, btn('제자리로', () => saveGroup(pog.id, fx, BASE, { dx: 0, dy: 0 }), 'ghost'), btn('원래 크기', () => saveGroup(pog.id, fx, BASE, { s: 1, sx: 1, sy: 1 }), 'ghost'),
@@ -1713,8 +1763,24 @@ document.addEventListener('keydown', e => {
 // 오른쪽 패널 ▲▼: 옮긴 페이지를 계속 따라감 (화면이 그 페이지로 같이 움직이고, 패널도 그 페이지 그대로).
 // 예전엔 화면은 제자리라 그 자리에 새로 온 페이지가 '지금 페이지'가 돼서, 다시 누르면 다른 페이지가 움직였음 (사용자)
 async function moveFollow(pogId, id, dir) {
+  // 옆 페이지와 도면 연결(매대명·도면 매대)도 바꿀지 (사용자): 예 → 순서를 바꾸면서 도면 자리는 그대로 (예: 블박1 자리 페이지 ↔ 블박2 자리 페이지)
+  const ids = shownIds(), i = ids.indexOf(id), nb = ids[i + dir] && state.fixtures.get(ids[i + dir]), me0 = state.fixtures.get(id);
+  let swap = false; const a0 = me0 ? displayName(me0) : '', b0 = nb ? displayName(nb) : '';
+  if (nb && me0 && (nb.drawingRef || me0.drawingRef)) {
+    swap = await askYesNo(`${dir < 0 ? '앞' : '뒤'} 페이지의 도면 위치와 바꾸시겠습니까?`,
+      `'${displayName(me0)}' ↔ '${displayName(nb)}'\n예: 순서를 바꾸면서 매대명·도면 연결도 서로 바꿔요 (도면 자리 순서는 그대로).\n아니오: 순서만 바꿔요.`);
+    if (swap === null) return;
+  }
   state.edPin = { id, t: Date.now() + 2500 };
-  await movePage(pogId, id, dir);
+  const g = undoGroup();
+  if (swap) {
+    const a = { ref: me0.drawingRef || null, name: me0.headerName || '' }, b = { ref: nb.drawingRef || null, name: nb.headerName || '' };
+    saveFx(pogId, me0.id, 'drawingRef', b.ref, g); saveFx(pogId, me0.id, 'headerName', b.name, g);
+    saveFx(pogId, nb.id, 'drawingRef', a.ref, g); saveFx(pogId, nb.id, 'headerName', a.name, g);
+    me0.drawingRef = b.ref; me0.headerName = b.name; nb.drawingRef = a.ref; nb.headerName = a.name;
+    [[me0, b.name], [nb, a.name]].forEach(([f, n]) => { const inp = state.pageEls.get(f.id)?.querySelector('[data-f="headerName"]'); if (inp) inp.value = n; });
+  }
+  await movePage(pogId, id, dir, swap ? { g, act: `페이지 ${dir < 0 ? '앞으로' : '뒤로'} + 도면 위치 바꿈`, what: `${a0} ↔ ${b0}` } : { g });
   const go = () => { state.pageEls.get(id)?.scrollIntoView({ block: 'start' }); state.edActive = null; setEdActive(id); };
   setTimeout(go, 250); setTimeout(go, 800);
 }
@@ -1809,9 +1875,8 @@ function renderSidePanel() {
     if (ed && !free) {
       const list = [...state.edComposed.values()], i = list.findIndex(f => f.id === id), next = list.slice(i + 1).find(f => f.kind !== 'free');
       const kids = (fx.merged || []).map(k => state.fixtures.get(k)).filter(Boolean);
-      nodes.push(sec('매대 붙이기', h('p', { class: 'se-help' }, '얇은 매대 두 개를 한 페이지에 나란히 넣어요. 붙인 매대 페이지는 따로 안 나와요.'),
-        ...kids.map(k => h('div', { class: 'se-kid' }, h('span', {}, '붙인 매대: ', h('b', {}, displayName(k))), btn('↶ 붙이기 취소', () => unmerge(pog.id, fx, k.id), 'ghost'))),
-        next ? h('div', { class: 'se-btns' }, btn(`⇣ 다음 매대 '${displayName(next)}' 붙이기`, () => mergeNext(pog.id, fx, state.fixtures.get(next.id)))) : null));
+      // '다음 매대 붙이기'는 없앰 (사용자). 예전에 붙인 매대만 떼어낼 수 있게 남김
+      if (kids.length) nodes.push(sec('붙인 매대', ...kids.map(k => h('div', { class: 'se-kid' }, h('span', {}, '붙인 매대: ', h('b', {}, displayName(k))), btn('↶ 떼어내기', () => unmerge(pog.id, fx, k.id), 'ghost')))));
       nodes.push(splitSection(pog, fx, block));
     }
     if (ed && !fx.merged?.length && state.clip && state.clip.pogId === pog.id && state.clip.from !== fx.id)
@@ -3548,6 +3613,21 @@ function pogLogOpt(ctx) {
       if (!marks.length && r.field === 'notes') marks = [...blk.querySelectorAll('.anno .nt')];
       if (!marks.length) marks = [blk.querySelector('.page') || blk];
       marks.forEach(el => { el.classList.remove('log-flash'); void el.offsetWidth; el.classList.add('log-flash'); setTimeout(() => el.classList.remove('log-flash'), 4200); });
+      // 지워진 것의 잔상을 원래 자리에 (사용자). 다시 그리거나 10초 뒤 사라짐
+      const gone = r.d?.gone || [], inner = blk.querySelector('.pcanvas .cv-in'), anno = blk.querySelector('.anno');
+      const ghosts = [];
+      if (gone.length && inner && (r.field === 'items' || r.field === 'props')) gone.forEach(o => {
+        const el = h('div', { class: 'cv-ghost' + (r.field === 'props' ? ' prop' : ''), title: `지워짐: ${o.name || o.kind || ''}`,
+          style: `left:${o.x - inner._x0 + inner._pad}px;top:${o.y - inner._y0 + inner._pad}px;width:${o.w}px;height:${Math.max(o.h || 0, 4)}px` },
+          r.field === 'items' && o.img ? prodImg(o.img, o.name, { fallback: false }) : null);
+        inner.append(el); ghosts.push(el);
+      });
+      if (gone.length && anno && r.field === 'notes') gone.forEach(n => {
+        const x = n.t === 'arrow' ? Math.min(n.x1, n.x2) : n.x, y = n.t === 'arrow' ? Math.min(n.y1, n.y2) : n.y, w = n.t === 'arrow' ? Math.abs(n.x2 - n.x1) : n.w, hh = n.t === 'arrow' ? Math.abs(n.y2 - n.y1) : n.h;
+        const el = h('div', { class: 'nt-ghost', style: `left:${x}px;top:${y}px;width:${Math.max(w, 20)}px;height:${Math.max(hh, 16)}px` }, n.t === 'text' ? n.text || '' : n.t === 'img' ? '사진' : '');
+        anno.append(el); ghosts.push(el);
+      });
+      if (ghosts.length) { toast(`빨간 점선 = 지워진 것 (${ghosts.length}개) · 10초 뒤 사라져요`); setTimeout(() => ghosts.forEach(g => g.remove()), 10000); }
     },
   };
 }
@@ -3557,6 +3637,7 @@ async function showPogLogs(pogId, fxId, name, ctx = 'make') {
   const all = h('button', { class: 'btn small ghost', onclick: async () => { const r = await readLogs(['pogs', pogId]); if (r) logModal('이 POG 전체 수정 기록', `${r.length}개 · 줄을 누르면 자세히 보여요`, r, null, { ...opt, page: true }); } }, '이 POG 전체 기록 보기');
   logModal(`수정 기록 · ${pageId === '__cover' ? '표지·고정 문구' : name}`, '이 페이지에서 POG 만들기·번역으로 고친 것 · 줄을 누르면 자세히 보여요', rows, all, opt);
 }
+$('#ed-top').onclick = () => { const c = state.coverEl; if (!c) return; state.edPin = { id: '__cover', t: Date.now() + 1200 }; c.scrollIntoView({ block: 'start' }); state.edActive = null; setEdActive('__cover'); }; // 표지로 (사용자)
 $('#ed-log').onclick = () => { const p = state.currentPog; if (!p) return; const fx = state.fixtures.get(state.edActive); showPogLogs(p.id, state.edActive, fx ? displayName(fx) : '', 'make'); };
 $('#tr-log').onclick = () => { const p = tr.pog; if (!p) return; const fx = (tr.fixtures || []).find(f => f.id === tr.active); showPogLogs(p.id, tr.active, fx ? displayName(fx) : '', 'tr'); };
 $('#dw-log').onclick = async () => {
@@ -3724,8 +3805,16 @@ async function openHeaderPicker(pog, fx, after) {
   const v = vers.find(x => x.id === dwFinal(d)) || vers.at(-1);
   if (!v) { modal(h('div', {}, h('h3', {}, '아직 내보낸 도면이 없어요'), h('p', {}, `'${storeName(st0)}' 매장 도면을 VMD실이 올리고 내보내면 고를 수 있어요.`))); return; }
   const used = new Set([...state.fixtures.values()].filter(x => x.id !== fx.id && x.drawingRef?.vId === v.id).map(x => x.drawingRef.gid));
+  // 지금 어느 페이지의 매대를 고르는지 (사용자): 페이지 이름·POG 원래 이름·카테고리·작은 그림
+  const cfx = state.edComposed?.get(fx.id) || fx;
+  const cur = h('div', { class: 'hp-cur' },
+    (cfx.items || []).length ? h('div', { class: 'hp-cv' }, buildCanvas(cfx, 150, 110, null, { lazy: true })) : null,
+    h('div', {}, h('div', { class: 'mut' }, '지금 고르는 페이지'), h('b', {}, displayName(fx)),
+      h('div', { class: 'mut' }, `POG 원본: ${origName(fx)}${fx.teamName ? ' · ' + catName(fx.teamName) : ''} · 제품 ${(cfx.items || []).length}개`),
+      fx.drawingRef ? h('div', { class: 'mut' }, `지금 연결: ${fx.drawingRef.ko} (파란 칸)`) : h('div', { class: 'mut' }, '아직 연결 안 됨')));
   const close = modal(h('div', {},
     h('h3', {}, `도면에서 매대 고르기 · ${storeName(st0)} ver.${v.no}${dwFinal(d) === v.id ? ' ★최종본' : ''}`),
+    cur,
     h('p', { class: 'mut' }, '매대를 누르면 헤더에 들어가요. 진한 초록 = 다른 페이지에서 이미 고른 매대. 넣은 뒤에 뒤에 숫자(1, 2…)를 붙여도 돼요.'),
     drawingView(v, 'ko', { used, selId: fx.drawingRef?.vId === v.id ? fx.drawingRef.gid : null, onPick: g => {
       const ref = { storeId: st0.id, vId: v.id, vNo: v.no, gid: g.id, ko: g.ko };
@@ -3796,7 +3885,7 @@ async function openPogDwLink(pog) {
     const has = ids.filter(id => num(id)), rest = ids.filter(id => !num(id));
     if (!has.length) { alert('도면 번호가 매겨진 매대와 연결된 페이지가 없어요.'); return; }
     if (!confirm(`도면 번호 순서로 페이지를 바꿀까요?\n번호가 있는 페이지 ${has.length}장을 1번부터 앞에 놓고, 번호가 없는 ${rest.length}장은 지금 순서대로 뒤에 둬요. (Ctrl+Z로 되돌릴 수 있어요)`)) return;
-    await reorderPages(pog.id, [...has.sort((x, y) => num(x) - num(y)), ...rest]);
+    await reorderPages(pog.id, [...has.sort((x, y) => num(x) - num(y)), ...rest], { act: '도면 순서대로 페이지 순서 바꿈' });
     toast('도면 번호 순서로 페이지를 바꿨어요'); setTimeout(paint, 700);
   } }, '도면순서로 POG 바꾸기');
   // 자동 추측 연결 (사용자): 연결 안 된 페이지마다 이름(헤더·POG 원래 이름)이 가장 비슷한 도면 매대를 골라 미리 보여주고, 체크한 것만 연결
@@ -4858,6 +4947,12 @@ $('#acc-add').addEventListener('submit', async e => {
 const UI_LANGS = { ko: '한국어', en: 'English', ja: '日本語', es: 'Español', ru: 'Русский' };
 // [한국어, English, 日本語, Español, Русский]
 const I18N_SRC = [
+  ['온라인 집기도면', 'Online Fixture Plan', 'オンライン什器図面', 'Plano de mobiliario', 'План оборудования'],
+  ['집기도면', 'Fixture Plan', '什器図面', 'Plano de mobiliario', 'План оборудования'],
+  ['도면에 집기 정보', 'Fixtures on floor plan', '図面に什器情報', 'Mobiliario en el plano', 'Оборудование на плане'],
+  ['왼쪽에서 POG를 고르세요.', 'Choose a POG on the left.', '左でPOGを選んでください。', 'Elija un POG a la izquierda.', 'Выберите POG слева.'],
+  ['불러오는 중…', 'Loading…', '読み込み中…', 'Cargando…', 'Загрузка…'],
+  ['최종', 'Final', '最終', 'Final', 'Финал'],
   ['홈', 'Home', 'ホーム', 'Inicio', 'Главная'],
   ['처음 화면', 'Home', 'ホーム', 'Inicio', 'Главная'],
   ['1. 도면', '1. Floor Plan', '1. 図面', '1. Plano', '1. План'],
@@ -5053,3 +5148,202 @@ function initUiLang() {
 }
 paintUiLang();
 if (UI.lang !== 'ko') { document.documentElement.lang = UI.lang; i18nTree(document.body); }
+
+/* ---------- 집기도면 (사용자): 도면의 매대명 아래에 그 POG 페이지의 선반/파이프·고리·이외집기와 수량을 적은 도면 ----------
+   보기 3가지 (POG 메뉴 아래): pog-fxd = 집기도면 편집 (POG팀: 글 위치를 끌어 옮김) / pog-fxdtr = 집기도면 번역 (글사부) / pog-fxdon = 온라인 집기도면 (바이어도)
+   도면 = 페이지들의 도면 연결(drawingRef)에서 가장 많이 쓴 버전. 다른 버전에 연결된 페이지는 같은 한글 매대명으로 찾음
+   저장: 글 위치 = pogs/{id}.fxdPos { fxId: {x, y} } (SVG 단위, 글 상자 위쪽 가운데) · 글 크기 = pogs/{id}.fxdScale
+         번역 = pogs/{id}/translations/{언어}.fxd { 한국어: 번역 } (글사부가 고친 것) / .fxdOut (온라인에 반영한 최종, 바이어는 이것만 씀) */
+const fxd = { mode: 'make', pogId: null, unsub: null, unsubTr: null, fixtures: [], v: null, storeId: null, lang: '한국어', drTr: {}, trDoc: {}, langs: [], sel: null, loadKey: null };
+const FXD_MODES = { 'pog-fxd': 'make', 'pog-fxdtr': 'tr', 'pog-fxdon': 'on' };
+const FXD_CATS = { sp: ['선반/파이프', '집기'], hook: ['고리타입'], ex: ['집기'] };
+const fxdEdit = () => fxd.mode === 'make' && canEdit('pog-make');
+function fxdLines(fx) {
+  const out = [];
+  spRows(fx).filter(r => (r.name || '').trim()).forEach(r => out.push({ k: 'sp', name: r.name.trim(), qty: r.qty }));
+  if ((fx.hookType || '').trim()) out.push({ k: 'hook', name: fx.hookType.trim(), qty: fx.hookCount });
+  (fx.extras || []).filter(r => (r.name || '').trim()).forEach(r => out.push({ k: 'ex', name: r.name.trim(), qty: r.qty, color: r.color }));
+  return out;
+}
+// 이 언어로 쓸 글: 온라인 = 반영한 것(fxdOut), 번역 화면 = 고친 것 > 사전 자동
+function fxdWord(name, k) {
+  const lang = fxd.lang; if (lang === '한국어') return { text: name, need: false };
+  const out = fxd.trDoc?.fxdOut?.[name], mine = fxd.trDoc?.fxd?.[name];
+  if (fxd.mode === 'on') return { text: out || mine || (isStaff() ? autoTranslate(name, lang, FXD_CATS[k]).text : '') || name, need: false };
+  if (mine) return { text: mine, need: false, saved: true };
+  const base = lang === 'English' && { '선반': 'Shelf', '파이프': 'Pipe' }[name]; if (base && !glossaryOf('선반/파이프').some(g => g.ko === name && trOf(g, lang))) return { text: base, need: false, auto: true }; // 기본 선반·파이프
+  const a = autoTranslate(name, lang, FXD_CATS[k]);
+  return { text: a.missing.length ? name : a.text, need: !!a.missing.length, auto: !a.missing.length };
+}
+function renderFxdList() {
+  const box = $('#fxd-list'); if (!box) return;
+  const q = ($('#fxd-search')?.value || '').trim().toLowerCase();
+  const rows = state.pogs.filter(p => (fxd.mode === 'make' || p.status === 'final') && (!q || [p.storeName, p.branchName, p.storeCode].join(' ').toLowerCase().includes(q)));
+  box.replaceChildren(...(rows.length ? rows.map(p => h('div', { class: 'pitem' + (p.id === fxd.pogId ? ' on' : ''), onclick: () => openFxd(p.id) },
+    h('div', { class: 'pi-top' }, h('b', {}, p.branchName || p.storeName || '(이름 없음)'), p.status === 'final' ? h('span', { class: 'badge final' }, '최종') : h('span', { class: 'badge' }, '작성 중')),
+    h('div', { class: 'pi-sub' }, `${p.storeCode || ''} · 매대 ${p.fixtureCount || 0}`))) : [h('p', { class: 'mut pad' }, fxd.mode === 'make' ? 'POG가 없어요.' : '최종 POG가 없어요.')]));
+}
+function setFxdMode(v) {
+  fxd.mode = FXD_MODES[v] || 'make';
+  $('#fxd-mode-title').textContent = { make: '집기도면 편집', tr: '집기도면 번역', on: '온라인 집기도면' }[fxd.mode];
+  $('#fxd-empty').textContent = { make: '왼쪽에서 POG를 고르세요. 도면 매대명 아래에 그 페이지의 선반/파이프·고리·이외집기가 나오고, 끌어서 위치를 옮길 수 있어요.', tr: '왼쪽에서 최종 POG를 고르세요. 집기 이름을 번역하고 \'온라인 집기도면에 반영\'을 누르면 온라인에 나와요.', on: '왼쪽에서 POG를 고르세요.' }[fxd.mode];
+  fxd.lang = fxd.mode === 'tr' ? 'English' : fxd.mode === 'on' && !isStaff() ? (contentFor(['English']) || 'English') : '한국어';
+  fxd.loadKey = null;
+  renderFxdList();
+  if (fxd.pogId && state.pogs.some(p => p.id === fxd.pogId && (fxd.mode === 'make' || p.status === 'final'))) openFxd(fxd.pogId, true);
+  else { fxd.pogId = null; $('#fxd-body').classList.add('hidden'); $('#fxd-empty').classList.remove('hidden'); }
+}
+function openFxd(id, keep) {
+  if (fxd.pogId !== id || !keep) { fxd.unsub?.(); fxd.unsub = null; fxd.fixtures = []; fxd.v = null; fxd.sel = null; fxd.loadKey = null; }
+  fxd.pogId = id;
+  renderFxdList();
+  $('#fxd-body').classList.remove('hidden'); $('#fxd-empty').classList.add('hidden');
+  $('#fxd-stage').replaceChildren(h('p', { class: 'mut pad' }, '불러오는 중…'));
+  if (!fxd.unsub) fxd.unsub = onSnapshot(collection(db, 'pogs', id, 'fixtures'), s => { fxd.fixtures = s.docs.map(d => ({ id: d.id, ...d.data() })); fxdLoad(); }, e => toast('POG 페이지를 읽지 못했어요: ' + e.code));
+  else fxdLoad();
+}
+async function fxdLoad() {
+  const pog = state.pogs.find(p => p.id === fxd.pogId); if (!pog) return;
+  // 도면 버전: 페이지 도면 연결 중 가장 많은 것
+  const cnt = new Map(); fxd.fixtures.forEach(f => { const r = f.drawingRef; if (r?.storeId && r.vId) { const k = r.storeId + '|' + r.vId; cnt.set(k, (cnt.get(k) || 0) + 1); } });
+  const best = [...cnt.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  if (!best) { fxd.v = null; renderFxd(); return; }
+  const [storeId, vId] = best.split('|');
+  // 언어 목록 (번역 화면: 사전 언어 / 온라인: 반영된 언어)
+  if (fxd.loadKey !== best + '|' + fxd.mode) {
+    fxd.loadKey = best + '|' + fxd.mode;
+    try { const v = await getDoc(doc(db, 'drawings', storeId, 'versions', vId)); fxd.v = v.exists() ? { id: v.id, ...v.data() } : null; fxd.storeId = storeId; } catch { fxd.v = null; }
+    let langs = [];
+    if (fxd.mode === 'tr') langs = ['English', ...glLangs()];
+    else if (fxd.mode === 'on') { try { langs = (await getDocs(collection(db, 'pogs', fxd.pogId, 'translations'))).docs.filter(d => d.data().fxdOut).map(d => d.id); } catch { } langs = ['한국어', ...langs]; }
+    else langs = ['한국어'];
+    fxd.langs = [...new Set(langs)];
+    if (!fxd.langs.includes(fxd.lang)) fxd.lang = fxd.mode === 'on' && !isStaff() && fxd.langs.includes('English') ? 'English' : fxd.langs[0];
+    await fxdLang(fxd.lang);
+    return;
+  }
+  renderFxd();
+}
+const fxdDwTrCache = new Map();
+async function fxdLang(lang) {
+  fxd.lang = lang; fxd.unsubTr?.(); fxd.unsubTr = null; fxd.trDoc = {}; fxd.drTr = {};
+  if (lang !== '한국어' && fxd.storeId) {
+    const k = fxd.storeId + '|' + lang;
+    if (!fxdDwTrCache.has(k)) { try { const t = await getDoc(doc(db, 'drawings', fxd.storeId, 'translations', lang)); fxdDwTrCache.set(k, t.exists() ? t.data() : {}); } catch { fxdDwTrCache.set(k, {}); } }
+    fxd.drTr = fxdDwTrCache.get(k);
+    fxd.unsubTr = onSnapshot(doc(db, 'pogs', fxd.pogId, 'translations', lang), s => { fxd.trDoc = s.exists() ? s.data() : {}; renderFxd(); }, () => renderFxd());
+  }
+  renderFxd();
+}
+// 매대마다 글 상자 (도면 매대 + 그 페이지의 줄들 + 위치)
+function fxdEntries() {
+  const pog = state.pogs.find(p => p.id === fxd.pogId), v = fxd.v; if (!pog || !v) return { list: [], miss: [] };
+  const groups = v.groups || [], byKo = new Map(groups.map(g => [norm(g.ko), g]));
+  const list = [], miss = [], stack = new Map();
+  for (const fx of composeFx([...fxd.fixtures].sort((a, b) => a.order - b.order))) {
+    const lines = fxdLines(fx);
+    const r = fx.drawingRef, g = r ? (r.vId === v.id ? groups.find(x => x.id === r.gid) : null) || byKo.get(norm(r.ko)) : null;
+    if (!g) { if (fx.kind !== 'free' || lines.length) miss.push({ fx, why: r ? '이 도면 버전에 그 매대가 없어요' : '도면과 연결 안 됨' }); continue; }
+    if (!lines.length) continue;
+    const n = stack.get(g.id) || 0; stack.set(g.id, n + lines.length);
+    const lh = g.fs * 0.62 * 1.2;
+    const auto = { x: g.x + g.w / 2, y: g.y + g.h + g.fs * 0.15 + n * lh };
+    list.push({ fx, g, lines, pos: pog.fxdPos?.[fx.id] || auto, moved: !!pog.fxdPos?.[fx.id] });
+  }
+  return { list, miss };
+}
+function renderFxd() {
+  const pog = state.pogs.find(p => p.id === fxd.pogId), stage = $('#fxd-stage'); if (!pog || !stage) return;
+  $('#fxd-title').textContent = `${pog.branchName || pog.storeName || ''} · ${T('집기도면', 'Fixture Plan')}`;
+  // 언어 알약
+  $('#fxd-seg').replaceChildren(...(fxd.langs.length > 1 ? fxd.langs.map(l => h('button', { class: l === fxd.lang ? 'on' : '', onclick: () => fxdLang(l) }, l)) : []));
+  const v = fxd.v;
+  if (!v) { stage.replaceChildren(h('div', { class: 'empty-state' }, '이 POG 페이지들이 아직 도면과 연결되지 않았어요. POG 만들기에서 헤더의 \'📐 도면에서 고르기\'나 표지의 \'POG랑 도면 연결하기\'로 연결해 주세요.')); renderFxdSide([], []); return; }
+  const ko = fxd.lang === '한국어', ed = fxdEdit(), sc = pog.fxdScale || 1;
+  const view = drawingView(v, ko ? 'ko' : 'en', { plain: true, ctx: { vId: v.id, trDoc: fxd.drTr || {}, lang: fxd.lang } }), wrap = view._full;
+  const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
+  const { list, miss } = fxdEntries();
+  for (const e of list) {
+    const el = h('div', { class: 'fxd-box' + (ed ? ' edit' : '') + (fxd.sel === e.fx.id ? ' on' : ''), 'data-fx': e.fx.id, title: `${displayName(e.fx)} (POG 페이지)`,
+      style: `left:${pct(e.pos.x, v.w)};top:${pct(e.pos.y, v.h)};font-size:${(e.g.fs * 0.62 * sc / v.w * 100).toFixed(4)}cqw` },
+      ...e.lines.map(l => { const w = fxdWord(l.name, l.k); return h('div', { class: 'fxd-l ' + l.k + (w.need && fxd.mode === 'tr' ? ' need' : ''), style: l.color ? `color:${l.color}` : '' }, `${w.text}${l.qty !== '' && l.qty != null ? ' ' + l.qty : ''}`); }));
+    if (ed) el.addEventListener('pointerdown', ev => fxdDrag(ev, e, wrap, v, pog));
+    else if (fxd.mode !== 'on') el.onclick = () => { fxd.sel = e.fx.id; renderFxd(); };
+    wrap.append(el);
+  }
+  stage.replaceChildren(view);
+  renderFxdSide(list, miss);
+}
+function fxdDrag(e, ent, wrap, v, pog) {
+  e.preventDefault(); e.stopPropagation();
+  const el = e.currentTarget, r = wrap.getBoundingClientRect(), k = v.w / r.width, sx = e.clientX, sy = e.clientY, p0 = { ...ent.pos };
+  let moved = false, p = p0;
+  fxd.sel = ent.fx.id; $$('.fxd-box', wrap).forEach(b => b.classList.toggle('on', b === el));
+  const mv = ev => { const dx = (ev.clientX - sx) * k, dy = (ev.clientY - sy) * k; if (Math.abs(dx) + Math.abs(dy) > 1) moved = true; p = { x: p0.x + dx, y: p0.y + dy }; el.style.left = `${(p.x / v.w * 100).toFixed(3)}%`; el.style.top = `${(p.y / v.h * 100).toFixed(3)}%`; };
+  const up = () => {
+    window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up);
+    if (!moved) { renderFxdSide(...Object.values(fxdEntries())); return; }
+    const val = { x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100 };
+    (pog.fxdPos ||= {})[ent.fx.id] = val;
+    updateDoc(doc(db, 'pogs', pog.id), new FieldPath('fxdPos', ent.fx.id), val).catch(err => toast('저장하지 못했어요: ' + (err.code || err.message)));
+    addLog(['pogs', pog.id], { fx: ent.fx.id, area: 'make', act: '집기도면 글 위치 옮김', what: displayName(ent.fx) });
+  };
+  window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+}
+function renderFxdSide(list, miss) {
+  const box = $('#fxd-side'); if (!box) return;
+  const a = document.activeElement; if (box.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && a.type !== 'range') return; // 입력 중이면 그대로
+  const pog = state.pogs.find(p => p.id === fxd.pogId); if (!pog) { box.replaceChildren(); return; }
+  const sec = (t, ...k) => h('section', { class: 'se-sec' }, h('h4', {}, t), ...k);
+  const nodes = [];
+  if (fxd.mode === 'make') {
+    const ed = fxdEdit(), sel = list.find(e => e.fx.id === fxd.sel);
+    nodes.push(sec('집기도면 편집', h('p', { class: 'se-help' }, ed ? '도면의 매대명 아래에 그 POG 페이지의 선반/파이프(검정)·고리(파랑)·이외집기(보라, 집기 색을 정했으면 그 색)가 나와요. 글 상자를 끌어서 옮길 수 있어요. 내용은 POG 만들기에서 고치면 바로 바뀌어요.' : '보기 전용이에요 (위치는 POG팀이 옮겨요).')));
+    if (ed) {
+      const rng = h('input', { type: 'range', min: 0.5, max: 2.5, step: 0.05, value: pog.fxdScale || 1 });
+      const lab = h('span', { class: 'mut' }, `${Math.round((pog.fxdScale || 1) * 100)}%`);
+      rng.addEventListener('input', () => { lab.textContent = `${Math.round(rng.value * 100)}%`; pog.fxdScale = +rng.value; $$('#fxd-stage .fxd-box').forEach(b => { const e = list.find(x => x.fx.id === b.dataset.fx); if (e) b.style.fontSize = `${(e.g.fs * 0.62 * rng.value / fxd.v.w * 100).toFixed(4)}cqw`; }); });
+      rng.addEventListener('change', () => updateDoc(doc(db, 'pogs', pog.id), { fxdScale: +rng.value }).catch(err => toast('저장하지 못했어요: ' + (err.code || err.message))));
+      nodes.push(sec('글 크기', h('div', { class: 'se-btns' }, rng, lab)));
+      if (sel) nodes.push(sec('고른 글', h('div', { class: 'se-kid' }, h('span', {}, h('b', {}, displayName(sel.fx)), ` · 도면 '${sel.g.ko}'`)),
+        h('div', { class: 'se-btns' }, h('button', { class: 'btn small ghost', disabled: !sel.moved, onclick: () => { delete pog.fxdPos?.[sel.fx.id]; updateDoc(doc(db, 'pogs', pog.id), new FieldPath('fxdPos', sel.fx.id), deleteField()); renderFxd(); } }, '매대명 바로 아래로 (자동 위치)'))));
+      if (Object.keys(pog.fxdPos || {}).length) nodes.push(h('div', { class: 'se-btns' }, h('button', { class: 'btn small ghost', onclick: () => { if (!confirm('옮긴 글 위치를 모두 처음(매대명 바로 아래)으로 되돌릴까요?')) return; pog.fxdPos = {}; updateDoc(doc(db, 'pogs', pog.id), { fxdPos: deleteField() }); renderFxd(); } }, '모두 자동 위치로')));
+    }
+  }
+  if (fxd.mode === 'tr') {
+    const ed = canEdit('pog-trans'), lang = fxd.lang;
+    // 번역 줄 (반영할 때 다시 계산: 그사이 고친 번역까지)
+    const rowsOf = l0 => { const names = new Map(); l0.forEach(e => e.lines.forEach(l => { if (!names.has(l.name)) names.set(l.name, l.k); })); return [...names.entries()].map(([name, k]) => ({ name, k, w: fxdWord(name, k) })); };
+    const rows = rowsOf(list), need = rows.filter(r => r.w.need).length;
+    const pub = h('button', { class: 'btn primary', disabled: !ed, onclick: async () => {
+      document.activeElement?.blur?.(); await new Promise(r => setTimeout(r, 300));
+      const rows = rowsOf(fxdEntries().list), need = rows.filter(r => r.w.need).length;
+      if (need && !confirm(`아직 번역 안 된 이름이 ${need}개 있어요 (한국어로 나와요). 그래도 반영할까요?`)) return;
+      const out = Object.fromEntries(rows.map(r => [r.name, r.w.text]));
+      const ref = doc(db, 'pogs', fxd.pogId, 'translations', lang);
+      try { await setDoc(ref, { lang }, { merge: true }); await updateDoc(ref, { fxdOut: out, fxdPublishedAt: serverTimestamp(), fxdPublishedBy: me() }); toast(`온라인 집기도면(${lang})에 반영했어요`); addLog(['pogs', fxd.pogId], { fx: '__cover', area: 'trans', lang, act: '집기도면 온라인에 반영' }); }
+      catch (err) { toast('반영하지 못했어요: ' + (err.code || err.message)); }
+    } }, '온라인 집기도면에 반영');
+    nodes.push(sec(`집기 이름 번역 · ${lang}`, h('p', { class: 'se-help' }, '사전에서 자동으로 찾은 번역이 들어가 있어요. 빨간 ❗는 사전에 없는 이름이에요. 고치면 그 번역을 써요. 다 되면 \'온라인 집기도면에 반영\'을 눌러 주세요.'),
+      need ? h('div', { class: 'se-warn' }, `❗ 번역 필요 ${need}개`) : null,
+      h('div', { class: 'se-btns' }, pub),
+      ...rows.map(r => {
+        const inp = h('input', { class: 'se-input', value: fxd.trDoc?.fxd?.[r.name] || '', placeholder: r.w.need ? '번역을 써 주세요' : r.w.text, disabled: !ed });
+        inp.addEventListener('change', async () => {
+          const ref = doc(db, 'pogs', fxd.pogId, 'translations', lang), val = inp.value.trim();
+          try {
+            await setDoc(ref, { lang, updatedAt: serverTimestamp(), updatedBy: me() }, { merge: true });
+            await updateDoc(ref, new FieldPath('fxd', r.name), val || deleteField());
+            addLog(['pogs', fxd.pogId], { fx: '__cover', area: 'trans', lang, field: 'fxd', what: r.name, from: fxd.trDoc?.fxd?.[r.name] || '', to: val });
+          } catch (err) { toast('저장하지 못했어요: ' + (err.code || err.message)); }
+        });
+        return h('div', { class: 'fxd-tr-row' + (r.w.need ? ' need' : '') }, h('div', {}, r.w.need ? h('b', { class: 'need-mark' }, '❗ ') : null, h('b', {}, r.name), h('span', { class: 'mut' }, ` · ${{ sp: '선반/파이프', hook: '고리', ex: '이외집기' }[r.k]}`)), inp);
+      })));
+  }
+  if (fxd.mode !== 'on' && miss.length) nodes.push(sec(`도면에 안 나오는 페이지 ${miss.length}장`, h('p', { class: 'se-help' }, 'POG 만들기에서 헤더의 \'📐 도면에서 고르기\'로 도면 매대와 연결하면 나와요.'),
+    h('ul', { class: 'fxd-miss' }, ...miss.map(m => h('li', {}, `${displayName(m.fx)} — ${m.why}`)))));
+  box.replaceChildren(...nodes);
+  box.classList.toggle('hidden', !nodes.length);
+}
+$('#fxd-search')?.addEventListener('input', renderFxdList);
+$('#fxd-pdf')?.addEventListener('click', () => { const pog = state.pogs.find(p => p.id === fxd.pogId); const t0 = document.title; document.title = `집기도면_${pog?.branchName || pog?.storeName || ''}_${fxd.lang}`.replace(/[\\/:*?"<>|]/g, ''); window.print(); document.title = t0; });
