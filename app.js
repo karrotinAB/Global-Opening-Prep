@@ -29,12 +29,13 @@ const LEVELS = { admin: '관리자', pog: 'POG팀', vmd: 'VMD팀', global: '글�
 const ASSIGNABLE = ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder', 'none']; // editor는 예전 레벨: 그대로 동작하지만 새로 고를 수는 없음. none = 이 사이트는 못 씀 (수출서류 사이트만 쓰는 계정)
 // 레벨마다 볼 수 있는 화면(views)과 편집할 수 있는 부분(edit). 진짜 차단은 firestore.rules / storage.rules가 함
 const STAFF_VIEWS = ['home', 'stores', 'barcodes', 'drawing', 'dw-up', 'dw-tr', 'dw-online', 'pog-home', 'pog-make', 'pog-trans', 'pog-online', 'pog-fxd', 'pog-fxdtr', 'pog-fxdon', 'glossary', 'finder'];
-const ALL_EDIT = ['calc', 'stores', 'barcodes', 'drawing', 'drawing-trans', 'pog-make', 'pog-trans', 'glossary'];
+const ALL_EDIT = ['calc', 'stores', 'barcodes', 'drawing', 'drawing-trans', 'pog-make', 'pog-trans', 'glossary', 'glossary-add'];
+// glossary-add = 용어 사전에 새 단어 넣기만 (POG팀도 · 사용자). 이미 있는 단어 고치기·지우기는 glossary (글사부·관리자)
 const ACCESS = {
   admin: { views: [...STAFF_VIEWS, 'accounts'], edit: ALL_EDIT },
-  pog: { views: STAFF_VIEWS, edit: ['pog-make'] },
+  pog: { views: STAFF_VIEWS, edit: ['pog-make', 'glossary-add'] },
   vmd: { views: STAFF_VIEWS, edit: ['drawing'] },
-  global: { views: STAFF_VIEWS, edit: ['calc', 'stores', 'barcodes', 'drawing-trans', 'pog-trans', 'glossary'] },
+  global: { views: STAFF_VIEWS, edit: ['calc', 'stores', 'barcodes', 'drawing-trans', 'pog-trans', 'glossary', 'glossary-add'] },
   buyer: { views: ['home', 'drawing', 'dw-online', 'pog-home', 'pog-online', 'pog-fxdon', 'finder'], edit: [] }, // 온라인 집기도면도 (사용자) // 최종본만 (규칙에서도 막음)
   finder: { views: ['finder'], edit: [] },
   editor: { views: STAFF_VIEWS, edit: ALL_EDIT },
@@ -1017,14 +1018,17 @@ function renderSp(block) {
     sel.value = x.name || '';
     const qty = h('input', { class: 'f ex-qty', type: 'number', min: 0, placeholder: '0', disabled: !ed });
     qty.value = x.qty ?? '';
-    sel.addEventListener('change', () => {
+    // 사전에 없는 이름이면 ERP 질문 먼저. 창을 X로 닫으면 아무것도 저장 안 함 (사용자)
+    sel.addEventListener('change', async () => {
       if (sel.value === CUSTOM) {
         const v = (prompt('선반/파이프 이름을 직접 써 주세요 (예: 걸이봉, 아크릴 선반)', '') || '').trim();
         if (!v) { sel.value = x.name || ''; return; }
-        x.name = v; save(); renderSp(block); addFxGlossary('선반/파이프', v); return;
+        if (await addFxGlossary('선반/파이프', v) === null) { sel.value = x.name || ''; return; }
+        x.name = v; save(); renderSp(block); return;
       }
-      x.name = sel.value; save();
-      if (only.includes(sel.value)) addFxGlossary('선반/파이프', sel.value); // 사전에 없는 이름을 고르면 ERP 질문 후 사전에 넣음
+      const v = sel.value;
+      if (only.includes(v) && await addFxGlossary('선반/파이프', v) === null) { sel.value = x.name || ''; return; }
+      x.name = v; save();
     });
     qty.addEventListener('input', () => { x.qty = qty.value === '' ? '' : Number(qty.value); save(); });
     return h('div', { class: 'ex-row' }, sel, h('span', { class: 'x' }, '×'), qty,
@@ -1040,6 +1044,7 @@ async function addFxGlossary(cat, name) {
   const n = norm(name); if (!n || (cat === '선반/파이프' && SP_DEFAULT.some(x => norm(x) === n)) || glossaryOf(cat).some(g => norm(g.ko) === n)) return;
   const key = cat + '|' + n; if (fxAsked.has(key)) return; fxAsked.add(key);
   const erp = await askYesNo('ERP 주문이 되는 제품입니까?', `'${name}' (${cat === '집기' ? '이외집기' : '선반/파이프'})은(는) 용어 사전에 없는 새 이름이에요.\n아니오를 누르면 용어 사전에 '제작필요'로 표시돼요.`);
+  if (erp === null) { fxAsked.delete(key); return null; } // X·바깥 누름 = 취소 (사전에도, 페이지에도 저장 안 함)
   const make = erp === false;
   const id = (cat === '집기' ? 'ex_' : 'sp_') + name.replace(/[\/.#$\[\]]/g, '_');
   try {
@@ -1060,7 +1065,14 @@ function renderExtras(block) {
     const col = ed ? h('input', { type: 'color', class: 'ex-color no-print', title: '글자 색', value: x.color || '#000000' }) : null;
     col?.addEventListener('input', () => { x.color = col.value; name.style.color = col.value; qty.style.color = col.value; save(); });
     name.addEventListener('input', () => { x.name = name.value; save(); });
-    name.addEventListener('change', () => { if (ed) addFxGlossary('집기', name.value); }); // 사전에 없는 새 집기면 ERP 질문 (사용자)
+    // 사전에 없는 새 집기면 ERP 질문 (사용자). 창을 X로 닫으면 고치기 전 이름으로 되돌림 (저장 안 함)
+    let prev = x.name || '';
+    name.addEventListener('focus', () => { prev = x.name || ''; });
+    name.addEventListener('change', async () => {
+      if (!ed) return;
+      if (await addFxGlossary('집기', name.value) === null) { x.name = prev; name.value = prev; save(); toast('넣지 않았어요'); return; }
+      prev = x.name || '';
+    });
     qty.addEventListener('input', () => { x.qty = qty.value === '' ? '' : Number(qty.value); save(); });
     return h('div', { class: 'ex-row' }, col, name, h('span', { class: 'x' }, '×'), qty,
       ed ? h('button', { class: 'ex-del no-print', title: '삭제', onclick: () => { block._extras = list.filter(y => y !== x); save(); renderExtras(block); } }, '×') : null);
