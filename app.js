@@ -2228,7 +2228,7 @@ async function doImport(text) {
 function exportCountsAsk(pog, fixtures) {
   if (!pog) return;
   const langs = ['한국어', ...new Set(['English', ...glLangs()])];
-  const close = modal(h('div', {}, h('h3', {}, '고리·집기 수량 엑셀'), h('p', { class: 'mut' }, '어떤 언어로 받을까요? 이름은 POG 번역에 넣은 것 → 용어 사전 순서로 찾고, 없으면 한국어 그대로 들어가요.'),
+  const close = modal(h('div', {}, h('h3', {}, '선반/파이프·고리·집기 수량 엑셀'), h('p', { class: 'mut' }, '어떤 언어로 받을까요? 이름은 POG 번역에 넣은 것 → 용어 사전 순서로 찾고, 없으면 한국어 그대로 들어가요.'),
     h('div', { class: 'se-btns' }, ...langs.map(l => h('button', { class: 'btn' + (l === '한국어' ? ' primary' : ''), onclick: () => { close(); exportCounts(pog, fixtures, l); } }, l)))));
 }
 async function exportCounts(pog, fixtures, lang = '한국어') {
@@ -2239,10 +2239,12 @@ async function exportCounts(pog, fixtures, lang = '한국어') {
     let trd = {};
     if (!ko) { try { const t = await getDoc(doc(db, 'pogs', pog.id, 'translations', lang)); trd = t.exists() ? t.data() : {}; } catch { } }
     const trOfFx = (fxId, key) => trd.out?.[fxId]?.[key] || trd.fx?.[fxId]?.[key] || '';
-    const word = (cat, name) => { if (ko) return name; const g = state.glossary.find(x => x.cat === cat && norm(x.ko) === norm(name)); const t = g && trOf(g, lang); if (t) return t; const a = autoTranslate(name, lang, [cat]); return a.missing.length ? name : a.text; };
+    const SP_EN = { '선반': 'Shelf', '파이프': 'Pipe' };
+    const word = (cat, name) => { if (ko) return name; if (lang === 'English' && cat === '선반/파이프' && SP_EN[name.trim()] && !state.glossary.some(x => x.cat === cat && norm(x.ko) === norm(name) && trOf(x, lang))) return SP_EN[name.trim()]; const g = state.glossary.find(x => x.cat === cat && norm(x.ko) === norm(name)); const t = g && trOf(g, lang); if (t) return t; const a = autoTranslate(name, lang, [cat]); return a.missing.length ? name : a.text; };
     const pages = composeFx([...fixtures].sort((a, b) => a.order - b.order));
     const codeOf = (cat, name) => state.glossary.find(g => g.cat === cat && norm(g.ko) === norm(name))?.code || '';
-    const detail = [], sum = new Map();
+    const detail = [], sum = new Map(), KIND_EN = { '고리': 'Hook', '집기': 'Fixture', '선반/파이프': 'Shelf/Pipe' };
+    const KORD = { '선반/파이프': 0, '고리': 1, '집기': 2 }, noCodeOk = k => k === '선반/파이프'; // 선반·파이프는 사전에 제품코드가 없음
     pages.forEach((f, i) => {
       if (f.kind === 'free' && !f.info) return;
       const no = i + 2; // 1번은 표지
@@ -2250,19 +2252,20 @@ async function exportCounts(pog, fixtures, lang = '한국어') {
       const add = (kind, cat, name, qty, trKey) => {
         name = (name || '').trim(); if (!name) return;
         const q = Number(qty) || 0, code = codeOf(cat, name), shown = ko ? name : (trKey && trOfFx(f.id, trKey)) || word(cat, name);
-        detail.push(ko ? [no, pageName, kind, code, name, q] : [no, pageName, kind === '고리' ? 'Hook' : 'Fixture', code, shown, name, q]);
+        detail.push(ko ? [no, pageName, kind, code, name, q] : [no, pageName, KIND_EN[kind], code, shown, name, q]);
         const k = kind + '|' + norm(name), r = sum.get(k) || { kind, code, name, shown, qty: 0, pages: [] };
         r.qty += q; if (!r.pages.includes(no)) r.pages.push(no); sum.set(k, r);
       };
+      spRows(f).forEach(x => add('선반/파이프', '선반/파이프', x.name, x.qty, 's_' + x.id)); // 선반·파이프 수 (사용자)
       add('고리', '고리타입', f.hookType, f.hookCount, 'hookType');
       (f.extras || []).forEach(x => add('집기', '집기', x.name, x.qty, 'x_' + x.id));
     });
-    if (!detail.length) { toast('입력된 고리·집기가 없어요'); return; }
-    const total = [...sum.values()].sort((a, b) => a.kind.localeCompare(b.kind, 'ko') || a.name.localeCompare(b.name, 'ko'));
+    if (!detail.length) { toast('입력된 선반/파이프·고리·집기가 없어요'); return; }
+    const total = [...sum.values()].sort((a, b) => KORD[a.kind] - KORD[b.kind] || a.name.localeCompare(b.name, 'ko'));
     const ws1 = X.utils.aoa_to_sheet(ko ? [['구분', '제품코드', '이름', '합계 수량', '들어간 페이지'],
-      ...total.map(r => [r.kind, r.code || '(사전에 코드 없음)', r.name, r.qty, r.pages.join(', ')])]
+      ...total.map(r => [r.kind, r.code || (noCodeOk(r.kind) ? '' : '(사전에 코드 없음)'), r.name, r.qty, r.pages.join(', ')])]
       : [['Type', 'Product Code', 'Name', 'Name (Korean)', 'Total Qty', 'Pages'],
-      ...total.map(r => [r.kind === '고리' ? 'Hook' : 'Fixture', r.code || '-', r.shown, r.name, r.qty, r.pages.join(', ')])]);
+      ...total.map(r => [KIND_EN[r.kind], r.code || '-', r.shown, r.name, r.qty, r.pages.join(', ')])]);
     ws1['!cols'] = ko ? [{ wch: 6 }, { wch: 18 }, { wch: 28 }, { wch: 10 }, { wch: 30 }] : [{ wch: 8 }, { wch: 16 }, { wch: 30 }, { wch: 26 }, { wch: 10 }, { wch: 30 }];
     const ws2 = X.utils.aoa_to_sheet([ko ? ['페이지', '매대명', '구분', '제품코드', '이름', '수량'] : ['Page', 'Fixture Name', 'Type', 'Product Code', 'Name', 'Name (Korean)', 'Qty'], ...detail]);
     ws2['!cols'] = ko ? [{ wch: 6 }, { wch: 30 }, { wch: 6 }, { wch: 14 }, { wch: 28 }, { wch: 8 }] : [{ wch: 6 }, { wch: 30 }, { wch: 8 }, { wch: 14 }, { wch: 30 }, { wch: 26 }, { wch: 8 }];
@@ -2271,7 +2274,7 @@ async function exportCounts(pog, fixtures, lang = '한국어') {
     X.writeFile(wb, `${ko ? '고리집기수량' : 'Hooks_Fixtures'}_${footStore(pog)}${ko ? '' : '_' + lang}_${fmtDate(new Date()).replace(/\./g, '')}.xlsx`.replace(/[\\/:*?"<>|]/g, ''));
     const untr = ko ? 0 : total.filter(r => r.shown === r.name && /[가-힣]/.test(r.name)).length;
     if (untr) toast(`번역이 없어 한국어로 들어간 이름 ${untr}개`);
-    const noCode = total.filter(r => !r.code).length;
+    const noCode = total.filter(r => !r.code && !noCodeOk(r.kind)).length;
     toast('엑셀을 저장했어요' + (noCode ? ` · 사전에 제품코드가 없는 것 ${noCode}개` : ''));
   } catch (e) { toast(e.message); }
 }
