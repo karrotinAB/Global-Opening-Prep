@@ -996,10 +996,23 @@ function renderSp(block) {
   const save = () => { const g = `${block._fx}|sp`; saveFx(block._pog, block._fx, 'sp', structuredClone(list), g); saveFx(block._pog, block._fx, 'shelfPipe', spText(list), g); };
   // 선택지 = 선반·파이프 + 사전 '선반/파이프' + 이 POG에서 직접 넣은 이름. 없으면 '+ 직접 입력…' (사용자: POG팀이 옵션에 없는 것도 넣게)
   const used = () => [...(state.fixtures?.values?.() || [])].flatMap(f => Array.isArray(f.sp) ? f.sp.map(r => r.name) : []).filter(Boolean);
-  const opts = cur => [...new Set([...SP_DEFAULT, ...glossaryOf('선반/파이프').map(g => g.ko), ...used(), ...(cur ? [cur] : [])])];
+  // 사전 이름과 이 POG에서만 쓴 이름을 나눠 보여줌. 띄어쓰기·대소문자만 다른 이름은 하나로 (사용자: 'BK 거는화일집기'가 두 번 보였음)
+  const opts = cur => {
+    const seen = new Set(), dict = [], only = [];
+    const put = (arr, v) => { const k = norm(v); if (!k || seen.has(k)) return; seen.add(k); arr.push(v); };
+    [...SP_DEFAULT, ...glossaryOf('선반/파이프').map(g => g.ko)].forEach(v => put(dict, v));
+    if (cur && !seen.has(norm(cur))) put(only, cur);
+    used().forEach(v => put(only, v));
+    return { dict, only };
+  };
   const CUSTOM = '__custom';
   box.replaceChildren(...list.map(x => {
-    const sel = h('select', { class: 'f sp-sel', disabled: !ed }, h('option', { value: '' }, ''), ...opts(x.name).map(o => h('option', { value: o }, o)),
+    const { dict, only } = opts(x.name), opt = o => h('option', { value: o }, o);
+    // 지금 값이 사전 이름과 띄어쓰기만 다르면 그 칸은 지금 값 그대로 보여줌
+    const curAlias = x.name && !dict.includes(x.name) && !only.includes(x.name) ? [opt(x.name)] : [];
+    const sel = h('select', { class: 'f sp-sel', disabled: !ed }, h('option', { value: '' }, ''), ...curAlias,
+      h('optgroup', { label: '용어 사전' }, ...dict.map(opt)),
+      only.length ? h('optgroup', { label: '이 POG에서 직접 쓴 이름 (사전에 없음)' }, ...only.map(opt)) : null,
       ed ? h('option', { value: CUSTOM }, '+ 직접 입력…') : null);
     sel.value = x.name || '';
     const qty = h('input', { class: 'f ex-qty', type: 'number', min: 0, placeholder: '0', disabled: !ed });
@@ -1011,6 +1024,7 @@ function renderSp(block) {
         x.name = v; save(); renderSp(block); addFxGlossary('선반/파이프', v); return;
       }
       x.name = sel.value; save();
+      if (only.includes(sel.value)) addFxGlossary('선반/파이프', sel.value); // 사전에 없는 이름을 고르면 ERP 질문 후 사전에 넣음
     });
     qty.addEventListener('input', () => { x.qty = qty.value === '' ? '' : Number(qty.value); save(); });
     return h('div', { class: 'ex-row' }, sel, h('span', { class: 'x' }, '×'), qty,
