@@ -95,6 +95,9 @@ service cloud.firestore {
       // POG팀: 새 단어 넣기만 (모든 분류). 이미 있는 단어 고치기·지우기(영어 이름 등)는 못 함. make = 제작필요 (ERP 주문 안 되는 제품)
       allow create: if hasLevel(['pog'])
         && request.resource.data.keys().hasOnly(['cat', 'ko', 'en', 'code', 'make', 'tr', 'auto', 'createdAt', 'createdBy']);
+      // POG팀: 선반/파이프·집기의 '제작필요' 체크만 바꿀 수 있음
+      allow update: if hasLevel(['pog']) && resource.data.cat in ['선반/파이프', '집기']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['make', 'updatedAt', 'updatedBy']);
     }
     // 용어 사전 변경 기록: 편집하는 사람만 남기고 읽음. 고치거나 지울 수 없음
     match /glossaryLog/{id} {
