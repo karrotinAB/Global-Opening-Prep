@@ -1954,7 +1954,6 @@ function renderSidePanel() {
     if (ed) nodes.push(sec('페이지', h('div', { class: 'se-btns' },
       btn('▲ 앞으로', () => moveFollow(pog.id, fx.id, -1), 'ghost'),
       btn('▼ 뒤로', () => moveFollow(pog.id, fx.id, 1), 'ghost'),
-      free ? null : btn('↻ 이 매대 다시 가져오기 (대체·추가)', () => openRegrab(fx), 'ghost'),
       btn('+ 이 뒤에 빈 페이지 추가', () => addFreePage(pog.id, fx.order), 'ghost'),
       btn('이 페이지 삭제', () => deletePage(pog.id, fx), 'ghost danger'))));
   }
