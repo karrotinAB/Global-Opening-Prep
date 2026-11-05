@@ -1008,7 +1008,7 @@ function renderSp(block) {
       if (sel.value === CUSTOM) {
         const v = (prompt('선반/파이프 이름을 직접 써 주세요 (예: 걸이봉, 아크릴 선반)', '') || '').trim();
         if (!v) { sel.value = x.name || ''; return; }
-        x.name = v; save(); renderSp(block); addSpGlossary(v); return;
+        x.name = v; save(); renderSp(block); addFxGlossary('선반/파이프', v); return;
       }
       x.name = sel.value; save();
     });
@@ -1019,14 +1019,20 @@ function renderSp(block) {
   roFill(block);
 }
 // POG팀이 새로 넣은 선반/파이프 이름은 사전 '선반/파이프'에도 일단 넣어 둠 (사용자). 번역은 글사부가 나중에 채움
-async function addSpGlossary(name) {
-  const n = norm(name); if (!n || SP_DEFAULT.some(x => norm(x) === n) || glossaryOf('선반/파이프').some(g => norm(g.ko) === n)) return;
-  const id = 'sp_' + name.replace(/[\/.#$\[\]]/g, '_');
+// POG팀이 새로 넣은 선반/파이프·집기 이름은 사전에도 넣음. 넣기 전에 'ERP 주문이 되는 제품입니까?' → 아니오 = 제작필요 (사용자)
+const fxAsked = new Set();
+async function addFxGlossary(cat, name) {
+  name = (name || '').trim();
+  const n = norm(name); if (!n || (cat === '선반/파이프' && SP_DEFAULT.some(x => norm(x) === n)) || glossaryOf(cat).some(g => norm(g.ko) === n)) return;
+  const key = cat + '|' + n; if (fxAsked.has(key)) return; fxAsked.add(key);
+  const erp = await askYesNo('ERP 주문이 되는 제품입니까?', `'${name}' (${cat === '집기' ? '이외집기' : '선반/파이프'})은(는) 용어 사전에 없는 새 이름이에요.\n아니오를 누르면 용어 사전에 '제작필요'로 표시돼요.`);
+  const make = erp === false;
+  const id = (cat === '집기' ? 'ex_' : 'sp_') + name.replace(/[\/.#$\[\]]/g, '_');
   try {
-    await setDoc(doc(db, 'glossary', id), { cat: '선반/파이프', ko: name, auto: true, createdAt: serverTimestamp(), createdBy: me() }, { merge: true });
-    glLog({ id, cat: '선반/파이프', ko: name }, 'auto', []);
-    toast(`'${name}'을 용어 사전 '선반/파이프'에도 넣었어요`);
-  } catch (e) { console.warn('사전에 넣지 못했어요 (보안 규칙)', e.code || e); }
+    await setDoc(doc(db, 'glossary', id), { cat, ko: name, auto: true, ...(make ? { make: true } : {}), createdAt: serverTimestamp(), createdBy: me() }, { merge: true });
+    glLog({ id, cat, ko: name }, 'auto', make ? [{ f: 'make', from: '', to: '○' }] : []);
+    toast(`'${name}'을 용어 사전 '${cat}'에도 넣었어요` + (make ? ' (제작필요)' : ''));
+  } catch (e) { fxAsked.delete(key); console.warn('사전에 넣지 못했어요 (보안 규칙)', e.code || e); }
 }
 function renderExtras(block) {
   const box = block.querySelector('.page .ex-list'); if (!box) return;
@@ -1040,6 +1046,7 @@ function renderExtras(block) {
     const col = ed ? h('input', { type: 'color', class: 'ex-color no-print', title: '글자 색', value: x.color || '#000000' }) : null;
     col?.addEventListener('input', () => { x.color = col.value; name.style.color = col.value; qty.style.color = col.value; save(); });
     name.addEventListener('input', () => { x.name = name.value; save(); });
+    name.addEventListener('change', () => { if (ed) addFxGlossary('집기', name.value); }); // 사전에 없는 새 집기면 ERP 질문 (사용자)
     qty.addEventListener('input', () => { x.qty = qty.value === '' ? '' : Number(qty.value); save(); });
     return h('div', { class: 'ex-row' }, col, name, h('span', { class: 'x' }, '×'), qty,
       ed ? h('button', { class: 'ex-del no-print', title: '삭제', onclick: () => { block._extras = list.filter(y => y !== x); save(); renderExtras(block); } }, '×') : null);
@@ -2231,6 +2238,8 @@ function exportCountsAsk(pog, fixtures) {
   const close = modal(h('div', {}, h('h3', {}, '선반/파이프·고리·집기 수량 엑셀'), h('p', { class: 'mut' }, '어떤 언어로 받을까요? 이름은 POG 번역에 넣은 것 → 용어 사전 순서로 찾고, 없으면 한국어 그대로 들어가요.'),
     h('div', { class: 'se-btns' }, ...langs.map(l => h('button', { class: 'btn' + (l === '한국어' ? ' primary' : ''), onclick: () => { close(); exportCounts(pog, fixtures, l); } }, l)))));
 }
+// 시트 1 '선반·파이프·제작비품' = 사전에서 '제작필요' 체크한 선반/파이프·집기 (+ 사전에 없는 기본 선반·파이프)
+// 시트 2 '관리부 비품·집기·고리' = 고리 전부 + 나머지 선반/파이프·집기 (사용자). 엑셀 시트 이름에는 '/'를 못 써서 '·'
 async function exportCounts(pog, fixtures, lang = '한국어') {
   if (!pog) return;
   try {
@@ -2240,41 +2249,46 @@ async function exportCounts(pog, fixtures, lang = '한국어') {
     if (!ko) { try { const t = await getDoc(doc(db, 'pogs', pog.id, 'translations', lang)); trd = t.exists() ? t.data() : {}; } catch { } }
     const trOfFx = (fxId, key) => trd.out?.[fxId]?.[key] || trd.fx?.[fxId]?.[key] || '';
     const SP_EN = { '선반': 'Shelf', '파이프': 'Pipe' };
-    const word = (cat, name) => { if (ko) return name; if (lang === 'English' && cat === '선반/파이프' && SP_EN[name.trim()] && !state.glossary.some(x => x.cat === cat && norm(x.ko) === norm(name) && trOf(x, lang))) return SP_EN[name.trim()]; const g = state.glossary.find(x => x.cat === cat && norm(x.ko) === norm(name)); const t = g && trOf(g, lang); if (t) return t; const a = autoTranslate(name, lang, [cat]); return a.missing.length ? name : a.text; };
+    const glOf = (cat, name) => state.glossary.find(x => x.cat === cat && norm(x.ko) === norm(name));
+    const word = (cat, name) => { if (ko) return name; const g = glOf(cat, name), t = g && trOf(g, lang); if (t) return t; if (lang === 'English' && cat === '선반/파이프' && SP_EN[name.trim()]) return SP_EN[name.trim()]; const a = autoTranslate(name, lang, [cat]); return a.missing.length ? name : a.text; };
+    const isMake = (kind, name) => { if (kind === '고리') return false; const g = glOf(kind, name); return g ? !!g.make : kind === '선반/파이프' && SP_DEFAULT.some(x => norm(x) === norm(name)); };
+    const KIND_EN = { '고리': 'Hook', '집기': 'Fixture', '선반/파이프': 'Shelf/Pipe' }, KORD = { '선반/파이프': 0, '집기': 1, '고리': 2 };
     const pages = composeFx([...fixtures].sort((a, b) => a.order - b.order));
-    const codeOf = (cat, name) => state.glossary.find(g => g.cat === cat && norm(g.ko) === norm(name))?.code || '';
-    const detail = [], sum = new Map(), KIND_EN = { '고리': 'Hook', '집기': 'Fixture', '선반/파이프': 'Shelf/Pipe' };
-    const KORD = { '선반/파이프': 0, '고리': 1, '집기': 2 }, noCodeOk = k => k === '선반/파이프'; // 선반·파이프는 사전에 제품코드가 없음
+    const CAT = { '고리': '고리타입', '집기': '집기', '선반/파이프': '선반/파이프' }; // 구분 → 사전 분류
+    const codeOf = (kind, name) => CODE_CATS.includes(CAT[kind]) ? glOf(CAT[kind], name)?.code || '' : '';
+    const sum = new Map();
     pages.forEach((f, i) => {
       if (f.kind === 'free' && !f.info) return;
       const no = i + 2; // 1번은 표지
-      const pageName = ko ? displayName(f) : trOfFx(f.id, 'headerName') || displayName(f);
-      const add = (kind, cat, name, qty, trKey) => {
+      const add = (kind, name, qty, trKey) => {
         name = (name || '').trim(); if (!name) return;
-        const q = Number(qty) || 0, code = codeOf(cat, name), shown = ko ? name : (trKey && trOfFx(f.id, trKey)) || word(cat, name);
-        detail.push(ko ? [no, pageName, kind, code, name, q] : [no, pageName, KIND_EN[kind], code, shown, name, q]);
-        const k = kind + '|' + norm(name), r = sum.get(k) || { kind, code, name, shown, qty: 0, pages: [] };
-        r.qty += q; if (!r.pages.includes(no)) r.pages.push(no); sum.set(k, r);
+        const q = Number(qty) || 0, k = kind + '|' + norm(name);
+        const r = sum.get(k) || { kind, code: codeOf(kind, name), name, shown: ko ? name : (trKey && trOfFx(f.id, trKey)) || word(CAT[kind], name), qty: 0, pages: new Map(), make: isMake(kind, name) };
+        r.qty += q; r.pages.set(no, (r.pages.get(no) || 0) + q); sum.set(k, r);
       };
-      spRows(f).forEach(x => add('선반/파이프', '선반/파이프', x.name, x.qty, 's_' + x.id)); // 선반·파이프 수 (사용자)
-      add('고리', '고리타입', f.hookType, f.hookCount, 'hookType');
-      (f.extras || []).forEach(x => add('집기', '집기', x.name, x.qty, 'x_' + x.id));
+      spRows(f).forEach(x => add('선반/파이프', x.name, x.qty, 's_' + x.id));
+      add('고리', f.hookType, f.hookCount, 'hookType');
+      (f.extras || []).forEach(x => add('집기', x.name, x.qty, 'x_' + x.id));
     });
-    if (!detail.length) { toast('입력된 선반/파이프·고리·집기가 없어요'); return; }
-    const total = [...sum.values()].sort((a, b) => KORD[a.kind] - KORD[b.kind] || a.name.localeCompare(b.name, 'ko'));
-    const ws1 = X.utils.aoa_to_sheet(ko ? [['구분', '제품코드', '이름', '합계 수량', '들어간 페이지'],
-      ...total.map(r => [r.kind, r.code || (noCodeOk(r.kind) ? '' : '(사전에 코드 없음)'), r.name, r.qty, r.pages.join(', ')])]
-      : [['Type', 'Product Code', 'Name', 'Name (Korean)', 'Total Qty', 'Pages'],
-      ...total.map(r => [KIND_EN[r.kind], r.code || '-', r.shown, r.name, r.qty, r.pages.join(', ')])]);
-    ws1['!cols'] = ko ? [{ wch: 6 }, { wch: 18 }, { wch: 28 }, { wch: 10 }, { wch: 30 }] : [{ wch: 8 }, { wch: 16 }, { wch: 30 }, { wch: 26 }, { wch: 10 }, { wch: 30 }];
-    const ws2 = X.utils.aoa_to_sheet([ko ? ['페이지', '매대명', '구분', '제품코드', '이름', '수량'] : ['Page', 'Fixture Name', 'Type', 'Product Code', 'Name', 'Name (Korean)', 'Qty'], ...detail]);
-    ws2['!cols'] = ko ? [{ wch: 6 }, { wch: 30 }, { wch: 6 }, { wch: 14 }, { wch: 28 }, { wch: 8 }] : [{ wch: 6 }, { wch: 30 }, { wch: 8 }, { wch: 14 }, { wch: 30 }, { wch: 26 }, { wch: 8 }];
+    if (!sum.size) { toast('입력된 선반/파이프·고리·집기가 없어요'); return; }
+    const all = [...sum.values()].sort((a, b) => KORD[a.kind] - KORD[b.kind] || a.name.localeCompare(b.name, 'ko'));
+    const pageTxt = r => [...r.pages].map(([p, q]) => ko ? `${p}쪽(${q})` : `p.${p} (${q})`).join(', ');
+    const noCodeTxt = r => CODE_CATS.includes(CAT[r.kind]) ? (ko ? '(사전에 코드 없음)' : '-') : '';
+    const sheet = (list, withCode) => { // 시트 1(제작비품)은 제품코드 열 없음 (사용자)
+      const cut = row => withCode ? row : row.filter((_, i) => i !== 1);
+      const head = cut(ko ? ['구분', '제품코드', '이름', '합계 수량', '들어간 페이지 (수량)'] : ['Type', 'Product Code', 'Name', 'Name (Korean)', 'Total Qty', 'Pages (Qty)']);
+      const body = list.map(r => cut(ko ? [r.kind, r.code || noCodeTxt(r), r.name, r.qty, pageTxt(r)] : [KIND_EN[r.kind], r.code || noCodeTxt(r), r.shown, r.name, r.qty, pageTxt(r)]));
+      const ws = X.utils.aoa_to_sheet([head, ...(body.length ? body : [[ko ? '(없음)' : '(none)']])]);
+      ws['!cols'] = cut(ko ? [{ wch: 11 }, { wch: 18 }, { wch: 30 }, { wch: 10 }, { wch: 40 }] : [{ wch: 11 }, { wch: 16 }, { wch: 30 }, { wch: 26 }, { wch: 10 }, { wch: 40 }]);
+      return ws;
+    };
     const wb = X.utils.book_new();
-    X.utils.book_append_sheet(wb, ws1, ko ? '합계' : 'Summary'); X.utils.book_append_sheet(wb, ws2, ko ? '페이지별' : 'By Page');
-    X.writeFile(wb, `${ko ? '고리집기수량' : 'Hooks_Fixtures'}_${footStore(pog)}${ko ? '' : '_' + lang}_${fmtDate(new Date()).replace(/\./g, '')}.xlsx`.replace(/[\\/:*?"<>|]/g, ''));
-    const untr = ko ? 0 : total.filter(r => r.shown === r.name && /[가-힣]/.test(r.name)).length;
+    X.utils.book_append_sheet(wb, sheet(all.filter(r => r.make), false), ko ? '선반·파이프·제작비품' : 'Shelves·Pipes·Custom-made');
+    X.utils.book_append_sheet(wb, sheet(all.filter(r => !r.make), true), ko ? '관리부 비품·집기·고리' : 'Admin Supplies·Fixtures·Hooks');
+    X.writeFile(wb, `${ko ? '선반고리집기수량' : 'Shelves_Hooks_Fixtures'}_${footStore(pog)}${ko ? '' : '_' + lang}_${fmtDate(new Date()).replace(/\./g, '')}.xlsx`.replace(/[\\/:*?"<>|]/g, ''));
+    const untr = ko ? 0 : all.filter(r => r.shown === r.name && /[가-힣]/.test(r.name)).length;
     if (untr) toast(`번역이 없어 한국어로 들어간 이름 ${untr}개`);
-    const noCode = total.filter(r => !r.code && !noCodeOk(r.kind)).length;
+    const noCode = all.filter(r => !r.make && !r.code && CODE_CATS.includes(CAT[r.kind])).length;
     toast('엑셀을 저장했어요' + (noCode ? ` · 사전에 제품코드가 없는 것 ${noCode}개` : ''));
   } catch (e) { toast(e.message); }
 }
@@ -4512,6 +4526,7 @@ async function fdDrawing(box, ref, lang = fd.lang) { // lang = 도면 내용 언
 
 /* ---------- 3. 용어 사전 ---------- */
 const norm = t => (t || '').toLowerCase().replace(/\s+/g, ''); // 띄어쓰기·대소문자 무시
+const MAKE_CATS = ['선반/파이프', '집기']; // '제작필요' 체크칸이 있는 분류 (선반·고리·집기 수량 엑셀 시트 나누기, 사용자)
 const CODE_CATS = ['고리타입', '집기']; // 선반/파이프는 제품코드 필요 없음 (사용자) // 제품코드를 넣는 분류 (고리·집기 수량 엑셀에 쓰임)
 const catOrder = c => { const i = CATS.indexOf(c); return i < 0 ? CATS.length : i; };
 const oldCats = () => [...new Set(state.glossary.map(g => g.cat).filter(c => c && !CATS.includes(c)))];
@@ -4527,7 +4542,7 @@ function glSearch(q) {
 const me = () => state.user.email.toLowerCase();
 const logEntry = (g, action, changes = []) => ({ gid: g.id, cat: g.cat || '', ko: g.ko || '', action, changes, by: me(), byName: myName(), at: serverTimestamp() });
 const glLog = (g, action, changes) => addDoc(collection(db, 'glossaryLog'), logEntry(g, action, changes)).catch(() => { });
-const fieldLabel = f => ({ ko: '한국어', en: 'English', cat: '분류', code: '제품코드' }[f] || f.replace(/^tr\./, ''));
+const fieldLabel = f => ({ ko: '한국어', en: 'English', cat: '분류', code: '제품코드', make: '제작필요' }[f] || f.replace(/^tr\./, ''));
 
 let glDirty = false;
 function refreshGlossaryLists() {
@@ -4598,11 +4613,12 @@ function renderGlossary() {
     : state.glCat === '팀명' ? '가져온 POG의 팀명이 자동으로 들어와요. 영어(와 다른 언어)만 채우면 돼요.'
     : !CATS.includes(state.glCat) ? `예전 분류예요. 필요한 단어는 검색해서 분류를 바꾸고, 나머지는 지워주세요.` : '';
   const showCode = q ? rows.some(g => CODE_CATS.includes(g.cat)) : CODE_CATS.includes(state.glCat);
+  const showMake = q ? rows.some(g => MAKE_CATS.includes(g.cat)) : MAKE_CATS.includes(state.glCat);
   $('#gl-head').innerHTML = '';
-  $('#gl-head').append(h('tr', {}, showCode ? h('th', { class: 'gl-code-col' }, '제품코드') : null, q ? h('th', { class: 'gl-cat-col' }, '분류') : null, h('th', {}, '한국어'), h('th', {}, 'English'), lang ? h('th', {}, lang) : null, h('th', {})));
+  $('#gl-head').append(h('tr', {}, showCode ? h('th', { class: 'gl-code-col' }, '제품코드') : null, q ? h('th', { class: 'gl-cat-col' }, '분류') : null, h('th', {}, '한국어'), h('th', {}, 'English'), lang ? h('th', {}, lang) : null, showMake ? h('th', { class: 'gl-make-col', title: '체크하면 선반·고리·집기 수량 엑셀의 1번 시트(선반·파이프·제작비품)에 들어가요' }, '제작필요') : null, h('th', {})));
 
   body.innerHTML = '';
-  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 3 + (q ? 1 : 0) + (lang ? 1 : 0) + (showCode ? 1 : 0), class: 'mut pad' },
+  if (!rows.length) body.append(h('tr', {}, h('td', { colspan: 3 + (q ? 1 : 0) + (lang ? 1 : 0) + (showCode ? 1 : 0) + (showMake ? 1 : 0), class: 'mut pad' },
     q ? '저장된 단어가 없어요. 위 칸에서 바로 추가할 수 있어요.' : '등록된 단어가 없어요.')));
   const ed = canEdit('glossary'); // 글사부·관리자만 편집, 나머지는 보기
   rows.forEach(g => {
@@ -4638,7 +4654,17 @@ function renderGlossary() {
       catCell = h('td', {}, sel);
     }
     const codeCell = showCode ? h('td', {}, CODE_CATS.includes(g.cat) ? inp('code') : null) : null;
-    body.append(h('tr', {}, codeCell, catCell, h('td', {}, inp('ko')), h('td', {}, inp('en')), lang ? h('td', {}, trInp()) : null,
+    let makeCell = null;
+    if (showMake) {
+      const cb = MAKE_CATS.includes(g.cat) ? h('input', { type: 'checkbox', checked: !!g.make, disabled: !ed, title: '제작필요' }) : null;
+      cb?.addEventListener('change', async () => {
+        await updateDoc(doc(db, 'glossary', g.id), { make: cb.checked, updatedAt: serverTimestamp(), updatedBy: me() });
+        glLog(g, 'edit', [{ f: 'make', from: g.make ? '○' : '', to: cb.checked ? '○' : '' }]);
+        toast(cb.checked ? '제작필요로 표시했어요' : '제작필요 표시를 뺐어요');
+      });
+      makeCell = h('td', { class: 'tc' }, cb);
+    }
+    body.append(h('tr', {}, codeCell, catCell, h('td', {}, inp('ko')), h('td', {}, inp('en')), lang ? h('td', {}, trInp()) : null, makeCell,
       h('td', { class: 'tc' }, ed ? h('span', {},
         h('button', { class: 'gl-i', type: 'button', title: g.updatedBy ? `마지막 수정: ${nameOf(g.updatedBy)} · ${fmtDate(g.updatedAt)}` : '편집 기록 보기', onclick: () => showGlLog(g) }, 'ⓘ'),
         h('button', { class: 'btn ghost danger small', onclick: async () => {
@@ -4723,18 +4749,19 @@ const loadXLSX = () => xlsxP ||= new Promise((ok, no) => {
   sc.onerror = () => { xlsxP = null; no(new Error('엑셀 도구를 불러오지 못했어요. 인터넷 연결을 확인해주세요.')); };
   document.head.append(sc);
 });
-const GL_FIXED = { id: 'ID (지우지 마세요)', cat: '분류', code: '제품코드', ko: '한국어', en: 'English' };
-const isFixedHead = t => /^id\b/i.test(t) || ['분류', '제품코드', '한국어', 'english', '영어'].includes(t.toLowerCase());
+const GL_FIXED = { id: 'ID (지우지 마세요)', cat: '분류', code: '제품코드', ko: '한국어', en: 'English', make: '제작필요' };
+const isFixedHead = t => /^id\b/i.test(t) || ['분류', '제품코드', '한국어', 'english', '영어', '제작필요'].includes(t.toLowerCase());
+const yesNo = t => /^(o|○|y|yes|예|1|true|v|✓|✔)$/i.test(t) ? true : /^(x|n|no|아니오|0|false|-)$/i.test(t) ? false : null; // 제작필요 칸 (빈 칸 = 그대로)
 
 $('#gl-lang').addEventListener('change', e => { state.glLang = e.target.value; renderGlossary(); });
 $('#gl-export').onclick = async () => {
   try {
     const X = await loadXLSX(), langs = glLangs();
     const rows = [...state.glossary].sort((a, b) => catOrder(a.cat) - catOrder(b.cat) || (a.ko || '').localeCompare(b.ko || '', 'ko'));
-    const aoa = [[GL_FIXED.id, GL_FIXED.cat, GL_FIXED.code, GL_FIXED.ko, GL_FIXED.en, ...langs],
-      ...rows.map(g => [g.id, g.cat, g.code || '', g.ko || '', g.en || '', ...langs.map(l => g.tr?.[l] || '')])];
+    const aoa = [[GL_FIXED.id, GL_FIXED.cat, GL_FIXED.code, GL_FIXED.make, GL_FIXED.ko, GL_FIXED.en, ...langs],
+      ...rows.map(g => [g.id, g.cat, g.code || '', MAKE_CATS.includes(g.cat) ? (g.make ? 'O' : 'X') : '', g.ko || '', g.en || '', ...langs.map(l => g.tr?.[l] || '')])];
     const ws = X.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{ wch: 22 }, { wch: 10 }, { wch: 12 }, { wch: 24 }, { wch: 24 }, ...langs.map(() => ({ wch: 24 }))];
+    ws['!cols'] = [{ wch: 22 }, { wch: 10 }, { wch: 12 }, { wch: 9 }, { wch: 24 }, { wch: 24 }, ...langs.map(() => ({ wch: 24 }))];
     const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, '용어사전');
     X.writeFile(wb, `용어사전_${fmtDate(new Date()).replace(/\./g, '')}.xlsx`);
   } catch (e) { toast(e.message); }
@@ -4757,7 +4784,7 @@ function planGlossaryImport(aoa) {
   const col = test => head.findIndex(test);
   const ci = {
     id: col(t => /^id\b/i.test(t)), cat: col(t => t === '분류'), ko: col(t => t === '한국어'),
-    en: col(t => ['english', '영어'].includes(t.toLowerCase())), code: col(t => t === '제품코드'),
+    en: col(t => ['english', '영어'].includes(t.toLowerCase())), code: col(t => t === '제품코드'), make: col(t => t === '제작필요'),
   };
   if (ci.ko < 0) throw new Error("첫 줄에 '한국어' 열이 없어요. 내보낸 엑셀 양식을 그대로 써주세요.");
   const langCols = head.map((t, i) => [t, i]).filter(([t]) => t && !isFixedHead(t));
@@ -4766,7 +4793,7 @@ function planGlossaryImport(aoa) {
   const byId = new Map(state.glossary.map(g => [g.id, g])), seen = new Set();
   aoa.slice(1).forEach((row, ri) => {
     const v = i => (i >= 0 ? String(row[i] ?? '').trim() : '');
-    const line = ri + 2, id = v(ci.id), ko = v(ci.ko), cat = v(ci.cat), en = v(ci.en), code = v(ci.code);
+    const line = ri + 2, id = v(ci.id), ko = v(ci.ko), cat = v(ci.cat), en = v(ci.en), code = v(ci.code), make = yesNo(v(ci.make));
     if (!id && !ko) return; // 빈 줄
     let g = id ? byId.get(id) : null;
     if (id && !g) { plan.warns.push(`${line}번째 줄: ID '${id}'인 단어가 없어요 (삭제된 단어일 수 있어요)`); return; }
@@ -4782,11 +4809,12 @@ function planGlossaryImport(aoa) {
       if (en && en !== (g.en || '')) ch.en = en;
       if (code && code !== (g.code || '')) ch.code = code;
       if (cat && cat !== g.cat && CATS.includes(cat)) ch.cat = cat;
+      if (make !== null && MAKE_CATS.includes(ch.cat || g.cat) && make !== !!g.make) ch.make = make;
       if (Object.keys(ch).length || Object.keys(tr).length) plan.updates.push({ g, ch, tr });
     } else {
       if (!cat) { plan.warns.push(`${line}번째 줄: 새 단어 '${ko}'에 분류가 없어요`); return; }
       if (plan.adds.some(a => a.cat === cat && norm(a.ko) === norm(ko))) return;
-      plan.adds.push({ cat, ko, en, tr, ...(code ? { code } : {}) });
+      plan.adds.push({ cat, ko, en, tr, ...(code ? { code } : {}), ...(make && MAKE_CATS.includes(cat) ? { make: true } : {}) });
     }
   });
   return plan;
@@ -4813,7 +4841,7 @@ function showImportPreview(plan) {
         const args = [...Object.entries(ch).flat(), ...Object.entries(tr).flatMap(([l, t]) => [new FieldPath('tr', l), t]), 'updatedAt', serverTimestamp(), 'updatedBy', me()];
         b.update(doc(db, 'glossary', g.id), ...args);
         b.set(doc(collection(db, 'glossaryLog')), logEntry(g, 'import', [
-          ...Object.entries(ch).map(([f, to]) => ({ f, from: g[f] || '', to })),
+          ...Object.entries(ch).map(([f, to]) => f === 'make' ? { f, from: g.make ? '○' : '', to: to ? '○' : '' } : { f, from: g[f] || '', to }),
           ...Object.entries(tr).map(([l, to]) => ({ f: 'tr.' + l, from: g.tr?.[l] || '', to }))]));
         if ((n += 2) >= 400) await flush();
       }

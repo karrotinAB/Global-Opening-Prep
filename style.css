@@ -940,3 +940,6 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 
 /* 초도 계산 타일: POG 화면 세 번째 줄 가운데 (글로벌사업부·관리자만) */
 .tiles.three > .tile.calc-tile { grid-column: 2; background: #fff4e6; }
+
+/* 용어 사전 '제작필요' 체크칸 */
+.gl-make-col { width: 72px; text-align: center; }
