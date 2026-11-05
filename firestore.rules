@@ -101,7 +101,7 @@ service cloud.firestore {
     }
     // 용어 사전 변경 기록: 편집하는 사람만 남기고 읽음. 고치거나 지울 수 없음
     match /glossaryLog/{id} {
-      allow read: if hasLevel(['admin', 'global', 'editor']);
+      allow read: if staff(); // 변경 기록은 직원 모두 봄 (사용자)
       allow create: if hasLevel(['admin', 'global', 'editor', 'pog'])
         && request.resource.data.by == myEmail();
     }

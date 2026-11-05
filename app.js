@@ -4691,13 +4691,13 @@ function renderGlossary() {
       makeCell = h('td', { class: 'tc' }, cb);
     }
     body.append(h('tr', {}, codeCell, catCell, h('td', {}, inp('ko')), h('td', {}, inp('en')), lang ? h('td', {}, trInp()) : null, makeCell,
-      h('td', { class: 'tc' }, ed ? h('span', {},
-        h('button', { class: 'gl-i', type: 'button', title: g.updatedBy ? `마지막 수정: ${nameOf(g.updatedBy)} · ${fmtDate(g.updatedAt)}` : '편집 기록 보기', onclick: () => showGlLog(g) }, 'ⓘ'),
-        h('button', { class: 'btn ghost danger small', onclick: async () => {
+      h('td', { class: 'tc' }, h('span', {}, // ⓘ 이 단어 기록은 직원 모두 (사용자), 삭제는 글사부·관리자만
+        h('button', { class: 'gl-i', type: 'button', title: g.updatedBy ? `마지막 수정: ${nameOf(g.updatedBy)} · ${fmtDate(g.updatedAt)}` : '이 단어 변경 기록 보기', onclick: () => showGlLog(g) }, 'ⓘ'),
+        ed ? h('button', { class: 'btn ghost danger small', onclick: async () => {
           if (!confirm(`'${g.ko}'를 삭제할까요?`)) return;
           await deleteDoc(doc(db, 'glossary', g.id));
           glLog(g, 'delete', [{ f: 'en', from: g.en || '', to: '' }]);
-        } }, '삭제')) : null)));
+        } }, '삭제') : null))));
   });
   renderGlHint();
 }
