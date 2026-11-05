@@ -943,3 +943,10 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 
 /* 용어 사전 '제작필요' 체크칸 */
 .gl-make-col { width: 72px; text-align: center; }
+
+/* 터치 화면 도면: 손가락 규칙은 app.js(dwTouch)가 직접 처리 → 브라우저 기본 스크롤·확대를 끔 (사용자) */
+#dw-stage { touch-action: none; }
+.dw-zbtn { min-width: 30px; font-weight: 700; }
+.dw-zbtn { display: none; }
+@media (any-pointer: coarse) { .dw-zbtn { display: inline-block; } .dw-zbtn.hidden { display: none; } .dw-lab.edit::before { content: ''; position: absolute; inset: -8px; } } /* 작은 번역 글자도 손가락으로 누르기 쉽게 (글자 줄바꿈은 그대로) */
+.dw-legend .dw-multi { margin-left: 8px; }

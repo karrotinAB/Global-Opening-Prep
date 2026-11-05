@@ -1895,6 +1895,7 @@ function hookPicker(pog, ed) {
 const NARROW = matchMedia('(max-width: 900px)');
 // 사이트 전체 크기 (style.css의 html zoom: PC에서 80% · 사용자). 마우스로 끌 때 화면 px → 사이트 안 px로 바꿀 때 나눔
 const ZM = () => parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+const HAS_TOUCH = matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0; // 터치 화면(아이패드·휴대폰)
 NARROW.addEventListener?.('change', () => renderSidePanel());
 function renderSidePanel() {
   const box = $('#ed-side'), pog = state.currentPog;
@@ -3409,14 +3410,15 @@ function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, p
   // 빈 곳을 끌면 네모 안에 걸친 칸을 한꺼번에 고름 (도면 업로드: 묶음 고치기)
   if (onPickMany) wrap.addEventListener('pointerdown', e => {
     if (e.button !== 0 || e.target.closest('.dw-box')) return;
-    e.preventDefault();
+    if (e.pointerType === 'touch' && !dw.multiPick) return; // 터치: 한 손가락으로 끌면 화면 이동
+    e.preventDefault(); e.dwHandled = true;
     const r0 = wrap.getBoundingClientRect(), sx = e.clientX, sy = e.clientY;
     const band = h('div', { class: 'dw-band' }); wrap.append(band);
     const box = ev => ({ l: Math.min(sx, ev.clientX), t: Math.min(sy, ev.clientY), r: Math.max(sx, ev.clientX), b: Math.max(sy, ev.clientY) });
-    const mv = ev => { const b = box(ev), z = ZM(); Object.assign(band.style, { left: (b.l - r0.left) / z + 'px', top: (b.t - r0.top) / z + 'px', width: (b.r - b.l) / z + 'px', height: (b.b - b.t) / z + 'px' }); };
+    const mv = ev => { if (dwTouch.pinch) { band.style.display = 'none'; return; } const b = box(ev), z = ZM(); Object.assign(band.style, { left: (b.l - r0.left) / z + 'px', top: (b.t - r0.top) / z + 'px', width: (b.r - b.l) / z + 'px', height: (b.b - b.t) / z + 'px' }); };
     const up = ev => {
       window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); band.remove();
-      const b = box(ev); if (b.r - b.l < 4 && b.b - b.t < 4) return;
+      const b = box(ev); if (dwTouch.pinch || (b.r - b.l < 4 && b.b - b.t < 4)) return;
       const ids = $$('.dw-box', wrap).filter(el => { const q = el.getBoundingClientRect(); return q.right >= b.l && q.left <= b.r && q.bottom >= b.t && q.top <= b.b; }).map(el => el.dataset.gid);
       if (ids.length) onPickMany(ids);
     };
@@ -3438,18 +3440,22 @@ function drawingView(v, mode, { onPick, onPickMany, used, selId, picks, onLab, p
   return outer;
 }
 function dragLabel(e, g, wrap, v) {
+  const wasSel = dw.sel === g.id;
   dw.sel = g.id; renderDwSide();
   $$('.dw-lab.on', wrap).forEach(x => x.classList.remove('on')); e.currentTarget.classList.add('on');
   if (!canEdit('drawing-trans')) return;
-  e.preventDefault();
-  const el = e.currentTarget, m0 = dwRowState(g).m, k = v.w / wrap.clientWidth / ZM(), sx = e.clientX, sy = e.clientY, dx0 = m0.dx || 0, dy0 = m0.dy || 0;
+  if (e.pointerType === 'touch' && !wasSel) return; // 터치: 처음 누르면 고르기만, 손가락을 움직이면 화면 이동 (사용자: 화면 옮기다 글자가 움직이면 안 됨)
+  e.preventDefault(); e.dwHandled = true;
+  const el = e.currentTarget, m0 = dwRowState(g).m, k = v.w / wrap.clientWidth / ZM(), sx = e.clientX, sy = e.clientY, dx0 = m0.dx || 0, dy0 = m0.dy || 0, pid = e.pointerId;
   let dx = dx0, dy = dy0, moved = false;
+  const put = (a, b) => { el.style.left = `${((g.x + g.w / 2 + a) / v.w * 100).toFixed(3)}%`; el.style.top = `${((g.y + b) / v.h * 100).toFixed(3)}%`; };
   const mv = ev => {
-    dx = dx0 + (ev.clientX - sx) * k; dy = dy0 + (ev.clientY - sy) * k; moved = true;
-    el.style.left = `${((g.x + g.w / 2 + dx) / v.w * 100).toFixed(3)}%`; el.style.top = `${((g.y + dy) / v.h * 100).toFixed(3)}%`;
+    if (ev.pointerId !== pid) return;
+    if (dwTouch.pinch) { put(dx0, dy0); moved = false; return; } // 두 손가락이 되면 옮기기 취소
+    dx = dx0 + (ev.clientX - sx) * k; dy = dy0 + (ev.clientY - sy) * k; moved = true; put(dx, dy);
   };
-  const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); if (moved) saveDwTr(g.id, { dx: +dx.toFixed(2), dy: +dy.toFixed(2) }); };
-  window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+  const up = ev => { if (ev.pointerId !== pid) return; window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); if (moved && !dwTouch.pinch) saveDwTr(g.id, { dx: +dx.toFixed(2), dy: +dy.toFixed(2) }); };
+  window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
 }
 function renderDwStage() {
   const box = $('#dw-stage'), v = curVersion(); if (!box) return;
@@ -3461,7 +3467,9 @@ function renderDwStage() {
   const en = dw.tab !== 'up' && !dw.showKo;
   const legend = dw.tab === 'up'
     ? h('div', { class: 'dw-legend' }, `파란 칸 = 사이트가 읽은 매대명 ${v.groups?.length || 0}개. 파란 칸이 없는 글자는 윤곽선이 된 글자라 번역할 수 없어요.${canEdit('drawing') ? ' 칸을 누르거나 빈 곳을 끌어서 여러 칸을 고르고, 오른쪽에서 합치기(한 매대로)·나누기를 해요.' : ''}`,
-      !v.groups?.length ? h('span', { class: 'warn' }, ' 글자를 하나도 못 읽었어요!') : null)
+      !v.groups?.length ? h('span', { class: 'warn' }, ' 글자를 하나도 못 읽었어요!') : null,
+      canEdit('drawing') && HAS_TOUCH ? h('button', { class: 'btn small dw-multi' + (dw.multiPick ? ' primary' : ''), type: 'button', onclick: () => { dw.multiPick = !dw.multiPick; renderDwStage(); } },
+        dw.multiPick ? '☑ 여러 칸 고르는 중 (끄기)' : '☐ 여러 칸 고르기') : null)
     : dw.tab === 'on' ? h('div', { class: 'dw-legend' }, `${$('#dw-ver').textContent} · ${en ? dw.lang : '한국어'}`)
     : h('div', { class: 'dw-legend' }, en ? '글자를 끌어서 옮길 수 있어요. 누르면 오른쪽에서 고쳐요. 회색 점선 = 아직 번역 안 된 글자' : '한글 원본이에요.');
   const pickable = dw.tab === 'up' && canEdit('drawing');
@@ -3489,6 +3497,7 @@ function dwZoomApply() {
   const z = dw.zoom || 1, cv = $('#dw-stage > .dw-canvas');
   if (cv) Object.assign(cv.style, z === 1 ? { width: '', maxWidth: '' } : { width: `calc(min(100%, 1200px) * ${z})`, maxWidth: 'none' });
   const b = $('#dw-zoom'); if (b) { b.textContent = `🔍 ${Math.round(z * 100)}%`; b.classList.toggle('hidden', !cv); }
+  $$('.dw-zbtn').forEach(x => x.classList.toggle('hidden', !cv));
 }
 $('#dw-stage').addEventListener('wheel', e => {
   if (!e.altKey) return;
@@ -3502,6 +3511,61 @@ $('#dw-stage').addEventListener('wheel', e => {
   const z = ZM(); st.scrollLeft += (r2.left + fx * r2.width - e.clientX) / z; st.scrollTop += (r2.top + fy * r2.height - e.clientY) / z;
 }, { passive: false });
 $('#dw-zoom').onclick = () => { dw.zoom = 1; dwZoomApply(); };
+// ＋ / － 버튼 (터치 화면에서 한 손으로 · 사용자)
+const dwZoomStep = f => { const st = $('#dw-stage'), cv = $('#dw-stage > .dw-canvas'); if (!cv) return;
+  const r = st.getBoundingClientRect(), mx = r.left + r.width / 2, my = r.top + r.height / 2, c0 = cv.getBoundingClientRect(), fx = (mx - c0.left) / c0.width, fy = (my - c0.top) / c0.height;
+  dw.zoom = Math.min(8, Math.max(0.5, (dw.zoom || 1) * f)); if (Math.abs(dw.zoom - 1) < 0.04) dw.zoom = 1; dwZoomApply();
+  const c1 = cv.getBoundingClientRect(), z = ZM(); st.scrollLeft += (c1.left + fx * c1.width - mx) / z; st.scrollTop += (c1.top + fy * c1.height - my) / z; };
+$('#dw-zin').onclick = () => dwZoomStep(1.3);
+$('#dw-zout').onclick = () => dwZoomStep(1 / 1.3);
+/* 터치 화면 손가락 규칙 (도면 업로드·번역·온라인 · 사용자)
+   두 손가락: 벌리면 확대·오므리면 축소·끌면 화면 이동 (언제나)
+   한 손가락: 빈 곳·안 고른 글자를 끌면 화면 이동. 칸·글자를 톡 누르면 고르기. 고른 번역 글자는 끌면 옮겨짐
+   (여러 칸 고르기·저장 구역 정하기를 켰을 때는 한 손가락이 네모 그리기) */
+const dwTouch = { pts: new Map(), pinch: null, pan: null, moved: false };
+{
+  const st = $('#dw-stage');
+  const mid = () => { const p = [...dwTouch.pts.values()]; return { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2, d: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) || 1 }; };
+  st.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'touch') { dwTouch.moved = false; return; }
+    dwTouch.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (dwTouch.pts.size === 2) {
+      const cv = $('#dw-stage > .dw-canvas'); if (!cv) return;
+      const m = mid(), r = cv.getBoundingClientRect();
+      dwTouch.pinch = { z0: dw.zoom || 1, d0: m.d, fx: (m.x - r.left) / r.width, fy: (m.y - r.top) / r.height };
+      dwTouch.pan = null; dwTouch.moved = true;
+    } else if (dwTouch.pts.size === 1) {
+      dwTouch.pinch = null; dwTouch.moved = false;
+      dwTouch.pan = e.dwHandled ? null : { x: e.clientX, y: e.clientY, l: st.scrollLeft, t: st.scrollTop, wx: scrollX, wy: scrollY };
+    }
+  });
+  window.addEventListener('pointermove', e => {
+    if (e.pointerType !== 'touch' || !dwTouch.pts.has(e.pointerId)) return;
+    dwTouch.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const z = ZM();
+    if (dwTouch.pinch && dwTouch.pts.size >= 2) {
+      const cv = $('#dw-stage > .dw-canvas'); if (!cv) return;
+      const m = mid(), p = dwTouch.pinch;
+      dw.zoom = Math.min(8, Math.max(0.5, p.z0 * m.d / p.d0)); dwZoomApply();
+      const r = cv.getBoundingClientRect(); // 두 손가락 가운데에 있던 도면 자리가 계속 손가락 가운데에 오게 (확대 + 이동)
+      st.scrollLeft += (r.left + p.fx * r.width - m.x) / z; st.scrollTop += (r.top + p.fy * r.height - m.y) / z;
+    } else if (dwTouch.pan) {
+      const dx = e.clientX - dwTouch.pan.x, dy = e.clientY - dwTouch.pan.y;
+      if (!dwTouch.moved && Math.hypot(dx, dy) < 6) return;
+      dwTouch.moved = true;
+      st.scrollLeft = dwTouch.pan.l - dx / z; st.scrollTop = dwTouch.pan.t - dy / z;
+      if (st.scrollHeight <= st.clientHeight + 1) scrollTo(scrollX, dwTouch.pan.wy - dy); // 휴대폰처럼 도면 칸이 스크롤 안 되면 화면 전체를 움직임
+    }
+  });
+  const end = e => {
+    if (e.pointerType !== 'touch' || !dwTouch.pts.delete(e.pointerId)) return;
+    if (Math.abs((dw.zoom || 1) - 1) < 0.04 && dw.zoom !== 1) { dw.zoom = 1; dwZoomApply(); }
+    if (!dwTouch.pts.size) { dwTouch.pan = null; setTimeout(() => { dwTouch.pinch = null; }, 0); setTimeout(() => { dwTouch.moved = false; }, 350); } // 손 뗀 직후의 click만 막고, 그다음 누르기는 정상
+  };
+  window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
+  // 화면을 옮기거나 두 손가락을 쓴 뒤 손을 떼면 칸이 눌린 것으로 치지 않음
+  st.addEventListener('click', e => { if (dwTouch.moved) { e.stopPropagation(); e.preventDefault(); dwTouch.moved = false; } }, true);
+}
 
 // 저장 구역 정하기 (도면 업로드, VMD): 전체 도면 위를 끌어서 남길 곳을 네모로. 온라인 도면·번역·POG·제품 찾기·PDF 모두 그 구역만 보임
 function renderCropStage(box, v) {
@@ -3512,7 +3576,7 @@ function renderCropStage(box, v) {
   const paint = () => { const d = dw.cropDraft; Object.assign(rect.style, { left: pct(d.x, v.w), top: pct(d.y, v.h), width: pct(d.w, v.w), height: pct(d.h, v.h) }); };
   full.append(rect); paint();
   full.addEventListener('pointerdown', e => {
-    if (e.button !== 0) return; e.preventDefault();
+    if (e.button !== 0) return; e.preventDefault(); e.dwHandled = true;
     const r0 = full.getBoundingClientRect(), k = v.w / r0.width;
     const at = ev => ({ x: Math.min(v.w, Math.max(0, (ev.clientX - r0.left) * k)), y: Math.min(v.h, Math.max(0, (ev.clientY - r0.top) * k)) });
     const s = at(e);
