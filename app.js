@@ -29,13 +29,14 @@ const LEVELS = { admin: '관리자', pog: 'POG팀', vmd: 'VMD팀', global: '글�
 const ASSIGNABLE = ['admin', 'pog', 'vmd', 'global', 'buyer', 'finder', 'none']; // editor는 예전 레벨: 그대로 동작하지만 새로 고를 수는 없음. none = 이 사이트는 못 씀 (수출서류 사이트만 쓰는 계정)
 // 레벨마다 볼 수 있는 화면(views)과 편집할 수 있는 부분(edit). 진짜 차단은 firestore.rules / storage.rules가 함
 const STAFF_VIEWS = ['home', 'stores', 'barcodes', 'drawing', 'dw-up', 'dw-tr', 'dw-online', 'pog-home', 'pog-make', 'pog-trans', 'pog-online', 'pog-fxd', 'pog-fxdtr', 'pog-fxdon', 'glossary', 'finder'];
-const ALL_EDIT = ['calc', 'stores', 'barcodes', 'drawing', 'drawing-trans', 'pog-make', 'pog-trans', 'glossary', 'glossary-add'];
+const ALL_EDIT = ['calc', 'stores', 'barcodes', 'drawing', 'drawing-trans', 'pog-make', 'pog-trans', 'glossary', 'glossary-add', 'glossary-make'];
+// glossary-make = 선반/파이프·집기 '제작필요' 체크만 (POG팀도 · 사용자)
 // glossary-add = 용어 사전에 새 단어 넣기만 (POG팀도 · 사용자). 이미 있는 단어 고치기·지우기는 glossary (글사부·관리자)
 const ACCESS = {
   admin: { views: [...STAFF_VIEWS, 'accounts'], edit: ALL_EDIT },
-  pog: { views: STAFF_VIEWS, edit: ['pog-make', 'glossary-add'] },
+  pog: { views: STAFF_VIEWS, edit: ['pog-make', 'glossary-add', 'glossary-make'] },
   vmd: { views: STAFF_VIEWS, edit: ['drawing'] },
-  global: { views: STAFF_VIEWS, edit: ['calc', 'stores', 'barcodes', 'drawing-trans', 'pog-trans', 'glossary', 'glossary-add'] },
+  global: { views: STAFF_VIEWS, edit: ['calc', 'stores', 'barcodes', 'drawing-trans', 'pog-trans', 'glossary', 'glossary-add', 'glossary-make'] },
   buyer: { views: ['home', 'drawing', 'dw-online', 'pog-home', 'pog-online', 'pog-fxdon', 'finder'], edit: [] }, // 온라인 집기도면도 (사용자) // 최종본만 (규칙에서도 막음)
   finder: { views: ['finder'], edit: [] },
   editor: { views: STAFF_VIEWS, edit: ALL_EDIT },
@@ -4682,7 +4683,7 @@ function renderGlossary() {
     const codeCell = showCode ? h('td', {}, CODE_CATS.includes(g.cat) ? inp('code') : null) : null;
     let makeCell = null;
     if (showMake) {
-      const cb = MAKE_CATS.includes(g.cat) ? h('input', { type: 'checkbox', checked: !!g.make, disabled: !ed, title: '제작필요' }) : null;
+      const cb = MAKE_CATS.includes(g.cat) ? h('input', { type: 'checkbox', checked: !!g.make, disabled: !canEdit('glossary-make'), title: '제작필요' }) : null;
       cb?.addEventListener('change', async () => {
         await updateDoc(doc(db, 'glossary', g.id), { make: cb.checked, updatedAt: serverTimestamp(), updatedBy: me() });
         glLog(g, 'edit', [{ f: 'make', from: g.make ? '○' : '', to: cb.checked ? '○' : '' }]);
