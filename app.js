@@ -2173,7 +2173,15 @@ function splitOutside(items, props, panels = []) {
   const ps = [...props, ...panels.filter(p => p.w >= 40)].filter(p => p.w > 0); // 회색 배경판 위 제품은 매대 안
   if (!ps.length || !items.length) return { inside: items, outside: [] };
   const left = Math.min(...ps.map(p => p.x)) - 10, right = Math.max(...ps.map(p => p.x + p.w)) + 10;
-  const out = o => o.x + (o.w || 0) < left || o.x > right;
+  // 위아래도 봄 (사용자: 낮은 매대 위 허공에 떠 있는 제품까지 들어왔음). 제품 가운데 바로 위·아래에 있는 선반·파이프·판의
+  // 높이 범위와 겹치거나 맞닿은(30px 이내) 제품만 매대 안. 선반 위에 올려둔 제품(밑면 ≈ 선반)·파이프에 건 제품은 그대로 들어옴
+  const offV = o => {
+    const cx = o.x + (o.w || 0) / 2, col = ps.filter(p => cx >= p.x - 10 && cx <= p.x + p.w + 10);
+    if (!col.length) return false; // 칸 사이 틈 등: 예전처럼 가로만 봄
+    const top = Math.min(...col.map(p => p.y)), bottom = Math.max(...col.map(p => p.y + (p.h || 0)));
+    return o.y + (o.h || 0) < top - 30 || o.y > bottom + 30;
+  };
+  const out = o => o.x + (o.w || 0) < left || o.x > right || offV(o);
   const outside = items.filter(out);
   if (outside.length === items.length) return { inside: items, outside: [] };
   return { inside: items.filter(o => !out(o)), outside };
