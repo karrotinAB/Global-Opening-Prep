@@ -292,6 +292,15 @@ $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
 // 상단 메뉴 실제 높이 → CSS --top (휴대폰에서는 메뉴가 두 줄이라 52px보다 큼). 화면 높이 계산에 씀
 { const tb = document.querySelector('.topbar'); const setTop = () => { const hgt = tb && tb.offsetHeight; if (hgt) document.documentElement.style.setProperty('--top', hgt + 'px'); };
   if (tb && window.ResizeObserver) new ResizeObserver(setTop).observe(tb); window.addEventListener('resize', setTop); setTop(); }
+/* 화면 높이 --vh를 실제 보이는 높이로 직접 잼 (사용자: 아이패드 가로에서 화면 전체가 위아래로 스크롤됨)
+   PC 80% 크기(html zoom)일 때 100vh를 zoom으로 나누는 계산이 사파리에서는 맞지 않아 화면보다 길어졌음.
+   화면에 딱 붙인 투명 칸(position: fixed; top·bottom 0)의 높이 = 지금 zoom 기준 화면 높이 → 브라우저와 상관없이 맞음 */
+{ const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;top:0;bottom:0;left:0;width:0;visibility:hidden;pointer-events:none;';
+  document.body.append(probe);
+  const setVh = () => { const hgt = probe.offsetHeight; if (hgt > 100) document.documentElement.style.setProperty('--vh', hgt + 'px'); };
+  setVh(); window.addEventListener('resize', setVh); window.addEventListener('orientationchange', () => setTimeout(setVh, 300));
+  window.visualViewport?.addEventListener('resize', setVh); }
 const setPz = () => document.documentElement.style.setProperty('--pz', String(Math.min(1, (window.innerWidth - 16) / 794)));
 setPz(); window.addEventListener('resize', setPz);
 $$('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
