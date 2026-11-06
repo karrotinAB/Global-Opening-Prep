@@ -3520,7 +3520,7 @@ function renderDwStage() {
     : dw.tab === 'on' ? h('div', { class: 'dw-legend' }, `${$('#dw-ver').textContent} · ${en ? dw.lang : '한국어'}`)
     : h('div', { class: 'dw-legend' }, en ? (HAS_TOUCH ? '글자를 꾹 누르면 살짝 떠올라요 → 그대로 끌어서 옮겨요. 톡 누르면 오른쪽에서 고쳐요. 두 손가락으로 확대. 회색 점선 = 아직 번역 안 된 글자' : '글자를 끌어서 옮길 수 있어요. 누르면 오른쪽에서 고쳐요. 회색 점선 = 아직 번역 안 된 글자') : '한글 원본이에요.');
   const pickable = dw.tab === 'up' && canEdit('drawing');
-  box.classList.toggle('nopan', pickable && (!!dw.cropping || !!dw.multiPick)); // 터치: 네모 그리기 중에는 한 손가락 = 그리기
+  box.classList.toggle('nopan', pickable && !dw.cropping && !!dw.multiPick); // 터치: 네모 그리기 중에는 한 손가락 = 그리기
   if (pickable && dw.cropping) { renderCropStage(box, v); return; }
   const hits = pickable ? null : dwFindHits(v);
   // 도면 번호 (온라인 도면, 직원): 🔢 번호 매기기를 켜면 누르는 순서대로 1, 2, 3… 다시 누르면 빠짐
@@ -3590,7 +3590,7 @@ function dwLongPress(e, g, wrap, v, pick) {
     if (L.active && L.moved) { if (save) saveDwTr(L.g.id, { dx: +L.dx.toFixed(2), dy: +L.dy.toFixed(2) }); else putLab(L, L.dx0, L.dy0); }
   };
   st.addEventListener('touchstart', e => {
-    if (e.touches.length === 1) { const L = dwTouch.lab; if (L && L.el.contains(e.target)) e.preventDefault(); return; } // 글자 위: 화면 이동은 앱이 대신 (아래 touchmove)
+    if (e.touches.length === 1) { const L = dwTouch.lab; if ((L && L.el.contains(e.target)) || e.target.closest?.('.dw-crop-rect')) e.preventDefault(); return; } // 글자 위: 화면 이동은 앱이 대신 (아래 touchmove)
     if (e.touches.length < 2) return;
     dropLab(false); // 두 손가락이 되면 글자 옮기기 취소
     const cv = cvOf(); if (!cv) return;
@@ -3647,17 +3647,46 @@ function renderCropStage(box, v) {
   dw.cropDraft ||= { ...dwCrop(v) };
   const view = drawingView(v, 'ko', { plain: true, full: true }), full = view._full;
   const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
+  /* 저장 구역 네모 (사용자: 끌 때마다 새 네모가 생겨서 이상한 구역이 잡혔음)
+     - 네모 안을 끌면 옮기기, 모서리·변의 손잡이를 끌면 그쪽만 늘이고 줄이기 (반대쪽은 그대로)
+     - 새로 그리기: 마우스로 네모 밖을 끌 때만. 손가락으로 네모 밖을 쓸면 화면 이동, 두 손가락은 확대
+     - 손을 떼기 전에 다른 손가락이 닿으면 그 동작은 취소 */
   const rect = h('div', { class: 'dw-crop-rect' });
+  const HS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+  HS.forEach(k2 => rect.append(h('i', { class: 'dw-crop-h h-' + k2, 'data-h': k2 })));
   const paint = () => { const d = dw.cropDraft; Object.assign(rect.style, { left: pct(d.x, v.w), top: pct(d.y, v.h), width: pct(d.w, v.w), height: pct(d.h, v.h) }); };
   full.append(rect); paint();
+  const minW = v.w * 0.03, minH = v.h * 0.03;
   full.addEventListener('pointerdown', e => {
-    if (e.button !== 0) return; e.preventDefault(); e.dwHandled = true;
-    const r0 = full.getBoundingClientRect(), k = v.w / r0.width;
+    if (e.button !== 0) return;
+    const hd = e.target.closest('.dw-crop-h')?.dataset.h, inRect = !hd && e.target.closest('.dw-crop-rect');
+    if (!hd && !inRect && e.pointerType === 'touch') return; // 손가락: 네모 밖은 화면 이동
+    e.preventDefault(); e.dwHandled = true;
+    const r0 = full.getBoundingClientRect(), k = v.w / r0.width, pid = e.pointerId, d0 = { ...dw.cropDraft };
     const at = ev => ({ x: Math.min(v.w, Math.max(0, (ev.clientX - r0.left) * k)), y: Math.min(v.h, Math.max(0, (ev.clientY - r0.top) * k)) });
-    const s = at(e);
-    const mv = ev => { const p = at(ev); dw.cropDraft = { x: Math.min(s.x, p.x), y: Math.min(s.y, p.y), w: Math.abs(p.x - s.x), h: Math.abs(p.y - s.y) }; paint(); };
-    const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); if (dw.cropDraft.w < v.w * 0.03 || dw.cropDraft.h < v.h * 0.03) { dw.cropDraft = { ...dwCrop(v) }; paint(); } };
-    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+    const s = at(e); let stop = false;
+    const mv = ev => {
+      if (ev.pointerId !== pid || stop) return;
+      const p = at(ev), ddx = p.x - s.x, ddy = p.y - s.y;
+      if (hd) {
+        let x0 = d0.x, y0 = d0.y, x1 = d0.x + d0.w, y1 = d0.y + d0.h;
+        if (hd.includes('w')) x0 = Math.min(x1 - minW, Math.max(0, x0 + ddx));
+        if (hd.includes('e')) x1 = Math.max(x0 + minW, Math.min(v.w, x1 + ddx));
+        if (hd.includes('n')) y0 = Math.min(y1 - minH, Math.max(0, y0 + ddy));
+        if (hd.includes('s')) y1 = Math.max(y0 + minH, Math.min(v.h, y1 + ddy));
+        dw.cropDraft = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+      } else if (inRect) {
+        dw.cropDraft = { ...d0, x: Math.min(v.w - d0.w, Math.max(0, d0.x + ddx)), y: Math.min(v.h - d0.h, Math.max(0, d0.y + ddy)) };
+      } else dw.cropDraft = { x: Math.min(s.x, p.x), y: Math.min(s.y, p.y), w: Math.abs(ddx), h: Math.abs(ddy) };
+      paint();
+    };
+    const other = ev => { if (ev.pointerId !== pid) { stop = true; dw.cropDraft = d0; paint(); } }; // 두 번째 손가락 = 취소
+    const up = ev => {
+      if (ev.pointerId !== pid) return;
+      window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); window.removeEventListener('pointerdown', other, true);
+      if (dw.cropDraft.w < minW || dw.cropDraft.h < minH) { dw.cropDraft = d0; paint(); } // 너무 작게 그리면 그대로
+    };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up); window.addEventListener('pointerdown', other, true);
   });
   const done = () => { dw.cropping = false; dw.cropDraft = null; renderDwStage(); renderDwSide(); };
   const save = async crop => {
@@ -3668,7 +3697,9 @@ function renderCropStage(box, v) {
   };
   dw.cropSave = save;
   box.replaceChildren(h('div', { class: 'dw-legend dw-crop-bar' },
-    h('b', {}, '✂ 저장 구역 정하기'), ' · 도면 위를 끌어서 남길 곳을 네모로 그려 주세요. 네모 밖은 온라인 도면·번역·POG·PDF에서 안 보여요 (지워지지는 않아요).',
+    h('b', {}, '✂ 저장 구역 정하기'), HAS_TOUCH
+      ? ' · 주황 네모의 모서리·변 동그라미를 끌어서 크기를, 네모 안을 끌어서 위치를 맞춰요. 네모 밖은 온라인 도면·번역·POG·PDF에서 안 보여요 (지워지지는 않아요).'
+      : ' · 주황 네모의 모서리·변 동그라미를 끌어서 크기를, 네모 안을 끌어서 위치를 맞춰요. 네모 밖을 끌면 새로 그려요. 네모 밖은 온라인 도면·번역·POG·PDF에서 안 보여요 (지워지지는 않아요).',
     h('span', { class: 'se-btns' }, h('button', { class: 'btn small primary', onclick: () => save(dw.cropDraft) }, '이 구역으로 저장'),
       v.crop ? h('button', { class: 'btn small ghost', onclick: () => save(null) }, '전체로 되돌리기') : null,
       h('button', { class: 'btn small ghost', onclick: done }, '취소'))), view);
