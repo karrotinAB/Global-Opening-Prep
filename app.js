@@ -34,7 +34,7 @@ const ALL_EDIT = ['calc', 'stores', 'barcodes', 'drawing', 'drawing-trans', 'pog
 // glossary-add = 용어 사전에 새 단어 넣기만 (POG팀도 · 사용자). 이미 있는 단어 고치기·지우기는 glossary (글사부·관리자)
 const ACCESS = {
   admin: { views: [...STAFF_VIEWS, 'accounts'], edit: ALL_EDIT },
-  pog: { views: STAFF_VIEWS, edit: ['pog-make', 'glossary-add', 'glossary-make'] },
+  pog: { views: STAFF_VIEWS.filter(v => !['dw-tr', 'pog-trans', 'pog-fxdtr'].includes(v)), edit: ['pog-make', 'glossary-add', 'glossary-make'] },
   vmd: { views: STAFF_VIEWS, edit: ['drawing'] },
   global: { views: STAFF_VIEWS, edit: ['calc', 'stores', 'barcodes', 'drawing-trans', 'pog-trans', 'glossary', 'glossary-add', 'glossary-make'] },
   buyer: { views: ['home', 'drawing', 'dw-online', 'pog-home', 'pog-online', 'pog-fxdon', 'finder'], edit: [] }, // 온라인 집기도면도 (사용자) // 최종본만 (규칙에서도 막음)
