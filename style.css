@@ -974,14 +974,13 @@ body.pfit #ed-pages .page-block, body.pfit #tr-pages .page-block, body.pfit #vw-
 body.pfit #ed-pages, body.pfit #tr-pages, body.pfit #vw-pages { scroll-snap-type: y proximity; }
 body.pfit .pages .page-block { scroll-snap-align: start; scroll-margin-top: 12px; }
 @media print { body.pfit .pages .page-block { zoom: 1 !important; } }
-/* 좁은 화면: 오른쪽 편집 패널 → 아래 서랍 (app.js, 사용자: 아이패드 세로에서 나누기·합치기가 없었음) */
+/* 좁은 화면: 오른쪽 편집 패널 → 오른쪽 아래 작은 도우미 창 (app.js, 사용자: 아래 서랍은 너무 크고 길었음)
+   평소엔 '🛠 편집 도구' 동그란 버튼만, 누르면 그 위에 작은 창(폭 340px, 높이 화면의 절반까지, 안에서 스크롤) */
 #drawer-tg { display: none; }
 @media (max-width: 900px) {
-  body.has-drawer .side-edit:not(:empty):not(.hidden) { display: flex; position: fixed; left: 0; right: 0; bottom: 0; width: auto; height: calc(var(--vh) * .4); z-index: 60; border-left: 0; border-top: 3px solid #f7931e; box-shadow: 0 -6px 18px rgba(0,0,0,.18); padding: 12px 16px 30px; }
+  body.has-drawer .side-edit:not(:empty):not(.hidden) { display: flex; position: fixed; right: 12px; bottom: 64px; left: auto; width: min(340px, calc(100vw - 24px)); height: auto; max-height: calc(var(--vh) * .5); z-index: 60; border: 1px solid #ffd8a8; border-radius: 14px; box-shadow: 0 8px 28px rgba(0,0,0,.25); padding: 12px 14px 16px; gap: 10px; }
   body.has-drawer.drawer-closed .side-edit { display: none !important; }
-  body.has-drawer #drawer-tg { display: block; position: fixed; right: 14px; bottom: calc(var(--vh) * .4 - 2px); z-index: 61; padding: 7px 14px; border: 0; border-radius: 10px 10px 0 0; background: #f7931e; color: #fff; font: inherit; font-size: 13px; font-weight: 700; box-shadow: 0 -3px 10px rgba(0,0,0,.15); cursor: pointer; }
-  body.has-drawer.drawer-closed #drawer-tg { bottom: 0; }
-  body.has-drawer:not(.drawer-closed) .split { padding-bottom: calc(var(--vh) * .4); }
+  body.has-drawer #drawer-tg { display: block; position: fixed; right: 12px; bottom: 14px; z-index: 61; padding: 9px 16px; border: 0; border-radius: 22px; background: #f7931e; color: #fff; font: inherit; font-size: 14px; font-weight: 700; box-shadow: 0 4px 14px rgba(0,0,0,.25); cursor: pointer; }
   body.has-drawer .log-btn { display: none; }
 }
 @media print { #drawer-tg { display: none !important; } }

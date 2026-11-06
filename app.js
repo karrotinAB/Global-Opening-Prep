@@ -304,8 +304,8 @@ $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
 /* 좁은 화면(아이패드 세로·휴대폰, 900px 이하): 오른쪽 편집 패널을 화면 아래 서랍으로 (사용자: 세로로 보면 나누기·합치기가 없음)
    서랍 위 손잡이 '🛠 편집 도구 ▼/▲'로 접고 펴기 (body.drawer-closed, 브라우저에 기억). 보이는 패널이 있을 때만 body.has-drawer */
 { const tg = document.createElement('button'); tg.type = 'button'; tg.id = 'drawer-tg'; document.body.append(tg);
-  let closed = false; try { closed = localStorage.getItem('drawerClosed') === '1'; } catch { }
-  const paint = () => { document.body.classList.toggle('drawer-closed', closed); tg.textContent = closed ? '🛠 편집 도구 ▲' : '🛠 편집 도구 ▼'; };
+  let closed = true; try { closed = localStorage.getItem('drawerClosed') !== '0'; } catch { } // 처음엔 닫힘 (작은 버튼만)
+  const paint = () => { document.body.classList.toggle('drawer-closed', closed); tg.textContent = closed ? '🛠 편집 도구' : '✕ 닫기'; };
   tg.onclick = () => { closed = !closed; try { localStorage.setItem('drawerClosed', closed ? '1' : '0'); } catch { } paint(); };
   const check = () => { const on = window.innerWidth <= 900 && [...document.querySelectorAll('.side-edit')].some(el => el.parentElement?.offsetParent && el.childElementCount && !el.classList.contains('hidden')); document.body.classList.toggle('has-drawer', on); };
   paint(); const mo = new MutationObserver(() => requestAnimationFrame(check));
