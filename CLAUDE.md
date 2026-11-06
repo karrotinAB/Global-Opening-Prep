@@ -170,6 +170,7 @@ pogs/{pogId}
   teams                         // 이 POG의 팀명 목록 (사전 '팀명' 자동 추가용)
   hooks                         // 이 POG에서 쓸 고리 (사전 '고리타입' ko 목록). 비면 전부
   coverTitle                    // 표지 제목. 비우면 지점명에서 끝의 '점'을 뺀 이름
+  fxdHide                       // 집기도면에서 뺀 페이지 { fxId: true } (중복 빼기)
   fxdPos, fxdScale              // 집기도면 글 위치 { fxId: {x, y} } (도면 SVG 단위) · 글 크기 배율
   fixtureCount, grabbedAt, createdAt, createdBy, updatedAt, finalizedAt, finalizedBy
 
@@ -325,7 +326,7 @@ glossary/{id}    cat, ko, en, code, make, tr, auto, createdBy, updatedBy, update
 ### 2.4~2.6 집기도면 (사용자)
 - **무엇:** 도면(VMD 도면)의 매대명 바로 아래에, 그 매대와 연결된 POG 페이지의 **선반/파이프(검정)·고리(파랑)·이외집기(보라, 집기 줄에 색을 정했으면 그 색)와 수량**을 적은 도면. POG 메뉴 아래 탭 3개 + POG 화면 타일 3개(아래 줄).
 - **도면:** 페이지 도면 연결(`drawingRef`) 중 가장 많이 쓴 버전. 다른 버전에 연결된 페이지는 같은 한글 매대명으로 찾음. 연결 안 된 페이지는 오른쪽 '도면에 안 나오는 페이지'에 목록. 한 매대에 페이지가 여럿이면 아래로 이어 붙임.
-- **편집 (`pog-fxd`, POG팀):** 글 상자를 끌어 옮김 → `pogs/{id}.fxdPos.{fxId} = {x, y}` (SVG 단위, 상자 위쪽 가운데). '매대명 바로 아래로 (자동 위치)'·'모두 자동 위치로'. 글 크기 `fxdScale`(50~250%). 내용은 POG 만들기 값 그대로 (실시간). 위치 옮김은 수정 기록에 남음.
+- **편집 (`pog-fxd`, POG팀):** 글 상자를 끌어 옮김 → `pogs/{id}.fxdPos.{fxId} = {x, y}` (SVG 단위, 상자 위쪽 가운데). '매대명 바로 아래로 (자동 위치)'·'모두 자동 위치로'. 글 크기 `fxdScale`(50~250%). 내용은 POG 만들기 값 그대로 (실시간). 위치 옮김은 수정 기록에 남음. **중복 빼기 (사용자: 한 매대에 페이지 두 개가 연결돼 같은 내용이 두 번 적힘):** 같은 도면 매대·같은 줄(이름·수량)인 글은 빨간 점선(`.fxd-box.dup`, 편집 화면만) + 오른쪽 패널 '중복 n개 · 중복 모두 빼기', 글을 고르면 '🗑 집기도면에서 빼기'. 뺀 글은 `pogs/{id}.fxdHide {fxId: true}`(POG 페이지는 그대로, 집기도면 편집·번역·온라인 모두에서 안 나옴, 아래 글이 위로 당겨짐), 패널 '집기도면에서 뺀 글 n개'에서 '다시 넣기'(`fxdSetHide`, 수정 기록에 남음).
 - **번역 (`pog-fxdtr`, 글사부):** 언어 알약(English + 사전 추가 언어). 도면 매대명은 도면 번역, 집기 이름은 사전 자동(선반/파이프·고리타입·집기 분류, '선반'·'파이프'는 영어 기본값) → 없으면 ❗. 오른쪽에서 이름마다 고치기 → `translations/{언어}.fxd.{한국어}`. **'온라인 집기도면에 반영'** → `fxdOut` (그때 보이는 번역 전체). **언어별 위치 (사용자):** 번역 화면에서 글 상자를 끌면 그 언어 도면에서만 옮겨짐(`translations/{언어}.fxdPos`, 글 크기 `fxdScale`도 언어별). 안 옮긴 글은 한국어 위치를 따름. '한국어 위치로 되돌리기'·'모두 한국어 위치로'. 온라인 집기도면은 그 언어 위치를 바로 씀(반영 버튼 필요 없음).
 - **온라인 (`pog-fxdon`, 직원·바이어):** 최종 POG만. 언어 알약 = 한국어 + `fxdOut` **또는 POG 번역 `out`**이 있는 언어 (사용자: 다른 언어가 안 보였음. 집기도면 반영 전이면 이름은 POG 번역 out의 hookType·x_·s_에서 찾음 `fxdFromPogOut`), 늘 보임 — 한국어뿐이면 '한국어' 알약 하나만, 안내 글 없음 (사용자) (바이어는 English부터). 'PDF 저장' = A4 가로 한 장.
 - 코드: `fxd`, `setFxdMode`, `openFxd`, `fxdLoad`, `fxdEntries`, `renderFxd`, `fxdDrag`, `renderFxdSide` (app.js 맨 아래). 화면 `#v-fxd` (secOf: `pog-fxd*` → `fxd`).
