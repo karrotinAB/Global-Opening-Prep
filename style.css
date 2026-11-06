@@ -951,7 +951,10 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .gl-make-col { width: 72px; text-align: center; }
 
 /* 터치 화면 도면: 손가락 규칙은 app.js(dwTouch)가 직접 처리 → 브라우저 기본 스크롤·확대를 끔 (사용자) */
-#dw-stage { touch-action: none; }
+#dw-stage { touch-action: pan-x pan-y; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; } /* 한 손가락 = 기본 스크롤, 두 손가락은 app.js */
+#dw-stage.nopan { touch-action: none; } /* 여러 칸 고르기·저장 구역: 한 손가락 = 네모 그리기 */
+.dw-lab.edit { touch-action: none; } /* 글자 위: 꾹 누르기를 기본 스크롤이 가로채지 않게 (끌면 app.js가 화면 이동) */
+.dw-lab.lift { transform: translateX(-50%) scale(1.25); background: #fff7ec; outline: 2px solid #f7931e; box-shadow: 0 6px 16px rgba(0,0,0,.25); z-index: 30; transition: transform .12s; }
 .dw-zbtn { min-width: 30px; font-weight: 700; }
 .dw-zbtn { display: none; }
 @media (any-pointer: coarse) { .dw-zbtn { display: inline-block; } .dw-zbtn.hidden { display: none; } .dw-lab.edit::before { content: ''; position: absolute; inset: -8px; } } /* 작은 번역 글자도 손가락으로 누르기 쉽게 (글자 줄바꿈은 그대로) */
