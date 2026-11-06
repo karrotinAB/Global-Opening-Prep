@@ -3575,7 +3575,7 @@ const dwTouch = { pinch: null, lab: null, moved: false };
 function dwLongPress(e, g, wrap, v, pick) {
   const el = e.currentTarget, L = { g, el, wrap, v, pick, sx: e.clientX, sy: e.clientY, active: false, moved: false, dx: 0, dy: 0 };
   const m0 = dwRowState(g).m; L.dx0 = m0.dx || 0; L.dy0 = m0.dy || 0; L.dx = L.dx0; L.dy = L.dy0;
-  if (canEdit('drawing-trans')) L.timer = setTimeout(() => { if (dwTouch.lab !== L) return; L.active = true; pick(); el.classList.add('lift'); navigator.vibrate?.(12); }, 350);
+  if (canEdit('drawing-trans')) L.timer = setTimeout(() => { if (dwTouch.lab !== L) return; L.active = true; pick(); el.classList.add('lift'); navigator.vibrate?.(12); }, 300);
   dwTouch.lab = L;
 }
 {
@@ -3590,6 +3590,7 @@ function dwLongPress(e, g, wrap, v, pick) {
     if (L.active && L.moved) { if (save) saveDwTr(L.g.id, { dx: +L.dx.toFixed(2), dy: +L.dy.toFixed(2) }); else putLab(L, L.dx0, L.dy0); }
   };
   st.addEventListener('touchstart', e => {
+    if (e.touches.length === 1) { const L = dwTouch.lab; if (L && L.el.contains(e.target)) e.preventDefault(); return; } // 글자 위: 화면 이동은 앱이 대신 (아래 touchmove)
     if (e.touches.length < 2) return;
     dropLab(false); // 두 손가락이 되면 글자 옮기기 취소
     const cv = cvOf(); if (!cv) return;
@@ -3598,7 +3599,7 @@ function dwLongPress(e, g, wrap, v, pick) {
     cv.style.transformOrigin = `${(m.x - r.left) / dwTouch.pinch.zm}px ${(m.y - r.top) / dwTouch.pinch.zm}px`;
     cv.style.willChange = 'transform';
     dwTouch.moved = true;
-  }, { passive: true });
+  }, { passive: false });
   st.addEventListener('touchmove', e => {
     const p = dwTouch.pinch;
     if (p && e.touches.length >= 2) {
@@ -3935,10 +3936,13 @@ function renderDwSide() {
       // 칸 폭: 영어가 이 폭 안에서 줄바꿈됨 (원래 한글 칸 폭 기준)
       const wdSel = h('select', { class: 'nb-sel', disabled: !ed }, ...[0.6, 0.8, 1, 1.2, 1.5, 2, 2.5, 3].map(x => h('option', { value: x }, Math.round(x * 100) + '%')));
       wdSel.value = String(s0.m.wd || 1); wdSel.onchange = () => { saveDwTr(g.id, { wd: Number(wdSel.value) }); renderDwStage(); };
+      const nudge = (ax, ay) => { const m = dwRowState(g).m, st = Math.max(0.5, (v.crop?.w || v.w) / 300); saveDwTr(g.id, { dx: +((m.dx || 0) + ax * st).toFixed(2), dy: +((m.dy || 0) + ay * st).toFixed(2) }); renderDwStage(); };
+      const nb = (t, ax, ay) => h('button', { class: 'btn small dw-nudge', type: 'button', title: '글자 조금씩 옮기기', onclick: () => nudge(ax, ay) }, t);
       nodes.push(sec('고르는 글자', h('div', { class: 'tr-ko' }, g.lines.join('\n')),
         ta, s0.a.missing.length && !s0.m.text && !s0.prev ? h('div', { class: 'tr-why', style: 'color:var(--red)' }, `사전에 없는 말: ${s0.a.missing.join(', ')}`) : null,
         s0.status === 'prev' ? h('div', { class: 'tr-why' }, '이전 버전 번역을 그대로 가져왔어요') : null,
         h('p', { class: 'se-help' }, '영어는 칸 폭 안에서 저절로 줄바꿈돼요. 원하는 곳에서 바꾸려면 Enter를 누르세요.'),
+        ed ? h('div', { class: 'se-btns dw-nudges' }, h('span', { class: 'nb-l' }, '글자 위치'), nb('◀', -1, 0), nb('▲', 0, -1), nb('▼', 0, 1), nb('▶', 1, 0)) : null,
         h('div', { class: 'se-btns' }, h('span', { class: 'nb-l' }, '글자 크기'), scSel, h('span', { class: 'nb-l' }, '칸 폭'), wdSel,
           ed ? h('button', { class: 'btn small ghost', onclick: () => { saveDwTr(g.id, { dx: 0, dy: 0, sc: 1, wd: 1 }); renderDw(); } }, '위치·크기 처음대로') : null,
           canGl && s0.a.missing.length ? h('button', { class: 'btn small ghost', onclick: () => askGlossary({ id: 'dw' }, { key: g.id, label: '도면 매대명', ko: g.ko, addCat: '카테고리' }, ta.value.trim(),

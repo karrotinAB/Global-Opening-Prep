@@ -959,3 +959,6 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .dw-zbtn { display: none; }
 @media (any-pointer: coarse) { .dw-zbtn { display: inline-block; } .dw-zbtn.hidden { display: none; } .dw-lab.edit::before { content: ''; position: absolute; inset: -8px; } } /* 작은 번역 글자도 손가락으로 누르기 쉽게 (글자 줄바꿈은 그대로) */
 .dw-legend .dw-multi { margin-left: 8px; }
+
+/* 도면 번역: 글자 위치 화살표 (사용자) */
+.dw-nudges .dw-nudge { min-width: 40px; font-size: 15px; }
