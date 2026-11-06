@@ -672,6 +672,12 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .cv .cv-item.split-pick { outline: 3px solid #f7931e; outline-offset: 1px; z-index: 9500 !important; }
 .pcanvas { position: relative; }
 .split-band { position: absolute; border: 2px dashed #f7931e; background: rgba(247,147,30,.12); pointer-events: none; z-index: 9999; }
+/* 매대 나누기 긁기: 손가락이 지나간 길 (사용자) */
+.split-trail { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 9999; }
+.split-trail polyline { fill: none; stroke: #f7931e; stroke-width: 10; stroke-opacity: .35; stroke-linecap: round; stroke-linejoin: round; }
+.split-trail.fade { opacity: 0; transition: opacity .3s; }
+.cv .cv-prop.split-pick { outline: 3px solid #f7931e; outline-offset: 1px; }
+.page-block.splitting .pcanvas { touch-action: none; } /* 긁는 동안 화면이 같이 움직이지 않게 (그림 밖을 끌면 화면 이동) */
 @media print { .cv-blk { display: none !important; } }
 
 /* ===== 휴대폰 화면 (사용자: 모바일에서 보기 좋게) ===== */
