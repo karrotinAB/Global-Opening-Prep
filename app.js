@@ -5565,14 +5565,24 @@ async function fxdLang(lang) {
 function fxdEntries() {
   const pog = state.pogs.find(p => p.id === fxd.pogId), v = fxd.v; if (!pog || !v) return { list: [], miss: [], hidden: [] };
   const groups = v.groups || [], byKo = new Map(groups.map(g => [norm(g.ko), g]));
-  const list = [], miss = [], hidden = [], stack = new Map(), seen = new Map();
+  const list = [], miss = [], hidden = [], stack = new Map(), seen = new Map(); // seen: 도면 매대 → 앞 글 상자들에 이미 나온 줄
+  const lkey = l => `${l.k}:${norm(l.name)}`;
   for (const fx of composeFx([...fxd.fixtures].sort((a, b) => a.order - b.order))) {
-    const lines = fxdLines(fx);
+    const offL = pog.fxdHideL?.[fx.id] || [], all = fxdLines(fx), lines = all.filter(l => !offL.includes(lkey(l))); // 뺀 줄은 안 그림
     const r = fx.drawingRef, g = r ? (r.vId === v.id ? groups.find(x => x.id === r.gid) : null) || byKo.get(norm(r.ko)) : null;
     if (!g) { if (fx.kind !== 'free' || lines.length) miss.push({ fx, why: r ? '이 도면 버전에 그 매대가 없어요' : '도면과 연결 안 됨' }); continue; }
-    if (!lines.length) continue;
+    const offLines = all.filter(l => offL.includes(lkey(l)));
     if (pog.fxdHide?.[fx.id]) { hidden.push({ fx, g }); continue; } // 집기도면에서 빼 둔 페이지 (사용자: 중복 지우기)
-    const sig = g.id + '|' + lines.map(l => `${l.k}:${norm(l.name)}:${l.qty}`).join(','), dupOf = seen.get(sig); if (!dupOf) seen.set(sig, fx);
+    if (offLines.length) hidden.push({ fx, g, lines: offLines });
+    if (!lines.length) continue;
+    const movedHere = !!(fxdTrPos()?.[fx.id] || pog.fxdPos?.[fx.id]);
+    if (!movedHere) { // 따로 옮긴 글은 다른 자리(예: 같은 이름의 다른 매대)에 쓰려는 것이라 비교 안 함
+      const prev = seen.get(g.id) || new Map();
+      lines.forEach(l => { const p = prev.get(`${lkey(l)}:${l.qty ?? ''}`); if (p) l.dupOf = p; });
+      lines.forEach(l => { const k2 = `${lkey(l)}:${l.qty ?? ''}`; if (!prev.has(k2)) prev.set(k2, fx); });
+      seen.set(g.id, prev);
+    }
+    const dupOf = null;
     const n = stack.get(g.id) || 0; stack.set(g.id, n + lines.length);
     const lh = g.fs * 0.62 * 1.2;
     const auto = { x: g.x + g.w / 2, y: g.y + g.h + g.fs * 0.15 + n * lh };
@@ -5594,9 +5604,9 @@ function renderFxd() {
   const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
   const { list, miss, hidden } = fxdEntries();
   for (const e of list) {
-    const el = h('div', { class: 'fxd-box' + (ed ? ' edit' : '') + (fxd.sel === e.fx.id ? ' on' : '') + (e.dupOf && fxd.mode === 'make' ? ' dup' : ''), 'data-fx': e.fx.id, title: `${displayName(e.fx)} (POG 페이지)`,
+    const el = h('div', { class: 'fxd-box' + (ed ? ' edit' : '') + (fxd.sel === e.fx.id ? ' on' : '') + '', 'data-fx': e.fx.id, title: `${displayName(e.fx)} (POG 페이지)`,
       style: `left:${pct(e.pos.x, v.w)};top:${pct(e.pos.y, v.h)};font-size:${(e.g.fs * 0.62 * sc / v.w * 100).toFixed(4)}cqw` },
-      ...e.lines.map(l => { const w = fxdWord(l.name, l.k); return h('div', { class: 'fxd-l ' + l.k + (w.need && fxd.mode === 'tr' ? ' need' : ''), style: l.color ? `color:${l.color}` : '' }, `${w.text}${l.qty !== '' && l.qty != null ? ' ' + l.qty : ''}`); }));
+      ...e.lines.map(l => { const w = fxdWord(l.name, l.k); return h('div', { class: 'fxd-l ' + l.k + (w.need && fxd.mode === 'tr' ? ' need' : '') + (l.dupOf && fxd.mode === 'make' ? ' dup' : ''), style: l.color ? `color:${l.color}` : '' }, `${w.text}${l.qty !== '' && l.qty != null ? ' ' + l.qty : ''}`); }));
     if (ed) el.addEventListener('pointerdown', ev => fxdDrag(ev, e, wrap, v, pog));
     else if (fxd.mode !== 'on') el.onclick = () => { fxd.sel = e.fx.id; renderFxd(); };
     wrap.append(el);
@@ -5636,6 +5646,19 @@ function fxdSetHide(pog, ids, on) {
   addLog(['pogs', pog.id], { fx: ids.length === 1 ? ids[0] : '__cover', area: 'make', act: on ? '집기도면에서 뺌' : '집기도면에 다시 넣음', what: names });
   renderFxd();
 }
+function fxdSetHideLine(pog, fxId, keys, on) {
+  pog.fxdHideL ||= {};
+  const cur = new Set(pog.fxdHideL[fxId] || []); keys.forEach(k => on ? cur.add(k) : cur.delete(k));
+  const val = [...cur]; if (val.length) pog.fxdHideL[fxId] = val; else delete pog.fxdHideL[fxId];
+  return [new FieldPath('fxdHideL', fxId), val.length ? val : deleteField()];
+}
+function fxdHideLines(pog, items, on) { // items: [{ fx, l }]
+  const by = new Map(); items.forEach(({ fx, l }) => { (by.get(fx.id) || by.set(fx.id, []).get(fx.id)).push(`${l.k}:${norm(l.name)}`); });
+  const args = []; by.forEach((keys, id) => args.push(...fxdSetHideLine(pog, id, keys, on)));
+  updateDoc(doc(db, 'pogs', pog.id), ...args).catch(err => toast('저장하지 못했어요: ' + (err.code || err.message)));
+  addLog(['pogs', pog.id], { fx: by.size === 1 ? [...by.keys()][0] : '__cover', area: 'make', act: on ? '집기도면에서 줄 뺌' : '집기도면에 줄 다시 넣음', what: items.map(({ fx, l }) => `${displayName(fx)}: ${l.name}`).join(', ') });
+  renderFxd();
+}
 function renderFxdSide(list, miss, hidden = []) {
   const box = $('#fxd-side'); if (!box) return;
   const a = document.activeElement; if (box.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && a.type !== 'range') return; // 입력 중이면 그대로
@@ -5652,14 +5675,18 @@ function renderFxdSide(list, miss, hidden = []) {
       rng.addEventListener('change', () => updateDoc(doc(db, 'pogs', pog.id), { fxdScale: +rng.value }).catch(err => toast('저장하지 못했어요: ' + (err.code || err.message))));
       nodes.push(sec('글 크기', h('div', { class: 'se-btns' }, rng, lab)));
       if (sel) nodes.push(sec('고른 글', h('div', { class: 'se-kid' }, h('span', {}, h('b', {}, displayName(sel.fx)), ` · 도면 '${sel.g.ko}'`)),
-        sel.dupOf ? h('p', { class: 'se-help', style: 'color:var(--red)' }, `'${displayName(sel.dupOf)}' 페이지와 같은 매대·같은 내용이라 두 번 적혀 있어요.`) : null,
+        h('div', { class: 'fxd-lines' }, ...sel.lines.map(l => h('div', { class: 'se-kid' + (l.dupOf ? ' dup' : '') },
+          h('span', {}, `${l.name}${l.qty !== '' && l.qty != null ? ' ' + l.qty : ''}`, l.dupOf ? h('small', { class: 'mut' }, ` · '${displayName(l.dupOf)}'에도 있음`) : null),
+          h('button', { class: 'btn small ghost danger', title: '이 줄만 집기도면에서 빼요 (POG 페이지는 그대로)', onclick: () => fxdHideLines(pog, [{ fx: sel.fx, l }], true) }, '빼기')))),
         h('div', { class: 'se-btns' }, h('button', { class: 'btn small ghost', disabled: !sel.moved, onclick: () => { delete pog.fxdPos?.[sel.fx.id]; updateDoc(doc(db, 'pogs', pog.id), new FieldPath('fxdPos', sel.fx.id), deleteField()); renderFxd(); } }, '매대명 바로 아래로 (자동 위치)'),
           h('button', { class: 'btn small ghost danger', title: 'POG 페이지는 그대로 두고 집기도면에만 안 나오게 해요', onclick: () => { fxd.sel = null; fxdSetHide(pog, [sel.fx.id], true); } }, '🗑 집기도면에서 빼기'))));
-      const dups = list.filter(e => e.dupOf);
-      if (dups.length) nodes.push(sec(`중복 ${dups.length}개`, h('p', { class: 'se-help' }, '한 매대에 여러 페이지가 연결돼 같은 내용이 두 번 적힌 글이에요 (빨간 점선). 하나만 남기고 뺄 수 있어요.'),
-        h('div', { class: 'se-btns' }, h('button', { class: 'btn small', onclick: () => fxdSetHide(pog, dups.map(e => e.fx.id), true) }, '중복 모두 빼기'))));
-      if (hidden.length) nodes.push(sec(`집기도면에서 뺀 글 ${hidden.length}개`, h('p', { class: 'se-help' }, 'POG 페이지는 그대로예요. 집기도면에만 안 나와요.'),
-        ...hidden.map(e => h('div', { class: 'se-kid' }, h('span', {}, h('b', {}, displayName(e.fx)), ` · '${e.g.ko}'`), h('button', { class: 'btn small ghost', onclick: () => fxdSetHide(pog, [e.fx.id], false) }, '다시 넣기')))));
+      const dups = list.flatMap(e => e.lines.filter(l => l.dupOf).map(l => ({ fx: e.fx, l })));
+      if (dups.length) nodes.push(sec(`중복 줄 ${dups.length}개`, h('p', { class: 'se-help' }, '한 매대에 여러 페이지가 연결돼 같은 집기·수량이 두 번 적힌 줄이에요 (빨간 점선). 앞에 적힌 것만 남기고 뺄 수 있어요. 따로 옮긴 글 상자는 다른 매대 것으로 보고 비교하지 않아요.'),
+        h('div', { class: 'se-btns' }, h('button', { class: 'btn small', onclick: () => fxdHideLines(pog, dups, true) }, '중복 줄 모두 빼기'))));
+      if (hidden.length) nodes.push(sec(`집기도면에서 뺀 것 ${hidden.length}개`, h('p', { class: 'se-help' }, 'POG 페이지는 그대로예요. 집기도면에만 안 나와요.'),
+        ...hidden.flatMap(e => e.lines
+          ? e.lines.map(l => h('div', { class: 'se-kid' }, h('span', {}, h('b', {}, l.name), ` · ${displayName(e.fx)}`), h('button', { class: 'btn small ghost', onclick: () => fxdHideLines(pog, [{ fx: e.fx, l }], false) }, '다시 넣기')))
+          : [h('div', { class: 'se-kid' }, h('span', {}, h('b', {}, displayName(e.fx)), ` · 글 상자 전체`), h('button', { class: 'btn small ghost', onclick: () => fxdSetHide(pog, [e.fx.id], false) }, '다시 넣기'))])));
       if (Object.keys(pog.fxdPos || {}).length) nodes.push(h('div', { class: 'se-btns' }, h('button', { class: 'btn small ghost', onclick: () => { if (!confirm('옮긴 글 위치를 모두 처음(매대명 바로 아래)으로 되돌릴까요?')) return; pog.fxdPos = {}; updateDoc(doc(db, 'pogs', pog.id), { fxdPos: deleteField() }); renderFxd(); } }, '모두 자동 위치로')));
     }
   }
