@@ -301,6 +301,17 @@ $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
   const setVh = () => { const hgt = probe.offsetHeight; if (hgt > 100) document.documentElement.style.setProperty('--vh', hgt + 'px'); };
   setVh(); window.addEventListener('resize', setVh); window.addEventListener('orientationchange', () => setTimeout(setVh, 300));
   window.visualViewport?.addEventListener('resize', setVh); }
+/* 좁은 화면(아이패드 세로·휴대폰, 900px 이하): 오른쪽 편집 패널을 화면 아래 서랍으로 (사용자: 세로로 보면 나누기·합치기가 없음)
+   서랍 위 손잡이 '🛠 편집 도구 ▼/▲'로 접고 펴기 (body.drawer-closed, 브라우저에 기억). 보이는 패널이 있을 때만 body.has-drawer */
+{ const tg = document.createElement('button'); tg.type = 'button'; tg.id = 'drawer-tg'; document.body.append(tg);
+  let closed = false; try { closed = localStorage.getItem('drawerClosed') === '1'; } catch { }
+  const paint = () => { document.body.classList.toggle('drawer-closed', closed); tg.textContent = closed ? '🛠 편집 도구 ▲' : '🛠 편집 도구 ▼'; };
+  tg.onclick = () => { closed = !closed; try { localStorage.setItem('drawerClosed', closed ? '1' : '0'); } catch { } paint(); };
+  const check = () => { const on = window.innerWidth <= 900 && [...document.querySelectorAll('.side-edit')].some(el => el.parentElement?.offsetParent && el.childElementCount && !el.classList.contains('hidden')); document.body.classList.toggle('has-drawer', on); };
+  paint(); const mo = new MutationObserver(() => requestAnimationFrame(check));
+  document.querySelectorAll('.side-edit').forEach(el => mo.observe(el, { childList: true, attributes: true, attributeFilter: ['class'] }));
+  document.querySelectorAll('section.view, main > section, [id^="v-"]').forEach(el => mo.observe(el, { attributes: true, attributeFilter: ['class', 'hidden'] }));
+  window.addEventListener('resize', check); setInterval(check, 1500); check(); }
 const setPz = () => document.documentElement.style.setProperty('--pz', String(Math.min(1, (window.innerWidth - 16) / 794)));
 setPz(); window.addEventListener('resize', setPz);
 $$('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
