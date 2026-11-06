@@ -185,7 +185,12 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 /* 전체 도면 층: 저장 구역만큼 밀어서 바깥 칸에 그 구역만 보이게. 글자 크기(cqw)는 전체 도면 폭 기준 */
 .dw-full { position: absolute; container-type: inline-size; }
 .dw-full > img { display: block; width: 100%; height: 100%; }
-.dw-crop-rect { position: absolute; border: 2px dashed #f7931e; box-shadow: 0 0 0 9999px rgba(0,0,0,.45); pointer-events: none; z-index: 5; }
+.dw-crop-rect { position: absolute; border: 2px dashed #f7931e; box-shadow: 0 0 0 9999px rgba(0,0,0,.45); z-index: 5; cursor: move; touch-action: none; }
+.dw-crop-h { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; background: #fff; border: 3px solid #f7931e; box-shadow: 0 1px 4px rgba(0,0,0,.35); touch-action: none; z-index: 1; }
+.dw-crop-h::before { content: ''; position: absolute; inset: -12px; } /* 손가락으로 잡기 쉽게 */
+.dw-crop-h.h-nw { left: 0; top: 0; cursor: nwse-resize; } .dw-crop-h.h-n { left: 50%; top: 0; cursor: ns-resize; } .dw-crop-h.h-ne { left: 100%; top: 0; cursor: nesw-resize; }
+.dw-crop-h.h-e { left: 100%; top: 50%; cursor: ew-resize; } .dw-crop-h.h-se { left: 100%; top: 100%; cursor: nwse-resize; } .dw-crop-h.h-s { left: 50%; top: 100%; cursor: ns-resize; }
+.dw-crop-h.h-sw { left: 0; top: 100%; cursor: nesw-resize; } .dw-crop-h.h-w { left: 0; top: 50%; cursor: ew-resize; }
 .dw-crop-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--ink); }
 .dw-crop-bar .se-btns { margin-left: auto; display: flex; gap: 6px; }
 .dw-box { position: absolute; border: 1px solid rgba(10,132,255,.55); background: rgba(10,132,255,.06); border-radius: 1px; }
