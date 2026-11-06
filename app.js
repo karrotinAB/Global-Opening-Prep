@@ -279,6 +279,7 @@ function go(v) {
   $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.view === v || (!!b.dataset.group && v.startsWith(b.dataset.group))));
   if (window.innerWidth <= 700) { const on = [...$$('#nav button.on')].pop(), nav = $('#nav'); if (on && nav) nav.scrollLeft = Math.max(0, on.offsetLeft - nav.clientWidth / 2 + on.offsetWidth / 2); }
   $('#subnav').classList.toggle('on', v.startsWith('pog-') && v !== 'pog-home');
+  $('#subnav').dataset.mode = v.startsWith('pog-fxd') ? 'fxd' : 'pog'; // 집기도면 화면이면 집기도면 탭만, POG 화면이면 POG 탭만 (사용자)
   $('#subnav-dw').classList.toggle('on', v.startsWith('dw-'));
   $$('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + secOf(v)));
   if (v.startsWith('dw-')) setDwMode({ 'dw-up': 'up', 'dw-tr': 'tr', 'dw-online': 'on' }[v]);

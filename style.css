@@ -986,3 +986,5 @@ body.pfit .pages .page-block { scroll-snap-align: start; scroll-margin-top: 12px
 @media print { #drawer-tg { display: none !important; } }
 /* 집기도면: 같은 매대에 같은 내용이 또 적힌 글 (사용자: 중복 지우기) */
 .fxd-box.dup { outline: 2px dashed #e53935; outline-offset: 2px; }
+/* POG 하위 메뉴: 집기도면 화면이면 집기도면 탭만, 그 밖엔 POG 탭만 (사용자) */
+#subnav[data-mode="fxd"] .sn-pog, #subnav[data-mode="pog"] .sn-fxd { display: none; }
