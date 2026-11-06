@@ -969,3 +969,8 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .dw-nudges .dw-nudge { min-width: 40px; font-size: 15px; }
 /* 도면 확대 버튼 － 100% ＋ 는 한 덩어리로 같이 줄바꿈 (사용자: 아이패드 세로에서 나뉘었음) */
 .dw-zgrp { display: inline-flex; flex-wrap: nowrap; gap: 4px; align-items: center; white-space: nowrap; flex: none; }
+/* 아이패드 가로: POG 페이지를 화면 높이에 맞춤 (app.js setPf, 사용자) */
+body.pfit #ed-pages .page-block, body.pfit #tr-pages .page-block, body.pfit #vw-pages .page-block { zoom: var(--pf, 1); }
+body.pfit #ed-pages, body.pfit #tr-pages, body.pfit #vw-pages { scroll-snap-type: y proximity; }
+body.pfit .pages .page-block { scroll-snap-align: start; scroll-margin-top: 12px; }
+@media print { body.pfit .pages .page-block { zoom: 1 !important; } }

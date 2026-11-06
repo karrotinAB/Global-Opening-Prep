@@ -1293,7 +1293,7 @@ function fitText(el, fs) {
   while (f > 7 && (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1)) { f -= 1; el.style.fontSize = f + 'px'; }
 }
 function startNoteDrag(e, block, n, mode) {
-  const z = ZM();
+  const z = ZP();
   e.preventDefault(); e.stopPropagation();
   if ($('#ed-side')?.contains(document.activeElement)) document.activeElement.blur(); // 패널에서 글 쓰던 중이면 끝내고 이 페이지로
   selectNote(block, n.id);
@@ -1676,7 +1676,7 @@ function splitBand(e, block) {
   const host = block.querySelector('.pcanvas'), r0 = host.getBoundingClientRect(), sx = e.clientX, sy = e.clientY;
   const band = h('div', { class: 'split-band' }); host.append(band);
   const box = ev => ({ l: Math.min(sx, ev.clientX), t: Math.min(sy, ev.clientY), r: Math.max(sx, ev.clientX), b: Math.max(sy, ev.clientY) });
-  const mv = ev => { const b = box(ev), z = ZM(); Object.assign(band.style, { left: (b.l - r0.left) / z + 'px', top: (b.t - r0.top) / z + 'px', width: (b.r - b.l) / z + 'px', height: (b.b - b.t) / z + 'px' }); };
+  const mv = ev => { const b = box(ev), z = ZP(); Object.assign(band.style, { left: (b.l - r0.left) / z + 'px', top: (b.t - r0.top) / z + 'px', width: (b.r - b.l) / z + 'px', height: (b.b - b.t) / z + 'px' }); };
   const up = ev => {
     window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); band.remove();
     const b = box(ev); if (b.r - b.l < 3 && b.b - b.t < 3) return;
@@ -1698,15 +1698,23 @@ function paintSplit(block) {
    - 네모: 마우스로 빈 곳에서 시작해 끌 때 (예전 방식)
    - 톡 누르기: 그 자리의 제품(없으면 선반·파이프)을 넣거나 뺌
    - 두 손가락이 닿으면 긁기 멈춤 */
+/* 아이패드 사파리: 매대 나누기 중 그림 위에서 손가락을 대면 기본 스크롤을 바로 막음.
+   touch-action만으로는 사파리가 스크롤을 먼저 시작해서 긁기가 중간에 끊겼음 (pointercancel → 처음 몇 개만 잡힘 · 사용자)
+   두 손가락은 막지 않음 (확대·화면 이동) */
+{
+  const inSplit = e => e.touches.length === 1 && e.target.closest?.('.page-block.splitting .pcanvas');
+  document.addEventListener('touchstart', e => { if (inSplit(e)) e.preventDefault(); }, { passive: false });
+  document.addEventListener('touchmove', e => { if (inSplit(e)) e.preventDefault(); }, { passive: false });
+}
 function splitPointer(e, block) {
   const cvIn = block.querySelector('.pcanvas .cv-in'); if (!cvIn) return;
-  const touch = e.pointerType === 'touch', tol = touch ? 8 : 2;
+  const touch = e.pointerType === 'touch', tol = touch ? 12 : 2; // 손가락은 굵어서 넓게
   const items = [...cvIn.querySelectorAll('.cv-item')].map(el => ({ id: el.dataset.id, r: el.getBoundingClientRect() }));
   const props = [...cvIn.querySelectorAll('.cv-prop')].filter(el => el.dataset.pid).map(el => ({ id: el.dataset.pid, r: el.getBoundingClientRect() }));
   const hitAt = (list, x, y, t) => list.filter(o => x >= o.r.left - t && x <= o.r.right + t && y >= o.r.top - t && y <= o.r.bottom + t);
   if (!touch && !hitAt(items, e.clientX, e.clientY, 0).length) { splitBand(e, block); return; } // 마우스로 빈 곳 → 네모
   e.preventDefault();
-  const host = block.querySelector('.pcanvas'), r0 = host.getBoundingClientRect(), pid = e.pointerId, z = ZM();
+  const host = block.querySelector('.pcanvas'), r0 = host.getBoundingClientRect(), pid = e.pointerId, z = ZP();
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'split-trail');
   const line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline'); svg.append(line); host.append(svg);
   const pts = [[e.clientX, e.clientY]]; let moved = false, stop = false, last = [e.clientX, e.clientY];
@@ -1729,7 +1737,7 @@ function splitPointer(e, block) {
     window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); window.removeEventListener('pointerdown', down2, true);
     svg.classList.add('fade'); setTimeout(() => svg.remove(), 350);
     if (!moved && !stop) { // 톡: 넣거나 빼기
-      const it = hitAt(items, e.clientX, e.clientY, tol)[0], pr = !it && hitAt(props, e.clientX, e.clientY, tol + 2)[0];
+      const it0 = hitAt(items, e.clientX, e.clientY, 2)[0], pr = !it0 && hitAt(props, e.clientX, e.clientY, 10)[0], it = it0 || (!pr && hitAt(items, e.clientX, e.clientY, tol)[0]); // 톡: 바로 그 제품 → 선반·파이프 → 근처 제품
       if (it) state.split.items.has(it.id) ? state.split.items.delete(it.id) : state.split.items.add(it.id);
       else if (pr) state.split.props.has(pr.id) ? state.split.props.delete(pr.id) : state.split.props.add(pr.id);
     }
@@ -1786,7 +1794,7 @@ function resetBase(pogId, fx) {
 function resizeBlock(e, block, bid) {
   e.preventDefault(); e.stopPropagation();
   const fx = state.fixtures.get(block._fx), b = fx && groupOf(fx, bid); if (!b) return;
-  const cvIn = block.querySelector('.pcanvas .cv-in'), sc = (cvIn?._sc || 1) * ZM();
+  const cvIn = block.querySelector('.pcanvas .cv-in'), sc = (cvIn?._sc || 1) * ZP();
   const g = cvIn?.querySelector(`.cv-bgrp[data-b="${CSS.escape(bid)}"]`), box = cvIn?.querySelector(`.cv-blk[data-b="${CSS.escape(bid)}"]`); if (!g || !box) return;
   const l = parseFloat(box.style.left) + 4, t = parseFloat(box.style.top) + 4, w0 = Math.max(10, parseFloat(box.style.width) - 8), h0 = Math.max(10, parseFloat(box.style.height) - 8);
   g.style.transformOrigin = `${l}px ${t}px`;
@@ -1811,7 +1819,7 @@ function resizeBlock(e, block, bid) {
 function dragBlock(e, block, bid) {
   e.preventDefault(); e.stopPropagation();
   const fx = state.fixtures.get(block._fx), b = fx && groupOf(fx, bid); if (!b) return;
-  const cvIn = block.querySelector('.pcanvas .cv-in'), g = cvIn?.querySelector(`.cv-bgrp[data-b="${CSS.escape(bid)}"]`), sc = (cvIn?._sc || 1) * ZM();
+  const cvIn = block.querySelector('.pcanvas .cv-in'), g = cvIn?.querySelector(`.cv-bgrp[data-b="${CSS.escape(bid)}"]`), sc = (cvIn?._sc || 1) * ZP();
   const sx = e.clientX, sy = e.clientY; let moved = false, ddx = 0, ddy = 0;
   const mv = ev => { ddx = (ev.clientX - sx) / sc; ddy = (ev.clientY - sy) / sc; if (Math.abs(ddx) + Math.abs(ddy) > 2) moved = true; if (g) g.style.transform = `translate(${ddx}px, ${ddy}px)`; };
   const up = () => {
@@ -1943,6 +1951,20 @@ function hookPicker(pog, ed) {
 const NARROW = matchMedia('(max-width: 900px)');
 // 사이트 전체 크기 (style.css의 html zoom: PC에서 80% · 사용자). 마우스로 끌 때 화면 px → 사이트 안 px로 바꿀 때 나눔
 const ZM = () => parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+/* 아이패드 가로 화면: POG 페이지(A4 세로)를 화면 높이에 딱 맞게 줄임 (사용자: 가로로 보면 페이지가 자꾸 위아래로 스크롤됨)
+   body.pfit + --pf (페이지에만 zoom). 페이지 안에서 끄는 기능은 ZM() 대신 ZP()(= 사이트 zoom × 페이지 zoom)로 나눔 */
+let PF = 1;
+const ZP = () => ZM() * PF;
+function setPf() {
+  const box = ['#ed-pages', '#tr-pages', '#vw-pages'].map(s => $(s)).find(el => el && el.clientHeight > 0);
+  const on = HAS_TOUCH && window.innerWidth > window.innerHeight && window.innerWidth > 700 && !!box;
+  const pf = on ? Math.max(0.3, Math.min(1, (box.clientHeight - 36) / 1123)) : 1;
+  document.body.classList.toggle('pfit', on && pf < 1);
+  if (pf === PF) return;
+  PF = on && pf < 1 ? pf : 1; document.documentElement.style.setProperty('--pf', String(PF));
+}
+window.addEventListener('resize', () => setPf());
+{ const ro = new ResizeObserver(() => setPf()); ['#ed-pages', '#tr-pages', '#vw-pages'].forEach(s => { const el = $(s); if (el) ro.observe(el); }); }
 const HAS_TOUCH = matchMedia('(any-pointer: coarse)').matches || navigator.maxTouchPoints > 0; // 터치 화면(아이패드·휴대폰)
 NARROW.addEventListener?.('change', () => renderSidePanel());
 function renderSidePanel() {
