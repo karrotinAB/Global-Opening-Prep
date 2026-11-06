@@ -5691,6 +5691,18 @@ function renderFxdSide(list, miss, hidden = []) {
           ? e.lines.map(l => h('div', { class: 'se-kid' }, h('span', {}, h('b', {}, l.name), ` · ${displayName(e.fx)}`), h('button', { class: 'btn small ghost', onclick: () => fxdHideLines(pog, [{ fx: e.fx, l }], false) }, '다시 넣기')))
           : [h('div', { class: 'se-kid' }, h('span', {}, h('b', {}, displayName(e.fx)), ` · 글 상자 전체`), h('button', { class: 'btn small ghost', onclick: () => fxdSetHide(pog, [e.fx.id], false) }, '다시 넣기'))])));
       if (Object.keys(pog.fxdPos || {}).length) nodes.push(h('div', { class: 'se-btns' }, h('button', { class: 'btn small ghost', onclick: () => { if (!confirm('옮긴 글 위치를 모두 처음(매대명 바로 아래)으로 되돌릴까요?')) return; pog.fxdPos = {}; updateDoc(doc(db, 'pogs', pog.id), { fxdPos: deleteField() }); renderFxd(); } }, '모두 자동 위치로')));
+      // 집기도면 처음으로 (사용자): 옮긴 위치·글 크기·뺀 글 상자·뺀 줄을 모두 지움 (POG 페이지 내용은 그대로)
+      const touched = Object.keys(pog.fxdPos || {}).length || (pog.fxdScale && pog.fxdScale !== 1) || Object.keys(pog.fxdHide || {}).length || Object.keys(pog.fxdHideL || {}).length;
+      if (touched) nodes.push(sec('처음으로', h('p', { class: 'se-help' }, '이 집기도면에서 옮긴 위치·글 크기·뺀 글을 모두 지우고 처음 모습(매대명 바로 아래, 모든 글)으로 돌아가요. POG 페이지 내용은 그대로예요.'),
+        h('div', { class: 'se-btns' }, h('button', { class: 'btn small danger', onclick: () => {
+          if (!confirm('집기도면을 처음 상태로 되돌릴까요?\n옮긴 위치·글 크기·집기도면에서 뺀 글이 모두 없어져요. (POG 페이지 내용은 그대로)')) return;
+          const before = { fxdPos: pog.fxdPos || null, fxdScale: pog.fxdScale || null, fxdHide: pog.fxdHide || null, fxdHideL: pog.fxdHideL || null };
+          pog.fxdPos = {}; pog.fxdScale = 1; pog.fxdHide = {}; pog.fxdHideL = {}; fxd.sel = null;
+          updateDoc(doc(db, 'pogs', pog.id), { fxdPos: deleteField(), fxdScale: deleteField(), fxdHide: deleteField(), fxdHideL: deleteField() })
+            .then(() => toast('집기도면을 처음 상태로 되돌렸어요')).catch(err => toast('저장하지 못했어요: ' + (err.code || err.message)));
+          addLog(['pogs', pog.id], { fx: '__cover', area: 'make', act: '집기도면 처음으로 되돌림', what: `옮긴 글 ${Object.keys(before.fxdPos || {}).length}개 · 뺀 글 ${Object.keys(before.fxdHide || {}).length + Object.keys(before.fxdHideL || {}).length}개` });
+          renderFxd();
+        } }, '↺ 집기도면 처음으로 되돌리기'))));
     }
   }
   if (fxd.mode === 'tr' && canEdit('pog-trans')) {
