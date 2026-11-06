@@ -5636,6 +5636,8 @@ function fxdEntries() {
   }
   return { list, miss, hidden };
 }
+// 집기도면 글 상자 → 같은 도면 매대에 붙은 POG 페이지들 팝업
+function fxdPogPop(pog, list, e) { const fxs = list.filter(x => x.g.id === e.g.id).map(x => x.fx); showPogPopup(pog, fxs.length ? fxs : [e.fx], fxd.lang, `POG · ${(fxs.length ? fxs : [e.fx]).map(displayName).join(', ')}`); }
 function renderFxd() {
   const pog = state.pogs.find(p => p.id === fxd.pogId), stage = $('#fxd-stage'); if (!pog || !stage) return;
   $('#fxd-title').textContent = `${pog.branchName || pog.storeName || ''} · ${T('집기도면', 'Fixture Plan')}`;
@@ -5653,8 +5655,9 @@ function renderFxd() {
       style: `left:${pct(e.pos.x, v.w)};top:${pct(e.pos.y, v.h)};font-size:${(e.g.fs * 0.62 * sc / v.w * 100).toFixed(4)}cqw` },
       ...e.lines.map(l => { const w = fxdWord(l.name, l.k); return h('div', { class: 'fxd-l ' + l.k + (w.need && fxd.mode === 'tr' ? ' need' : '') + (l.dupOf && fxd.mode === 'make' ? ' dup' : ''), style: l.color ? `color:${l.color}` : '' }, `${w.text}${l.qty !== '' && l.qty != null ? ' ' + l.qty : ''}`); }));
     if (ed) el.addEventListener('pointerdown', ev => fxdDrag(ev, e, wrap, v, pog));
+    if (fxd.mode !== 'on') el.addEventListener('dblclick', () => fxdPogPop(pog, list, e)); // 편집·번역: 두 번 누르면 POG 페이지 (사용자)
     else if (fxd.mode !== 'on') el.onclick = () => { fxd.sel = e.fx.id; renderFxd(); };
-    else { el.classList.add('pop'); el.title = T('누르면 POG 페이지를 보여줘요', 'Tap to see the POG page'); el.onclick = () => { const fxs = list.filter(x => x.g.id === e.g.id).map(x => x.fx); showPogPopup(pog, fxs, fxd.lang, `POG · ${fxs.map(displayName).join(', ')}`); }; }
+    else { el.classList.add('pop'); el.title = T('누르면 POG 페이지를 보여줘요', 'Tap to see the POG page'); el.onclick = () => fxdPogPop(pog, list, e); }
     wrap.append(el);
   }
   stage.replaceChildren(view);
@@ -5721,6 +5724,7 @@ function renderFxdSide(list, miss, hidden = []) {
       rng.addEventListener('change', () => updateDoc(doc(db, 'pogs', pog.id), { fxdScale: +rng.value }).catch(err => toast('저장하지 못했어요: ' + (err.code || err.message))));
       nodes.push(sec('글 크기', h('div', { class: 'se-btns' }, rng, lab)));
       if (sel) nodes.push(sec('고른 글', h('div', { class: 'se-kid' }, h('span', {}, h('b', {}, displayName(sel.fx)), ` · 도면 '${sel.g.ko}'`)),
+        h('div', { class: 'se-btns' }, h('button', { class: 'btn small', onclick: () => fxdPogPop(pog, list, sel) }, '📄 POG 페이지 보기')),
         h('div', { class: 'fxd-lines' }, ...sel.lines.map(l => h('div', { class: 'se-kid' + (l.dupOf ? ' dup' : '') },
           h('span', {}, `${l.name}${l.qty !== '' && l.qty != null ? ' ' + l.qty : ''}`, l.dupOf ? h('small', { class: 'mut' }, ` · '${displayName(l.dupOf)}'에도 있음`) : null),
           h('button', { class: 'btn small ghost danger', title: '이 줄만 집기도면에서 빼요 (POG 페이지는 그대로)', onclick: () => fxdHideLines(pog, [{ fx: sel.fx, l }], true) }, '빼기')))),
@@ -5757,7 +5761,7 @@ function renderFxdSide(list, miss, hidden = []) {
     rng.addEventListener('change', () => { (fxd.trDoc ||= {}).fxdScale = +rng.value; setDoc(ref, { lang: lang0, fxdScale: +rng.value }, { merge: true }).catch(err => toast('저장하지 못했어요: ' + (err.code || err.message))); });
     nodes.push(sec(`${lang0} 집기도면 위치·크기`, h('p', { class: 'se-help' }, `글 상자를 끌어서 ${lang0} 도면에서만 옮길 수 있어요 (한국어 위치는 그대로). 옮기지 않은 글은 한국어 집기도면 위치를 따라가요.`),
       h('div', { class: 'se-btns' }, rng, lab),
-      sel ? h('div', { class: 'se-kid' }, h('span', {}, '고른 글: ', h('b', {}, displayName(sel.fx)))) : null,
+      sel ? h('div', { class: 'se-kid' }, h('span', {}, '고른 글: ', h('b', {}, displayName(sel.fx))), h('button', { class: 'btn small ghost', onclick: () => fxdPogPop(pog, list, sel) }, '📄 POG')) : null,
       sel && tpos[sel.fx.id] ? h('div', { class: 'se-btns' }, h('button', { class: 'btn small ghost', onclick: () => { delete tpos[sel.fx.id]; updateDoc(ref, new FieldPath('fxdPos', sel.fx.id), deleteField()); renderFxd(); } }, '한국어 위치로 되돌리기')) : null,
       Object.keys(tpos).length ? h('div', { class: 'se-btns' }, h('button', { class: 'btn small ghost', onclick: () => { if (!confirm(`${lang0}에서 옮긴 글 위치를 모두 한국어 위치로 되돌릴까요?`)) return; fxd.trDoc.fxdPos = {}; updateDoc(ref, { fxdPos: deleteField() }); renderFxd(); } }, '모두 한국어 위치로')) : null));
   }
