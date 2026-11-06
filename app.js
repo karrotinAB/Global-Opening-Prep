@@ -3577,7 +3577,7 @@ function renderDwStage() {
     h('button', { class: 'btn small primary', id: 'dw-seq-save', onclick: () => saveSeq(v) }, '💾 저장'), ' ',
     h('button', { class: 'btn small ghost', onclick: () => { dw.seqDraft = [...(dw.seq || [])]; paintSeq(); } }, '처음대로'), ' ',
     h('button', { class: 'btn small ghost', onclick: () => { if (confirm('번호를 모두 지울까요? (저장을 눌러야 반영돼요)')) { dw.seqDraft = []; paintSeq(); } } }, '모두 지우기')));
-  box.replaceChildren(legend, drawingView(v, en ? 'en' : 'ko', pickable ? { picks: dwPicks(), onPick: g => togglePick(g.id), onPickMany: ids => { const p = dwPicks(); ids.forEach(i => p.add(i)); renderDwStage(); renderDwSide(); } } : { selId: dw.sel, onLab: dw.tab === 'tr', plain: dw.tab !== 'up', hits, seq }));
+  box.replaceChildren(legend, drawingView(v, en ? 'en' : 'ko', pickable ? { picks: dwPicks(), onPick: g => togglePick(g.id), onPickMany: ids => { const p = dwPicks(); ids.forEach(i => p.add(i)); paintPicks(); renderDwSide(); } } : { selId: dw.sel, onLab: dw.tab === 'tr', plain: dw.tab !== 'up', hits, seq }));
   dwZoomApply();
   if (seq && dw.seqMode) paintSeq();
   if (hits && dwf.jump) { dwf.jump = false; setTimeout(() => $('.dw-find', box)?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }), 30); }
@@ -4039,7 +4039,9 @@ function publishDw(v, states) {
 }
 // 매대명 묶음 고치기 (업로드 탭): 자동으로 묶은 게 틀렸을 때 나누기·합치기
 function dwPicks() { if (dw.picksV !== dw.vId) { dw.picks = new Set(); dw.picksV = dw.vId; } return dw.picks; }
-function togglePick(id) { const p = dwPicks(); p.has(id) ? p.delete(id) : p.add(id); renderDwStage(); renderDwSide(); }
+// 고른 칸 표시만 바꿈 (도면을 다시 그리지 않아서 깜빡이지 않음 · 사용자)
+function paintPicks() { const p = dwPicks(); document.querySelectorAll('#dw-stage .dw-box.pick').forEach(el => el.classList.toggle('on', p.has(el.dataset.gid))); }
+function togglePick(id) { const p = dwPicks(); p.has(id) ? p.delete(id) : p.add(id); paintPicks(); renderDwSide(); }
 function groupEditor(v) {
   const groups = v.groups || [], picks = dwPicks(), sel = groups.filter(g => picks.has(g.id));
   const nextId = () => 'g' + (Math.max(-1, ...groups.map(g => parseInt(g.id.slice(1)) || 0)) + 1 + nextId.n++); nextId.n = 0;
@@ -4075,7 +4077,7 @@ function groupEditor(v) {
     h('div', { class: 'se-btns' },
       h('button', { class: 'btn small', disabled: !(g1 && (g1.parts?.length || 0) > 1), onclick: split }, '나누기'),
       h('button', { class: 'btn small', disabled: sel.length < 2, onclick: merge }, sel.length >= 2 ? `${sel.length}개 합치기` : '합치기'),
-      sel.length ? h('button', { class: 'btn small ghost', onclick: () => { dw.picks = new Set(); renderDwStage(); renderDwSide(); } }, '고른 것 지우기') : null),
+      sel.length ? h('button', { class: 'btn small ghost', onclick: () => { dw.picks = new Set(); paintPicks(); renderDwSide(); } }, '고른 것 지우기') : null),
     g1 && !g1.parts ? h('div', { class: 'tr-why' }, '예전에 올린 도면이라 나눌 수 없어요. 다시 올리면 돼요.') : null);
 }
 $('#dw-side').addEventListener('focusout', () => setTimeout(() => renderDwSide(), 80));
