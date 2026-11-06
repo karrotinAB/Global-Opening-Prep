@@ -3578,7 +3578,9 @@ function renderDwStage() {
     h('button', { class: 'btn small primary', id: 'dw-seq-save', onclick: () => saveSeq(v) }, '💾 저장'), ' ',
     h('button', { class: 'btn small ghost', onclick: () => { dw.seqDraft = [...(dw.seq || [])]; paintSeq(); } }, '처음대로'), ' ',
     h('button', { class: 'btn small ghost', onclick: () => { if (confirm('번호를 모두 지울까요? (저장을 눌러야 반영돼요)')) { dw.seqDraft = []; paintSeq(); } } }, '모두 지우기')));
-  box.replaceChildren(legend, drawingView(v, en ? 'en' : 'ko', pickable ? { picks: dwPicks(), onPick: g => togglePick(g.id), onPickMany: ids => { const p = dwPicks(); ids.forEach(i => p.add(i)); paintPicks(); renderDwSide(); } } : { selId: dw.sel, onLab: dw.tab === 'tr', plain: dw.tab !== 'up', hits, seq }));
+  const view = drawingView(v, en ? 'en' : 'ko', pickable ? { picks: dwPicks(), onPick: g => togglePick(g.id), onPickMany: ids => { const p = dwPicks(); ids.forEach(i => p.add(i)); paintPicks(); renderDwSide(); } } : { selId: dw.sel, onLab: dw.tab === 'tr', plain: dw.tab !== 'up', hits, seq });
+  box.replaceChildren(legend, view);
+  if (dw.tab === 'on' && !dw.seqMode) dwPogHits(view._full, v, en);
   dwZoomApply();
   if (seq && dw.seqMode) paintSeq();
   if (hits && dwf.jump) { dwf.jump = false; setTimeout(() => $('.dw-find', box)?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }), 30); }
@@ -3806,6 +3808,27 @@ function dwFindHits(v) {
   n.classList.toggle('none', !hits.size);
   return hits;
 }
+// 온라인 도면: POG 페이지가 연결된 매대를 누르면 그 POG 페이지 팝업 (사용자)
+function dwPogHits(wrap, v, en) {
+  if (dwf.pog === undefined) { loadDwFindPog(); return; }
+  if (!dwf.pog) return;
+  const pog = state.pogs.find(p => p.id === dwf.pog.id); if (!pog) return;
+  const byG = new Map();
+  for (const f of composeFx(dwf.pog.fixtures)) {
+    const r = f.drawingRef; if (!r || r.storeId !== dw.id) continue;
+    const g = (v.groups || []).find(x => r.vId === v.id ? x.id === r.gid : norm(x.ko) === norm(r.ko)); if (!g) continue;
+    (byG.get(g.id) || byG.set(g.id, []).get(g.id)).push(f);
+  }
+  const pct = (n, of) => `${(n / of * 100).toFixed(3)}%`;
+  for (const g of v.groups || []) {
+    const fxs = byG.get(g.id); if (!fxs) continue;
+    const pad = g.fs * 0.3;
+    const el = h('div', { class: 'dw-pogbox', title: T('누르면 연결된 POG 페이지를 보여줘요', 'Tap to see the POG page'),
+      style: `left:${pct(g.x - pad, v.w)};top:${pct(g.y - pad, v.h)};width:${pct(g.w + pad * 2, v.w)};height:${pct(g.h + pad * 2, v.h)}` });
+    el.onclick = e => { e.stopPropagation(); showPogPopup(pog, fxs, en ? dw.lang : 'ko', `POG · ${fxs.map(displayName).join(', ')}`); };
+    wrap.append(el);
+  }
+}
 // 이 매장의 최종 POG 페이지를 한 번만 읽어 둠 (제품·카테고리 찾기용)
 async function loadDwFindPog() {
   const id = dw.id, st = dwStores().find(x => x.id === id);
@@ -3818,7 +3841,7 @@ async function loadDwFindPog() {
     if (dw.id !== id) return;
     dwf.pog = { id: p.id, fixtures: s.docs.map(d => ({ id: d.id, ...d.data() })) };
   } catch { dwf.pog = null; }
-  if ($('#dw-find').value.trim()) renderDwStage();
+  if ($('#dw-find').value.trim() || dw.tab === 'on') renderDwStage();
 }
 let dwFindT = 0;
 $('#dw-find').addEventListener('input', () => { clearTimeout(dwFindT); dwFindT = setTimeout(() => { dwf.jump = true; renderDwStage(); }, 250); });
@@ -4341,6 +4364,24 @@ $('#vw-find-next').onclick = () => vwFind(1);
 $('#vw-find-prev').onclick = () => vwFind(-1);
 $('#vw-pdf').onclick = () => printPages($('#vw-pages'), state.viewer.pog);
 // 온라인 POG: 헤더 누르면 도면 위치 창 (제품 찾기와 같은 빨간 칸·화살표)
+/* 도면·집기도면에서 매대를 누르면 연결된 POG 페이지를 팝업으로 (사용자)
+   pog: POG 문서, fxs: 그 매대에 연결된 페이지들(composeFx 된 것), lang: 'ko' | 번역 언어 이름 (반영된 번역 out이 있으면 그걸로) */
+const pogPopTr = new Map();
+async function showPogPopup(pog, fxs, lang, title) {
+  const body = h('div', { class: 'pogpop' }, h('div', { class: 'mut' }, 'POG 불러오는 중…'));
+  modal(h('div', {}, h('h3', {}, title), body), { wide: true });
+  let out = null;
+  if (lang && lang !== 'ko' && lang !== '한국어') {
+    const k = pog.id + '|' + lang;
+    if (!pogPopTr.has(k)) { try { const t = await getDoc(doc(db, 'pogs', pog.id, 'translations', lang)); pogPopTr.set(k, t.exists() ? t.data().out || null : null); } catch { pogPopTr.set(k, null); } }
+    out = pogPopTr.get(k);
+  }
+  const L = out ? { ...LABELS_KO, ...(out.__labels || {}) } : LABELS_KO;
+  const pogV = out ? { ...pog, coverTitle: out.__pog?.cover || coverTitle(pog), branchName: out.__pog?.store || footStore(pog) } : pog;
+  const pages = fxs.map(f => { const fx = applyTr(f, out?.[f.id]); const el = buildPage(fx, pogV, { editable: false, onItem: showItem, L }); syncPage(el, fx, pogV); return el; });
+  const z = Math.max(0.3, Math.min(1, (window.innerWidth / ZM() * 0.92 - 70) / 794));
+  body.replaceChildren(...pages.map(el => h('div', { class: 'pogpop-page', style: `zoom:${z.toFixed(3)}` }, el)));
+}
 function showFxDrawing(f, fx) {
   const lang = state.viewer.lang || 'ko';
   const box = h('div', { class: 'fd-dw vw-dwpop' }, h('div', { class: 'mut' }, '도면 불러오는 중…'));
@@ -5258,6 +5299,7 @@ $('#acc-add').addEventListener('submit', async e => {
 const UI_LANGS = { ko: '한국어', en: 'English', ja: '日本語', es: 'Español', ru: 'Русский' };
 // [한국어, English, 日本語, Español, Русский]
 const I18N_SRC = [
+  ['POG 불러오는 중…', 'Loading POG…', 'POGを読み込み中…', 'Cargando POG…', 'Загрузка POG…'],
   ['최종본 보기', 'Final version', '最終版を見る', 'Ver versión final', 'Финальная версия'],
   ['온라인 집기도면', 'Online Fixture Plan', 'オンライン什器図面', 'Plano de mobiliario', 'План оборудования'],
   ['집기도면', 'Fixture Plan', '什器図面', 'Plano de mobiliario', 'План оборудования'],
@@ -5612,6 +5654,7 @@ function renderFxd() {
       ...e.lines.map(l => { const w = fxdWord(l.name, l.k); return h('div', { class: 'fxd-l ' + l.k + (w.need && fxd.mode === 'tr' ? ' need' : '') + (l.dupOf && fxd.mode === 'make' ? ' dup' : ''), style: l.color ? `color:${l.color}` : '' }, `${w.text}${l.qty !== '' && l.qty != null ? ' ' + l.qty : ''}`); }));
     if (ed) el.addEventListener('pointerdown', ev => fxdDrag(ev, e, wrap, v, pog));
     else if (fxd.mode !== 'on') el.onclick = () => { fxd.sel = e.fx.id; renderFxd(); };
+    else { el.classList.add('pop'); el.title = T('누르면 POG 페이지를 보여줘요', 'Tap to see the POG page'); el.onclick = () => { const fxs = list.filter(x => x.g.id === e.g.id).map(x => x.fx); showPogPopup(pog, fxs, fxd.lang, `POG · ${fxs.map(displayName).join(', ')}`); }; }
     wrap.append(el);
   }
   stage.replaceChildren(view);

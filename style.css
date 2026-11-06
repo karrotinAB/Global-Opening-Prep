@@ -990,3 +990,10 @@ body.pfit .pages .page-block { scroll-snap-align: start; scroll-margin-top: 12px
 .fxd-lines .se-kid { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
 /* POG 하위 메뉴: 집기도면 화면이면 집기도면 탭만, 그 밖엔 POG 탭만 (사용자) */
 #subnav[data-mode="fxd"] .sn-pog, #subnav[data-mode="pog"] .sn-fxd { display: none; }
+/* 도면·집기도면에서 매대를 누르면 POG 페이지 팝업 (사용자) */
+.dw-pogbox { position: absolute; cursor: pointer; border-radius: 3px; z-index: 4; }
+.dw-pogbox:hover { outline: 2px solid #f7931e; background: rgba(247,147,30,.12); }
+.fxd-box.pop { cursor: pointer; }
+.fxd-box.pop:hover { outline: 2px solid #f7931e; }
+.pogpop { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.pogpop-page .page-block { margin: 0; }
