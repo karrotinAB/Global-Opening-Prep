@@ -5575,12 +5575,15 @@ function fxdEntries() {
     if (pog.fxdHide?.[fx.id]) { hidden.push({ fx, g }); continue; } // 집기도면에서 빼 둔 페이지 (사용자: 중복 지우기)
     if (offLines.length) hidden.push({ fx, g, lines: offLines });
     if (!lines.length) continue;
-    const movedHere = !!(fxdTrPos()?.[fx.id] || pog.fxdPos?.[fx.id]);
-    if (!movedHere) { // 따로 옮긴 글은 다른 자리(예: 같은 이름의 다른 매대)에 쓰려는 것이라 비교 안 함
-      const prev = seen.get(g.id) || new Map();
-      lines.forEach(l => { const p = prev.get(`${lkey(l)}:${l.qty ?? ''}`); if (p) l.dupOf = p; });
-      lines.forEach(l => { const k2 = `${lkey(l)}:${l.qty ?? ''}`; if (!prev.has(k2)) prev.set(k2, fx); });
-      seen.set(g.id, prev);
+    // 중복 비교 (사용자: 옮겨 둔 포장지 집기 글 상자의 중복이 안 잡혔음 · 같은 이름의 다른 화일 매대로 옮긴 글은 잘못 잡혔음)
+    const mp = fxdTrPos()?.[fx.id] || pog.fxdPos?.[fx.id];
+    // 옮긴 글은 같은 이름 매대 중 가장 가까운 매대 것으로 봄 (같은 이름 '화일'이 두 곳이면 옮겨 둔 쪽 매대)
+    const near = !mp ? g : groups.filter(x => norm(x.ko) === norm(g.ko)).reduce((b, x) => Math.hypot(mp.x - (x.x + x.w / 2), mp.y - (x.y + x.h)) < Math.hypot(mp.x - (b.x + b.w / 2), mp.y - (b.y + b.h)) ? x : b, g);
+    {
+      const prev = seen.get(near.id) || new Map();
+      lines.forEach(l => { const p = prev.get(`${lkey(l)}:${String(l.qty ?? '').trim()}`); if (p) l.dupOf = p; });
+      lines.forEach(l => { const k2 = `${lkey(l)}:${String(l.qty ?? '').trim()}`; if (!prev.has(k2)) prev.set(k2, fx); });
+      seen.set(near.id, prev);
     }
     const dupOf = null;
     const n = stack.get(g.id) || 0; stack.set(g.id, n + lines.length);
