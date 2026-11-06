@@ -5280,7 +5280,6 @@ const I18N_SRC = [
   ['로그아웃', 'Log out', 'ログアウト', 'Cerrar sesión', 'Выйти'],
   ['바이어', 'Buyer', 'バイヤー', 'Comprador', 'Покупатель'],
   ['제품 찾기만', 'Product finder', '商品検索のみ', 'Solo búsqueda', 'Только поиск'],
-  ['최종본 보기 (한/영)', 'Final version (KO/EN)', '最終版 (韓/英)', 'Versión final (KO/EN)', 'Финальная версия (KO/EN)'],
   ['← 처음 화면으로', '← Back to home', '← ホームへ', '← Volver al inicio', '← На главную'],
   ['볼 수 있는 화면이 없어요', 'No screens available for this account', 'このアカウントで見られる画面はありません', 'No hay pantallas disponibles para esta cuenta', 'Для этой учётной записи нет доступных экранов'],
   ['관리자가 이 계정의 접속을 막았어요. 다시 쓰려면 관리자에게 말해주세요.', 'This account has been blocked by the administrator. Please contact them to use it again.', 'このアカウントは管理者によってブロックされています。管理者にお問い合わせください。', 'El administrador ha bloqueado esta cuenta. Contacte con él para volver a usarla.', 'Администратор заблокировал эту учётную запись. Обратитесь к нему, чтобы снова её использовать.'],
