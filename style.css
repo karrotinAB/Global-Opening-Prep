@@ -997,3 +997,15 @@ body.pfit .pages .page-block { scroll-snap-align: start; scroll-margin-top: 12px
 .fxd-box.pop:hover { outline: 2px solid #f7931e; }
 .pogpop { display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .pogpop-page .page-block { margin: 0; }
+/* 홈 화면 오른쪽 아래 ? 조작법 (사용자) */
+.help-fab { position: fixed; right: 18px; bottom: 22px; z-index: 6; width: 44px; height: 44px; border-radius: 50%; border: 0; background: #f7931e; color: #fff; font: inherit; font-size: 22px; font-weight: 800; box-shadow: 0 4px 14px rgba(0,0,0,.25); cursor: pointer; }
+.help-fab:hover { background: #e07f0c; }
+.help-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 12px; }
+.help-tabs button { border: 1px solid #ddd; background: #fff; border-radius: 16px; padding: 5px 11px; font: inherit; font-size: 12.5px; cursor: pointer; }
+.help-tabs button.on { background: #f7931e; border-color: #f7931e; color: #fff; font-weight: 700; }
+.help-body h4 { margin: 4px 0 8px; }
+.help-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.help-tbl th, .help-tbl td { text-align: left; vertical-align: top; padding: 7px 8px; border-bottom: 1px solid #eee; }
+.help-tbl th { width: 45%; font-weight: 700; color: #333; }
+.help-tbl td { color: #555; }
+@media print { .help-fab { display: none !important; } }
