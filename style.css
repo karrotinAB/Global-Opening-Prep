@@ -962,3 +962,5 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 
 /* 도면 번역: 글자 위치 화살표 (사용자) */
 .dw-nudges .dw-nudge { min-width: 40px; font-size: 15px; }
+/* 도면 확대 버튼 － 100% ＋ 는 한 덩어리로 같이 줄바꿈 (사용자: 아이패드 세로에서 나뉘었음) */
+.dw-zgrp { display: inline-flex; flex-wrap: nowrap; gap: 4px; align-items: center; white-space: nowrap; flex: none; }
