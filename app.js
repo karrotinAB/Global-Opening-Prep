@@ -1094,7 +1094,7 @@ function finishBlock(fx, pog, page, editable) {
   if (editable) page.addEventListener('pointerdown', e => {
     setEdActive(fx.id);
     if (e.target.closest('.nt, .nh')) return;
-    if (state.split?.id === fx.id && e.target.closest('.pcanvas')) { splitBand(e, block); return; }
+    if (state.split?.id === fx.id && e.target.closest('.pcanvas')) { splitPointer(e, block); return; }
     const rz = e.target.closest('.cv-blk-r');
     if (rz) { resizeBlock(e, block, rz.dataset.b); return; }
     const hd = e.target.closest('.cv-blk-h');
@@ -1652,7 +1652,9 @@ function splitSection(pog, fx, block) {
   const pct = g => { const x = Math.round((g?.sx ?? g?.s ?? 1) * 100), y = Math.round((g?.sy ?? g?.s ?? 1) * 100); return x === y ? `${x}%` : `가로 ${x}% · 세로 ${y}%`; };
   if (state.split?.id === fx.id) {
     const n = state.split.items.size;
-    return sec('매대 나누기', h('p', { class: 'se-help' }, '매대 그림 위를 끌어서 떼어낼 제품을 네모로 고르세요 (여러 번 끌면 더해져요). 고른 제품과 그 안의 선반·파이프가 한 묶음이 되고, 나머지는 그대로 남아요.'),
+    return sec('매대 나누기', h('p', { class: 'se-help' }, HAS_TOUCH
+        ? '손가락으로 제품 위를 쓱 긁으면 지나간 제품이 골라져요 (여러 번 긁으면 더해져요). 잘못 고른 제품·넣을 선반은 톡 눌러서 빼거나 넣어요. 고른 제품과 선반·파이프가 한 묶음이 되고, 나머지는 그대로 남아요.'
+        : '제품 위에서 시작해 끌면 지나간 제품이 골라지고(긁기), 빈 곳에서 시작해 끌면 네모로 골라요. 여러 번 하면 더해져요. 톡 누르면 그 제품·선반을 빼거나 넣어요. 고른 제품과 선반·파이프가 한 묶음이 되고, 나머지는 그대로 남아요.'),
       h('div', { class: 'se-btns' }, btn(`✂ 고른 ${n}개를 묶음으로 나누기`, () => makeBlock(pog.id, fx, block), 'primary'), btn('다시 고르기', () => { state.split.items.clear(); state.split.props.clear(); paintSplit(block); renderSidePanel(); }, 'ghost'), btn('취소', () => { state.split = null; paintSplit(block); renderSidePanel(); }, 'ghost')));
   }
   return sec('매대 나누기', h('p', { class: 'se-help' }, '제품 일부를 떼어 따로 묶음으로 만들어요. 묶음은 회색 바탕을 따로 칠하고, ✥를 끌어 옮기거나 Ctrl+X → 다른 페이지에서 Ctrl+V로 옮길 수 있어요.'),
@@ -1689,6 +1691,52 @@ function paintSplit(block) {
   const on = state.split?.id === block._fx;
   block.classList.toggle('splitting', on);
   block.querySelectorAll('.cv-item').forEach(el => el.classList.toggle('split-pick', on && state.split.items.has(el.dataset.id)));
+  block.querySelectorAll('.cv-prop').forEach(el => el.classList.toggle('split-pick', on && !!el.dataset.pid && state.split.props.has(el.dataset.pid)));
+}
+/* 매대 나누기에서 고르기 (사용자: 손가락으로 긁으면 지나간 제품이 한 묶음)
+   - 긁기: 손가락(터치)은 늘, 마우스는 제품 위에서 시작했을 때. 지나간 제품을 더함 (선반·파이프는 긁어도 안 골라짐 — 얇아서 자꾸 걸림)
+   - 네모: 마우스로 빈 곳에서 시작해 끌 때 (예전 방식)
+   - 톡 누르기: 그 자리의 제품(없으면 선반·파이프)을 넣거나 뺌
+   - 두 손가락이 닿으면 긁기 멈춤 */
+function splitPointer(e, block) {
+  const cvIn = block.querySelector('.pcanvas .cv-in'); if (!cvIn) return;
+  const touch = e.pointerType === 'touch', tol = touch ? 8 : 2;
+  const items = [...cvIn.querySelectorAll('.cv-item')].map(el => ({ id: el.dataset.id, r: el.getBoundingClientRect() }));
+  const props = [...cvIn.querySelectorAll('.cv-prop')].filter(el => el.dataset.pid).map(el => ({ id: el.dataset.pid, r: el.getBoundingClientRect() }));
+  const hitAt = (list, x, y, t) => list.filter(o => x >= o.r.left - t && x <= o.r.right + t && y >= o.r.top - t && y <= o.r.bottom + t);
+  if (!touch && !hitAt(items, e.clientX, e.clientY, 0).length) { splitBand(e, block); return; } // 마우스로 빈 곳 → 네모
+  e.preventDefault();
+  const host = block.querySelector('.pcanvas'), r0 = host.getBoundingClientRect(), pid = e.pointerId, z = ZM();
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'split-trail');
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline'); svg.append(line); host.append(svg);
+  const pts = [[e.clientX, e.clientY]]; let moved = false, stop = false, last = [e.clientX, e.clientY];
+  const drawTrail = () => line.setAttribute('points', pts.map(([x, y]) => `${(x - r0.left) / z},${(y - r0.top) / z}`).join(' '));
+  const grab = (x, y) => { let n = 0; for (const o of hitAt(items, x, y, tol)) if (!state.split.items.has(o.id)) { state.split.items.add(o.id); n++; } return n; };
+  const others = new Set();
+  const down2 = ev => { if (ev.pointerType === 'touch' && ev.pointerId !== pid) { others.add(ev.pointerId); stop = true; } };
+  const mv = ev => {
+    if (ev.pointerId !== pid || stop) return;
+    const x = ev.clientX, y = ev.clientY;
+    if (!moved && Math.hypot(x - pts[0][0], y - pts[0][1]) < 5) return;
+    if (!moved) { moved = true; grab(pts[0][0], pts[0][1]); }
+    const [lx, ly] = last, steps = Math.max(1, Math.ceil(Math.hypot(x - lx, y - ly) / 5)); // 빨리 긁어도 작은 제품을 건너뛰지 않게 5px마다
+    let n = 0; for (let k = 1; k <= steps; k++) n += grab(lx + (x - lx) * k / steps, ly + (y - ly) * k / steps);
+    last = [x, y]; pts.push([x, y]); drawTrail();
+    if (n) paintSplit(block);
+  };
+  const up = ev => {
+    if (ev.pointerId !== pid) return;
+    window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); window.removeEventListener('pointerdown', down2, true);
+    svg.classList.add('fade'); setTimeout(() => svg.remove(), 350);
+    if (!moved && !stop) { // 톡: 넣거나 빼기
+      const it = hitAt(items, e.clientX, e.clientY, tol)[0], pr = !it && hitAt(props, e.clientX, e.clientY, tol + 2)[0];
+      if (it) state.split.items.has(it.id) ? state.split.items.delete(it.id) : state.split.items.add(it.id);
+      else if (pr) state.split.props.has(pr.id) ? state.split.props.delete(pr.id) : state.split.props.add(pr.id);
+    }
+    paintSplit(block); renderSidePanel();
+  };
+  window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+  window.addEventListener('pointerdown', down2, true);
 }
 function saveBlocks(pogId, fx, list, unbake, keepSel = null) {
   const ug = undoGroup();
