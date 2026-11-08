@@ -457,21 +457,85 @@ function logDetailBox(r, opt) {
   if (opt.go && opt.go(r, true)) kids.push(h('div', { class: 'se-btns' }, h('button', { class: 'btn small primary', onclick: () => opt.go(r) }, '이 자리로 가서 보기')));
   return h('div', { class: 'ld-box' }, ...kids.filter(Boolean));
 }
+/* 수정 기록 창 (사용자: 기록의 목적은 '누가 지웠나·바꿨나'를 찾는 것인데 표가 너무 복잡했음)
+   - 한 줄 = 한 문장: '누가 · 어디서 · 무엇을 했어요' + 시간, 날짜별로 묶음
+   - 위 알약: 전체 / 🗑 지운 것 / ✏ 바꾼 것 / ➕ 넣은 것, 사람 고르기, (POG) 이 페이지만
+   - 위치 옮김·크기·앞뒤 순서 같은 자잘한 것은 기본으로 숨김 ('자잘한 것도 보기')
+   - 줄을 누르면 자세히 (전·후 전체, 지워진 것 잔상, '이 자리로 가서 보기') */
+const LOG_MINOR_F = new Set(['itemZ', 'blocks', 'base', 'fxdPos', 'fxdScale', 'crop', 'sc', 'dx', 'dy', 'wd']);
+function logKind(r) {
+  const d = r.d || {}, act = r.act || '', from = logVal(r.from), to = logVal(r.to);
+  if (d.page || /삭제|뺌|지움|지웠|없앰|풀기/.test(act) || (d.del?.length && !d.add?.length) || (d.gone?.length && !d.add?.length) || (from && !to && !d.add?.length)) return 'del';
+  if (LOG_MINOR_F.has(r.field) || /위치|크기|앞뒤|옮김|순서/.test(act) || (d.chg && !d.add?.length && !d.del?.length && !d.full)) return 'minor';
+  if (/추가|넣음|새로|만듦/.test(act) || (d.add?.length && !d.del?.length) || (!from && to && !d.del?.length)) return 'add';
+  return 'chg';
+}
+const LOG_ICON = { del: '🗑', add: '➕', chg: '✏', minor: '·' };
+function logSentence(r, kind) {
+  const d = r.d || {}, label = (r.lang ? `[${r.lang}] ` : '') + (r.act || logLabel(r.field));
+  const cut = (s, n = 36) => { s = String(s ?? '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n) + '…' : s; };
+  const few = arr => arr.slice(0, 3).map(x => cut(x, 24)).join(', ') + (arr.length > 3 ? ` 외 ${arr.length - 3}개` : '');
+  const from = cut(logVal(r.from)), to = cut(logVal(r.to)), what = r.what ? ` · ${cut(r.what, 50)}` : '';
+  if (d.page) return `페이지 '${cut(d.page.name, 30)}'를 지웠어요` + (d.page.items?.length ? ` (제품 ${d.page.items.length}개)` : '');
+  if (d.del?.length && !d.add?.length) return `${label}에서 ${d.del.length}개를 지웠어요: ${few(d.del)}`;
+  if (d.add?.length && !d.del?.length) return `${label}에 ${d.add.length}개를 넣었어요: ${few(d.add)}`;
+  if (d.add?.length && d.del?.length) return `${label}: ${d.add.length}개 넣고 ${d.del.length}개 지웠어요`;
+  if (r.act && !from && !to) return label + what;
+  if (from && !to) return `${label} '${from}'을(를) 지웠어요${what}`;
+  if (!from && to) return `${label}에 '${to}'을(를) 넣었어요${what}`;
+  if (from || to) return `${label}: '${from}' → '${to}'${what}`;
+  return label + what + (kind === 'minor' ? ' (위치·크기)' : '');
+}
 function logModal(title, sub, rows, extra, opt = {}) {
   rows = rows.filter(r => !LOG_HIDE.has(r.field) || r.act); // 예전 기록 중 내부 값(틀 등)은 안 보임
   rows.sort((x, y) => (y.at?.toMillis?.() || 0) - (x.at?.toMillis?.() || 0));
-  modal(h('div', { class: 'log-pop' }, h('h3', {}, title), sub ? h('p', { class: 'mut' }, sub) : null, extra || null,
-    rows.length ? h('table', { class: 'gl-table log-table' }, h('thead', {}, h('tr', {}, h('th', {}, '언제'), h('th', {}, '누가'), h('th', {}, '무엇을'), h('th', {}, '바뀐 내용'))),
-      h('tbody', {}, ...rows.map(r => h('tr', { class: 'log-row', title: '눌러서 자세히 보기', onclick: ev => {
-        const tr0 = ev.currentTarget, nx = tr0.nextElementSibling;
-        if (nx?.classList.contains('log-det')) { nx.remove(); tr0.classList.remove('on'); return; }
-        tr0.closest('tbody').querySelectorAll('.log-det').forEach(x => { x.previousElementSibling?.classList.remove('on'); x.remove(); });
-        tr0.classList.add('on'); tr0.after(h('tr', { class: 'log-det' }, h('td', { colspan: 4 }, logDetailBox(r, opt))));
-      } },
-        h('td', { class: 'nowrap' }, fmtTime(r.at)), h('td', {}, nameOf(r.by, r.byName)),
-        h('td', {}, opt.page && opt.where ? h('div', { class: 'mut small' }, opt.where(r)) : null, (r.lang ? `[${r.lang}] ` : '') + (r.act || logLabel(r.field)) + (r.what ? ` · ${r.what}` : '')),
-        h('td', {}, r.act && !r.from && !r.to ? '' : h('span', {}, h('s', { class: 'mut' }, logVal(r.from) || '(없음)'), ' → ', h('b', {}, logVal(r.to) || '(없음)')))))))
-      : h('p', { class: 'mut pad' }, '아직 기록이 없어요.')), { wide: true });
+  rows.forEach(r => { r._k = logKind(r); });
+  const f = { kind: 'all', who: '', minor: false, page: false };
+  const people = [...new Map(rows.map(r => [r.by, nameOf(r.by, r.byName)])).entries()];
+  const bar = h('div', { class: 'lg-bar' }), list = h('div', { class: 'lg-list' }), countEl = h('span', { class: 'mut small' });
+  const shown = () => rows.filter(r => (f.kind === 'all' ? (f.minor || r._k !== 'minor') : r._k === f.kind)
+    && (!f.who || r.by === f.who) && (!f.page || !opt.pageOnly || opt.pageOnly.test(r)));
+  const base = () => rows.filter(r => (!f.who || r.by === f.who) && (!f.page || !opt.pageOnly || opt.pageOnly.test(r)));
+  const paintBar = () => {
+    const b = base(), n = k => b.filter(r => r._k === k).length;
+    const chip = (k, t) => h('button', { type: 'button', class: 'lg-chip ' + k + (f.kind === k ? ' on' : ''), onclick: () => { f.kind = k; paint(); } }, t);
+    const who = h('select', { class: 'nb-sel', onchange: e => { f.who = e.target.value; paint(); } }, h('option', { value: '' }, '모든 사람'), ...people.map(([e, n]) => h('option', { value: e }, n)));
+    who.value = f.who;
+    const mi = h('input', { type: 'checkbox', checked: f.minor, onchange: e => { f.minor = e.target.checked; paint(); } });
+    const pg = opt.pageOnly ? h('input', { type: 'checkbox', checked: f.page, onchange: e => { f.page = e.target.checked; paint(); } }) : null;
+    bar.replaceChildren(
+      h('div', { class: 'lg-chips' }, chip('all', `전체 ${b.filter(r => f.minor || r._k !== 'minor').length}`), chip('del', `🗑 지운 것 ${n('del')}`), chip('chg', `✏ 바꾼 것 ${n('chg')}`), chip('add', `➕ 넣은 것 ${n('add')}`)),
+      h('div', { class: 'lg-opts' }, who, pg ? h('label', { class: 'nb-chk' }, pg, ' ' + opt.pageOnly.label) : null, h('label', { class: 'nb-chk' }, mi, ' 위치·크기 같은 자잘한 것도 보기')));
+  };
+  const day = r => { const t = r.at?.toDate?.(); return t ? `${t.getMonth() + 1}월 ${t.getDate()}일 (${'일월화수목금토'[t.getDay()]})` : '날짜 없음'; };
+  const hm = r => { const t = r.at?.toDate?.(); return t ? `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}` : ''; };
+  const paint = () => {
+    paintBar();
+    const rs = shown(); countEl.textContent = `${rs.length}개`;
+    if (!rs.length) { list.replaceChildren(h('p', { class: 'mut pad' }, rows.length ? '조건에 맞는 기록이 없어요.' : '아직 기록이 없어요.')); return; }
+    const kids = []; let lastDay = '';
+    for (const r of rs.slice(0, 400)) {
+      const dd = day(r); if (dd !== lastDay) { kids.push(h('div', { class: 'lg-day' }, dd)); lastDay = dd; }
+      const where = opt.where && !r.d?.page ? opt.where(r) : ''; // 페이지 삭제는 문장에 페이지 이름이 있음
+      const row = h('div', { class: 'lg-row ' + r._k, title: '눌러서 자세히 보기' },
+        h('span', { class: 'lg-ic' }, LOG_ICON[r._k]),
+        h('div', { class: 'lg-main' },
+          h('div', { class: 'lg-who' }, h('b', {}, nameOf(r.by, r.byName)), where ? h('span', { class: 'lg-where' }, ` · ${where}`) : null),
+          h('div', { class: 'lg-sent' }, logSentence(r, r._k))),
+        h('span', { class: 'lg-time' }, hm(r)));
+      row.onclick = () => {
+        const nx = row.nextElementSibling;
+        if (nx?.classList.contains('lg-det')) { nx.remove(); row.classList.remove('on'); return; }
+        list.querySelectorAll('.lg-det').forEach(x => { x.previousElementSibling?.classList.remove('on'); x.remove(); });
+        row.classList.add('on'); row.after(h('div', { class: 'lg-det' }, logDetailBox(r, opt)));
+      };
+      kids.push(row);
+    }
+    if (rs.length > 400) kids.push(h('p', { class: 'mut pad' }, `오래된 기록 ${rs.length - 400}개는 생략했어요. 위에서 사람이나 종류를 골라 좁혀 보세요.`));
+    list.replaceChildren(...kids);
+  };
+  paint();
+  modal(h('div', { class: 'log-pop' }, h('h3', {}, title, ' ', countEl), sub ? h('p', { class: 'mut' }, sub) : null, extra || null, bar, list), { wide: true });
 }
 
 /* ---------- 되돌리기 (POG 만들기: Ctrl+Z 되돌리기, Ctrl+Y 다시 하기, 툴바 ↶ ↷) ----------
@@ -3939,9 +4003,9 @@ function pogLogOpt(ctx) {
 }
 async function showPogLogs(pogId, fxId, name, ctx = 'make') {
   const pageId = !fxId || fxId === '__cover' ? '__cover' : fxId, opt = pogLogOpt(ctx);
-  const rows = await readLogs(['pogs', pogId], ['fx', '==', pageId]); if (!rows) return;
-  const all = h('button', { class: 'btn small ghost', onclick: async () => { const r = await readLogs(['pogs', pogId]); if (r) logModal('이 POG 전체 수정 기록', `${r.length}개 · 줄을 누르면 자세히 보여요`, r, null, { ...opt, page: true }); } }, '이 POG 전체 기록 보기');
-  logModal(`수정 기록 · ${pageId === '__cover' ? '표지·고정 문구' : name}`, '이 페이지에서 POG 만들기·번역으로 고친 것 · 줄을 누르면 자세히 보여요', rows, all, opt);
+  const rows = await readLogs(['pogs', pogId]); if (!rows) return;
+  opt.pageOnly = { label: `지금 페이지만 (${pageId === '__cover' ? '표지·고정 문구' : name})`, test: r => (r.fx || '__cover') === pageId };
+  logModal('수정 기록', '이 POG 전체 · 줄을 누르면 자세히 (전·후, 지워진 것, 그 자리로 가기)', rows, null, opt);
 }
 $('#ed-top').onclick = () => { const c = state.coverEl; if (!c) return; state.edPin = { id: '__cover', t: Date.now() + 1200 }; c.scrollIntoView({ block: 'start' }); state.edActive = null; setEdActive('__cover'); }; // 표지로 (사용자)
 $('#ed-log').onclick = () => { const p = state.currentPog; if (!p) return; const fx = state.fixtures.get(state.edActive); showPogLogs(p.id, state.edActive, fx ? displayName(fx) : '', 'make'); };

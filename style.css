@@ -997,3 +997,27 @@ body.pfit .pages .page-block { scroll-snap-align: start; scroll-margin-top: 12px
 .fxd-box.pop:hover { outline: 2px solid #f7931e; }
 .pogpop { display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .pogpop-page .page-block { margin: 0; }
+/* 수정 기록: 문장 한 줄씩 + 지운 것 빨강 (사용자: 범인 찾기 쉽게) */
+.lg-bar { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 10px; }
+.lg-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.lg-chip { border: 1px solid #ddd; background: #fff; border-radius: 16px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.lg-chip.on { background: #333; border-color: #333; color: #fff; font-weight: 700; }
+.lg-chip.del.on { background: #d93025; border-color: #d93025; }
+.lg-chip.add.on { background: #188038; border-color: #188038; }
+.lg-chip.chg.on { background: #f7931e; border-color: #f7931e; }
+.lg-opts { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; font-size: 13px; }
+.lg-list { max-height: calc(var(--vh) * .6); overflow: auto; border-top: 1px solid #eee; }
+.lg-day { position: sticky; top: 0; background: #f6f6f6; font-size: 12px; font-weight: 700; color: #666; padding: 5px 8px; z-index: 1; }
+.lg-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
+.lg-row:hover, .lg-row.on { background: #fff8ef; }
+.lg-row.del { background: #fff4f3; }
+.lg-row.del:hover, .lg-row.del.on { background: #ffe9e7; }
+.lg-ic { width: 22px; text-align: center; flex: none; }
+.lg-main { flex: 1; min-width: 0; }
+.lg-who { font-size: 13px; }
+.lg-where { color: #777; }
+.lg-sent { font-size: 13px; color: #333; margin-top: 2px; word-break: break-all; }
+.lg-row.del .lg-sent { color: #b3261e; font-weight: 600; }
+.lg-row.minor .lg-sent { color: #888; }
+.lg-time { flex: none; font-size: 12px; color: #888; }
+.lg-det { padding: 8px 12px 12px 40px; border-bottom: 1px solid #eee; background: #fffdf9; }
