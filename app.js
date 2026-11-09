@@ -774,7 +774,7 @@ function holesOn(el, pitch, ox, oy, bg) {
 }
 
 /* ---------- 표지 (매장명 + POG) ---------- */
-// 제목을 따로 안 적으면 지점명에서 끝의 '점'을 뺀 이름 (Keruen City점 → Keruen City)
+// 제목을 따로 안 적으면 지점명에서 끝의 '점'을 뺀 이름 (OO City점 → OO City)
 const autoCoverTitle = pog => (pog.branchName || pog.storeName || '').trim().replace(/\s*점$/, '');
 // 페이지 왼쪽 아래 매장명: 지점명, 없으면 POG 사이트의 매장명
 const footStore = pog => pog.branchName || pog.storeName || '';

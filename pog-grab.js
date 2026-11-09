@@ -285,7 +285,7 @@
       const m = document.body.innerText.slice(0, 3000).match(/([A-Z][A-Za-z0-9 .&\-]*(?:\([A-Za-z]+\))?)\s*(\d{6})/);
       if (m) { s.name = s.name || m[1].trim(); s.code = s.code || m[2]; }
     }
-    if (!s.code) s.code = (prompt('매장코드를 입력해주세요 (예: 825406)', '') || '').trim();
+    if (!s.code) s.code = (prompt('매장코드를 입력해주세요 (예: 000000)', '') || '').trim();
     if (!s.name) s.name = (prompt('매장명을 입력해주세요', '') || '').trim();
     return s;
   }
