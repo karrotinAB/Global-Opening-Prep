@@ -328,6 +328,40 @@
     const retry = targets.filter(isShort);
     if (retry.length) { $msg.textContent = `다시 읽는 중… (${retry.length}개)`; await runAll(retry, 1, 120000, `다시 읽는 중 (${retry.length}개)…`); }
 
+    // 제품 바코드: POG 사이트 제품 상세정보 창(popGodCodeInfo.aspx)의 '제품바코드' 칸 (사용자, Korea-Store-Prep와 같음). 같은 제품코드는 한 번만, 6개씩 동시에
+    const bcOf = new Map();
+    async function readBarcode(code) {
+      try {
+        const r = await fetch(new URL(`popGodCodeInfo.aspx?iv_god_code=${encodeURIComponent(code)}`, location.href).href, { credentials: 'include' });
+        if (!r.ok) return '';
+        const buf = await r.arrayBuffer();
+        const cs = ((r.headers.get('content-type') || '').match(/charset=([\w-]+)/i) || [])[1] || 'utf-8';
+        let html = new TextDecoder(cs).decode(buf);
+        const meta = (html.slice(0, 2000).match(/charset=["']?([\w-]+)/i) || [])[1];
+        if (meta && meta.toLowerCase() !== cs.toLowerCase()) { try { html = new TextDecoder(meta).decode(buf); } catch (e) { } }
+        const dd = new DOMParser().parseFromString(html, 'text/html');
+        for (const c of dd.querySelectorAll('th, td')) {
+          if (c.textContent.replace(/\s+/g, '') !== '제품바코드') continue;
+          const v = (c.nextElementSibling?.textContent || '').replace(/\s+/g, '');
+          if (/^\d{6,14}$/.test(v)) return v;
+        }
+        const m = (dd.body?.innerText || dd.body?.textContent || '').match(/제품바코드\s*(\d{6,14})/);
+        return m ? m[1] : '';
+      } catch (e) { return ''; }
+    }
+    {
+      const codes = [...new Set(targets.flatMap(t => (t.data?.items || []).map(i => i.code)).filter(Boolean))];
+      let qi = 0, n = 0;
+      await Promise.all(Array.from({ length: 6 }, async () => {
+        while (qi < codes.length) {
+          const c = codes[qi++];
+          bcOf.set(c, await readBarcode(c));
+          n++; $msg.textContent = `제품 바코드 읽는 중… ${n} / ${codes.length}`; $bar.style.width = (n / codes.length * 100) + '%';
+        }
+      }));
+      targets.forEach(t => (t.data?.items || []).forEach(i => { const b = bcOf.get(i.code); if (b) i.barcode = b; }));
+    }
+
     const countKind = (props, re) => props.filter(p => re.test(p.kind)).length;
     const build = () => targets.map(t => {
       const d = t.data || { items: [], props: [] };

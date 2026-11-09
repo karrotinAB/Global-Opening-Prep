@@ -125,6 +125,9 @@ service cloud.firestore {
     match /barcodes/{bc} {
       allow read: if anyLevel();
       allow write: if hasLevel(['admin', 'global', 'editor']);
+      // POG팀: POG 가져올 때 POG 사이트 제품바코드를 새로 넣기만 (이미 있는 것은 못 바꿈)
+      allow create: if hasLevel(['pog'])
+        && request.resource.data.keys().hasOnly(['code', 'name', 'auto', 'updatedAt', 'updatedBy']);
     }
     // POG 담당자 목록
     match /managers/{id} {

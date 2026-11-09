@@ -3,7 +3,7 @@ import { getAuth, initializeAuth, inMemoryPersistence, onAuthStateChanged, signI
   sendPasswordResetEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, where, limit,
-  writeBatch, serverTimestamp, arrayUnion, arrayRemove, deleteField, getDocs, getDoc, getCountFromServer, startAfter, FieldPath
+  writeBatch, serverTimestamp, arrayUnion, arrayRemove, deleteField, getDocs, getDoc, getCountFromServer, startAfter, FieldPath, documentId
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
@@ -1606,6 +1606,7 @@ function openPog(id) {
     s.docs.forEach(d => { ids.add(d.id); state.fixtures.set(d.id, { id: d.id, ...d.data() }); });
     [...state.fixtures.keys()].forEach(k => { if (!ids.has(k)) state.fixtures.delete(k); });
     renderEditorPages();
+    syncPogBarcodes(id);
   });
 }
 function applyPogDoc() {
@@ -2370,12 +2371,64 @@ function pagesFromGrab(f, i) {
   return { pages, outN: outside.length };
 }
 
+/* POG 사이트에서 같이 가져온 제품바코드(items[].barcode)를 바코드 등록에 자동으로 넣기 (사용자, Korea-Store-Prep와 같음).
+   이미 있는 바코드는 그대로 두고 새것만 넣음 (POG팀도 새로 넣기만 가능 · 규칙). 돌려줌: { found, added } (실패면 null) */
+async function autoBarcodes(data, { quiet = false } = {}) {
+  const map = new Map();
+  for (const f of data.fixtures || []) for (const it of f.items || []) {
+    const bc = String(it.barcode || '').trim(), code = code8(String(it.code || '').trim());
+    if (/^\d{6,14}$/.test(bc) && code && !map.has(bc)) map.set(bc, { code, name: String(it.name || '').slice(0, 100) });
+  }
+  if (!map.size) return { found: 0, added: 0 };
+  try {
+    const bcs = [...map.keys()], have = new Set();
+    for (let i = 0; i < bcs.length; i += 30) {
+      const snap = await getDocs(query(collection(db, 'barcodes'), where(documentId(), 'in', bcs.slice(i, i + 30))));
+      snap.docs.forEach(d => have.add(d.id));
+    }
+    const add = bcs.filter(b => !have.has(b));
+    if (!add.length) return { found: bcs.length, added: 0 };
+    for (let i = 0; i < add.length; i += 400) {
+      const b = writeBatch(db);
+      add.slice(i, i + 400).forEach(bc => { const r = map.get(bc); b.set(doc(db, 'barcodes', bc), { code: r.code, ...(r.name ? { name: r.name } : {}), auto: true, updatedAt: serverTimestamp(), updatedBy: me() }); });
+      await b.commit();
+    }
+    toast(`POG 사이트 바코드 ${add.length}개를 바코드 등록에 넣었어요`);
+    return { found: bcs.length, added: add.length };
+  } catch (e) { if (!quiet) toast('바코드 등록에 자동으로 넣지 못했어요: ' + (e.code || e.message)); return null; }
+}
+// POG를 열 때도 (POG팀·관리자·글사부): 그 POG 제품의 POG 사이트 바코드 중 바코드 등록에 없는 것을 넣음. 한 번 연 POG는 다시 안 봄
+const bcSynced = new Set();
+function syncPogBarcodes(pogId) {
+  if (bcSynced.has(pogId) || !(canEdit('pog-make') || canEdit('barcodes'))) return;
+  bcSynced.add(pogId);
+  setTimeout(() => { if (state.currentPog?.id === pogId) autoBarcodes({ fixtures: [...state.fixtures.values()] }, { quiet: true }); }, 3000);
+}
+// 바코드 등록 화면: 모든 POG를 훑어서 한꺼번에
+async function syncAllPogBarcodes() {
+  const btn = $('#bc-frompog'), t0 = btn.textContent; btn.disabled = true;
+  try {
+    const fixtures = [];
+    for (let i = 0; i < state.pogs.length; i++) {
+      btn.textContent = `POG 읽는 중… ${i + 1} / ${state.pogs.length}`;
+      const s2 = await getDocs(collection(db, 'pogs', state.pogs[i].id, 'fixtures'));
+      s2.docs.forEach(d => fixtures.push({ items: d.data().items || [] }));
+    }
+    btn.textContent = '바코드 넣는 중…';
+    const r = await autoBarcodes({ fixtures });
+    if (r) alert(r.found ? `POG ${state.pogs.length}개에서 POG 사이트 바코드 ${r.found.toLocaleString()}개를 찾았어요.\n새로 넣은 것: ${r.added.toLocaleString()}개 (나머지는 이미 등록돼 있어요)` : `POG ${state.pogs.length}개에 POG 사이트 바코드가 없어요.\n바코드 기능 전에 가져온 POG는 POG 만들기에서 ↻ 다시 가져오기를 해야 바코드가 들어와요.`);
+    bcCount();
+  } catch (e) { alert('POG를 읽지 못했어요: ' + (e.code || e.message)); }
+  finally { btn.textContent = t0; btn.disabled = false; }
+}
+$('#bc-frompog').onclick = syncAllPogBarcodes;
 async function doImport(text) {
   let data;
   try { data = JSON.parse(text.trim()); } catch { toast('붙여넣은 내용이 올바르지 않아요'); return false; }
   if (!data || data.source !== 'pog.artbox.kr' || !Array.isArray(data.fixtures) || !data.fixtures.length) {
     toast('POG 데이터가 아니에요'); return false;
   }
+  autoBarcodes(data);
   let ref = null;
   try {
     // 매대 줄마다 칸을 나눠서 페이지 목록 만들기
@@ -2555,6 +2608,7 @@ function grabPaste(mode, target) {
     let data;
     try { data = JSON.parse(ta.value.trim()); } catch { toast('붙여넣은 내용이 올바르지 않아요'); return; }
     if (!data || data.source !== 'pog.artbox.kr' || !Array.isArray(data.fixtures) || !data.fixtures.length) { toast('POG 데이터가 아니에요'); return; }
+    autoBarcodes(data);
     const cands = [];
     data.fixtures.forEach((f, i) => {
       if (!(f.items || []).length && !(f.props || []).length && !(f.panels || []).length) return;
@@ -2650,6 +2704,7 @@ function openRegrabAuto(hintFx) {
     let data;
     try { data = JSON.parse(ta.value.trim()); } catch { toast('붙여넣은 내용이 올바르지 않아요'); return; }
     if (!data || data.source !== 'pog.artbox.kr' || !Array.isArray(data.fixtures) || !data.fixtures.length) { toast('POG 데이터가 아니에요'); return; }
+    autoBarcodes(data);
     close(); showRegrabPreview(pog, planRegrab(pog, data));
   };
 }
@@ -4460,7 +4515,7 @@ function showItem(it, fx) {
       h('table', {},
         h('tr', {}, h('th', {}, '제품코드'), h('td', {}, it.code)),
         h('tr', {}, h('th', {}, '가격'), h('td', {}, it.price ? '₩' + Number(it.price).toLocaleString() : '-')),
-        h('tr', {}, h('th', {}, '바코드'), bcCell(it.code)),
+        h('tr', {}, h('th', {}, '바코드'), bcCell(it.code, it.barcode)),
         h('tr', {}, h('th', {}, '매대'), h('td', {}, displayName(fx)))))));
 }
 
@@ -4472,12 +4527,12 @@ const bcClean = v => String(v ?? '').replace(/\s+/g, '').replace(/^'/, '');
 // 제품코드는 늘 8자리: 숫자로만 된 코드가 짧으면(엑셀에서 앞의 0이 빠진 경우) 앞에 0을 채움 (사용자)
 const code8 = c => /^\d{1,7}$/.test(c) ? c.padStart(8, '0') : c;
 const cellText = (v, pad = 0) => typeof v === 'number' ? (Number.isInteger(v) ? BigInt(Math.round(v)).toString() : String(v)).padStart(pad, '0') : bcClean(v);
-function bcCell(code) {
+function bcCell(code, siteBc) { // siteBc = POG 사이트에서 같이 가져온 바코드 (바코드 등록에 없을 때 씀)
   const td = h('td', { class: 'mut' }, '…');
-  if (!code) { td.textContent = '-'; return td; }
+  if (!code) { td.textContent = siteBc || '-'; return td; }
   getDocs(query(collection(db, 'barcodes'), where('code', '==', String(code)), limit(5)))
-    .then(s => { td.textContent = s.docs.map(d => d.id).join(', ') || '등록 안 됨'; td.classList.toggle('mut', !s.size); })
-    .catch(() => { td.textContent = '-'; });
+    .then(s => { const t = s.docs.map(d => d.id).join(', ') || siteBc || ''; td.textContent = t || '등록 안 됨'; td.classList.toggle('mut', !t); })
+    .catch(() => { td.textContent = siteBc || '-'; });
   return td;
 }
 async function bcCount() {
@@ -4771,6 +4826,7 @@ async function fdFind(q) {
   if (!fd.fixtures) { toast(T('POG를 불러오는 중이에요', 'Loading POG…')); return; }
   let code = code8(q), barcode = null;
   try { const d = await getDoc(doc(db, 'barcodes', q)); if (d.exists()) { code = String(d.data().code); barcode = q; } } catch { }
+  if (!barcode) for (const fx of fd.shown) for (const it of fx.items || []) if (it.barcode && String(it.barcode) === q) { code = String(it.code); barcode = q; }
   const hits = [];
   for (const fx of fd.shown) for (const it of fx.items || []) if (String(it.code) === code) hits.push({ fx, it });
   fd.last = { q, code, barcode, hits };
