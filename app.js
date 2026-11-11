@@ -278,9 +278,16 @@ function go(v) {
   state.view = v;
   $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.view === v || (!!b.dataset.group && v.startsWith(b.dataset.group))));
   if (window.innerWidth <= 700) { const on = [...$$('#nav button.on')].pop(), nav = $('#nav'); if (on && nav) nav.scrollLeft = Math.max(0, on.offsetLeft - nav.clientWidth / 2 + on.offsetWidth / 2); }
-  $('#subnav').classList.toggle('on', v.startsWith('pog-') && v !== 'pog-home');
-  $('#subnav').dataset.mode = v.startsWith('pog-fxd') ? 'fxd' : 'pog'; // 집기도면 화면이면 집기도면 탭만, POG 화면이면 POG 탭만 (사용자)
-  $('#subnav-dw').classList.toggle('on', v.startsWith('dw-'));
+  // 1. 도면 / 2. POG를 누르면 (그 아래 화면 포함) 메뉴에 그 메뉴와 하위 메뉴만 보임 (사용자, Korea-Store-Prep와 같게)
+  const gPog = v.startsWith('pog-'), gDw = v === 'drawing' || v.startsWith('dw-');
+  $('#subnav').classList.toggle('on', gPog);
+  $('#subnav').dataset.mode = v.startsWith('pog-fxd') ? 'fxd' : v === 'pog-home' ? 'all' : 'pog'; // 집기도면 화면이면 집기도면 탭만, POG 화면이면 POG 탭만 (사용자). POG 고르기 화면은 모두
+  $('#subnav-dw').classList.toggle('on', gDw);
+  $('#nav').classList.toggle('grp-pog', gPog && !$('#subnav').classList.contains('hidden'));
+  $('#nav').classList.toggle('grp-dw', gDw && !$('#subnav-dw').classList.contains('hidden'));
+  // PC 왼쪽 메뉴: 처음 화면·도면/POG 고르기에서만 보이고, 안쪽 화면에 들어가면 숨김 → 위쪽 '☰ 메뉴'로 잠깐 열기 (사용자, Korea-Store-Prep와 같게)
+  document.body.classList.toggle('nav-hide', !['home', 'drawing', 'pog-home', 'noaccess'].includes(v));
+  document.body.classList.remove('nav-peek');
   $$('.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + secOf(v)));
   if (v.startsWith('dw-')) setDwMode({ 'dw-up': 'up', 'dw-tr': 'tr', 'dw-online': 'on' }[v]);
   if (v.startsWith('pog-fxd')) setFxdMode(v);
@@ -289,6 +296,8 @@ function go(v) {
   if (v === 'barcodes') { bcCount(); bcList(true); } else bcReport([], '', 0); // 건너뛴 줄 알림은 이 화면을 나가면 사라짐
 }
 $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
+$('#nav-toggle').onclick = e => { e.stopPropagation(); document.body.classList.toggle('nav-peek'); };
+document.addEventListener('click', e => { if (document.body.classList.contains('nav-peek') && !e.target.closest('#nav, #nav-toggle')) document.body.classList.remove('nav-peek'); });
 // 휴대폰: A4 페이지(794px)를 화면 폭에 맞게 줄이는 비율 (style.css의 zoom: var(--pz))
 // 상단 메뉴 실제 높이 → CSS --top (휴대폰에서는 메뉴가 두 줄이라 52px보다 큼). 화면 높이 계산에 씀
 { const tb = document.querySelector('.topbar'); const setTop = () => { const hgt = tb && tb.offsetHeight; if (hgt) document.documentElement.style.setProperty('--top', hgt + 'px'); };

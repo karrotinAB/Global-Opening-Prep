@@ -1021,3 +1021,38 @@ body.pfit .pages .page-block { scroll-snap-align: start; scroll-margin-top: 12px
 .lg-row.minor .lg-sent { color: #888; }
 .lg-time { flex: none; font-size: 12px; color: #888; }
 .lg-det { padding: 8px 12px 12px 40px; border-bottom: 1px solid #eee; background: #fffdf9; }
+
+/* ---------- 메뉴 (사용자, Korea-Store-Prep와 같게) ----------
+   1. 도면 / 2. POG를 누르면 그 메뉴 + 하위 메뉴만. PC(701px 이상)는 왼쪽 세로 메뉴, 휴대폰은 위쪽 가로 그대로 */
+#nav.grp-dw > button:not([data-group="dw-"]), #nav.grp-dw > #subnav,
+#nav.grp-pog > button:not([data-group="pog-"]), #nav.grp-pog > #subnav-dw { display: none; }
+#nav.grp-dw > .subnav, #nav.grp-pog > .subnav { border-left: 0; margin-left: 2px; padding-left: 0; }
+#nav.grp-dw > .subnav::before, #nav.grp-pog > .subnav::before { content: '›'; align-self: center; margin: 0 6px 0 2px; opacity: .8; }
+.nav-toggle { display: none; background: rgba(255,255,255,.2); border: 0; color: #fff; font: inherit; font-size: 13px; font-weight: 600; padding: 6px 10px; border-radius: 6px; cursor: pointer; margin-right: -6px; white-space: nowrap; }
+.nav-toggle:hover { background: rgba(255,255,255,.32); }
+@media (min-width: 701px) {
+  :root { --side: 172px; }
+  #nav { position: fixed; left: 0; top: var(--top); bottom: 0; width: var(--side); z-index: 49; flex: none; flex-direction: column; align-items: stretch; gap: 2px;
+    padding: 12px 10px 40px; overflow-x: hidden; overflow-y: auto; background: #fff; border-right: 1px solid var(--line); box-sizing: border-box; }
+  #nav button { color: var(--ink); opacity: 1; text-align: left; padding: 9px 12px; border-radius: 8px; font-size: 14px; white-space: normal; }
+  #nav button:hover { background: #f4f5f7; }
+  #nav button.on { background: #fff1e0; color: var(--or-d); font-weight: 700; }
+  /* 등록 메뉴 앞 구분선: 세로 줄 → 가로 줄 */
+  #nav .nav-sub:not(.hidden):not(.nav-sub:not(.hidden) ~ .nav-sub) { margin: 12px 0 0; }
+  #nav .nav-sub:not(.hidden):not(.nav-sub:not(.hidden) ~ .nav-sub)::before { left: 6px; right: 6px; top: -7px; bottom: auto; border-left: 0; border-top: 1px solid var(--line); }
+  #nav .nav-sub { font-size: 13px; color: var(--mut); }
+  /* 도면·POG 하위 메뉴: 위 메뉴 아래에 들여쓰기 */
+  .subnav, .subnav.on { flex-direction: column; gap: 2px; margin: 2px 0 0 12px; padding: 0 0 0 8px; border-left: 2px solid #ffe2bf; }
+  .subnav button { font-size: 13px; }
+  #nav.grp-dw > .subnav, #nav.grp-pog > .subnav { margin: 2px 0 0 12px; padding-left: 8px; border-left: 2px solid #ffe2bf; }
+  #nav.grp-dw > .subnav::before, #nav.grp-pog > .subnav::before { content: none; }
+  .topbar .me { margin-left: auto; }
+  /* 화면 내용은 메뉴 오른쪽에 */
+  #app > .view { margin-left: var(--side); }
+  /* 안쪽 화면에서는 왼쪽 메뉴 숨김. '☰ 메뉴'로 잠깐 열림 (화면 위에 겹쳐서) */
+  body.nav-hide .nav-toggle { display: inline-block; }
+  body.nav-hide #nav { display: none; }
+  body.nav-hide.nav-peek #nav { display: flex; box-shadow: 6px 0 24px rgba(0,0,0,.16); z-index: 60; }
+  body.nav-hide #app > .view { margin-left: 0; }
+}
+@media print { #app > .view { margin-left: 0 !important; } }
