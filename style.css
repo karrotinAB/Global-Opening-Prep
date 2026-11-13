@@ -1049,6 +1049,11 @@ body.pfit .pages .page-block { scroll-snap-align: start; scroll-margin-top: 12px
   .topbar .me { margin-left: auto; }
   /* 화면 내용은 메뉴 오른쪽에 */
   #app > .view { margin-left: var(--side); }
+  /* 다른 메뉴도 늘 보이게 (사용자: 메뉴를 눌러도 다른 메뉴로 돌아갈 수 있어야 함). 하위 메뉴는 그 메뉴 바로 아래에 */
+  #nav#nav.grp-dw > button, #nav#nav.grp-pog > button { display: block; } /* 위 '그 메뉴만' 규칙보다 세게 */
+  #nav > button.hidden, #nav > .subnav.hidden { display: none !important; }
+  #nav > [data-view="home"] { order: 1; } #nav > [data-view="drawing"] { order: 2; } #nav > #subnav-dw { order: 3; }
+  #nav > [data-view="pog-home"] { order: 4; } #nav > #subnav { order: 5; } #nav > [data-view="finder"] { order: 6; } #nav > .nav-sub { order: 7; }
   /* 안쪽 화면에서는 왼쪽 메뉴 숨김. '☰ 메뉴'로 잠깐 열림 (화면 위에 겹쳐서) */
   body.nav-hide .nav-toggle { display: inline-block; }
   body.nav-hide #nav { display: none; }
