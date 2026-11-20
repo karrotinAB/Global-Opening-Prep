@@ -154,7 +154,7 @@ nav button.on { background: rgba(255,255,255,.24); opacity: 1; font-weight: 700;
 .anno.edit .nt { pointer-events: auto; cursor: move; }
 .nt-text { padding: 2px 8px; font-weight: 700; }
 .nt-tx { width: 100%; height: 100%; display: grid; place-items: center; text-align: center; white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; line-height: 1.25; overflow: hidden; }
-.nt-img img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+.nt-img img { width: 100%; height: 100%; object-fit: fill; display: block; pointer-events: none; }
 .nt-svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .anno .nt-hit { position: static; stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: move; }
 .anno .nt-hit.sel { stroke: rgba(10,132,255,.22); }
@@ -1069,3 +1069,20 @@ body.pfit .pages .page-block { scroll-snap-align: start; scroll-margin-top: 12px
   .subnav .sn-sep { width: auto; height: 1px; align-self: stretch; margin: 5px 6px; background: #ffd9a8; }
   #nav .sn-calc { color: var(--or-d); }
 }
+
+/* 메모 (사용자, Korea-Store-Prep와 같게): 변 가운데 점 = 가로만·세로만 */
+.nh-n { left: calc(50% - 6px); top: -8px; cursor: ns-resize; }
+.nh-s { left: calc(50% - 6px); bottom: -8px; cursor: ns-resize; }
+.nh-e { right: -8px; top: calc(50% - 6px); cursor: ew-resize; }
+.nh-w { left: -8px; top: calc(50% - 6px); cursor: ew-resize; }
+/* 사진 메모 자르기 */
+.nt-img .nt-clip { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.nt-img.cropping { overflow: visible; outline: 2px dashed #f7931e; outline-offset: 1px; }
+.nt-img .nt-cghost { opacity: .35; pointer-events: none; }
+.nt-img .nt-rot img { width: 100%; height: 100%; }
+/* 글상자 안에서 바로 고치기 */
+.nt-text.editing { cursor: text; outline: 2px solid #1e88e5; }
+.nt-text.editing .nt-tx { pointer-events: auto; user-select: text; cursor: text; outline: none; }
+/* 사진 회전 손잡이 */
+.nh.nh-rot { left: calc(50% - 7px); top: -30px; width: 14px; height: 14px; border-radius: 50%; cursor: grab; background: #0a84ff; border-color: #fff; }
+.nh.nh-rot::after { content: ''; position: absolute; left: 4px; top: 12px; width: 2px; height: 16px; background: #0a84ff; }
