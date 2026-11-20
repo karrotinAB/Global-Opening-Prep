@@ -861,12 +861,12 @@ body:not([data-level]) #app nav, body[data-level=""] #app nav, body[data-level="
 .rg-cand.on { border-color: #f7931e; background: #fff8ef; }
 .rg-th { width: 96px; height: 72px; flex: none; position: relative; background: #fafafa; border-radius: 4px; overflow: hidden; }
 
-/* 사이트 전체를 80% 크기로 (사용자: 브라우저에서 80%로 줄인 것처럼). PC 화면만, 휴대폰·인쇄는 그대로.
+/* 사이트 전체를 88% 크기로 (사용자: 80%에서 10% 키움). PC 화면만, 휴대폰·인쇄는 그대로.
    화면 높이(--vh)는 줄인 만큼 나눠서 화면을 꽉 채움. 마우스 끌기는 app.js의 ZM()으로 맞춤 */
 @media screen and (min-width: 901px) {
-  html { zoom: .8; }
-  :root { --vh: calc(100vh / .8); }
-  @supports (height: 100dvh) { :root { --vh: calc(100dvh / .8); } }
+  html { zoom: .88; }
+  :root { --vh: calc(100vh / .88); }
+  @supports (height: 100dvh) { :root { --vh: calc(100dvh / .88); } }
 }
 
 /* 표지 아래 매장명 입력칸 (사용자) */
