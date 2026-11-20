@@ -1086,3 +1086,41 @@ body.pfit .pages .page-block { scroll-snap-align: start; scroll-margin-top: 12px
 /* 사진 회전 손잡이 */
 .nh.nh-rot { left: calc(50% - 7px); top: -30px; width: 14px; height: 14px; border-radius: 50%; cursor: grab; background: #0a84ff; border-color: #fff; }
 .nh.nh-rot::after { content: ''; position: absolute; left: 4px; top: 12px; width: 2px; height: 16px; background: #0a84ff; }
+
+
+/* 집기 칸 가로 (그림 아래) (사용자) */
+.pb.info-h { flex-direction: column; }
+.pb.info-h .pside { width: auto; flex-direction: row; align-items: stretch; gap: 6px; }
+.pb.info-h .pside > .sbox { flex: 1 1 0; min-width: 0; }
+.pb.info-h .pside { order: -1; } /* 가로일 때 집기 칸은 페이지 위쪽 (사용자) */
+/* 매대 자르기 (사용자) */
+.crop-box { position: absolute; z-index: 9500; border: 2px solid #1e6fd9; box-shadow: 0 0 0 9999px rgba(20,30,50,.45); cursor: move; touch-action: none; }
+.crop-h { position: absolute; width: 12px; height: 12px; background: #fff; border: 2px solid #1e6fd9; border-radius: 2px; touch-action: none; }
+.crop-n, .crop-s { left: calc(50% - 6px); cursor: ns-resize; } .crop-n { top: -7px; } .crop-s { bottom: -7px; }
+.crop-e, .crop-w { top: calc(50% - 6px); cursor: ew-resize; } .crop-e { right: -7px; } .crop-w { left: -7px; }
+.crop-ne, .crop-nw, .crop-se, .crop-sw { width: 14px; height: 14px; }
+.crop-ne { top: -8px; right: -8px; cursor: nesw-resize; } .crop-sw { bottom: -8px; left: -8px; cursor: nesw-resize; }
+.crop-nw { top: -8px; left: -8px; cursor: nwse-resize; } .crop-se { bottom: -8px; right: -8px; cursor: nwse-resize; }
+.page-block.cropping .cv-item, .page-block.cropping .cv-blk-h, .page-block.cropping .cv-blk-r { pointer-events: none; }
+
+.cv-bay-sep { position: absolute; width: 4px; background: #fff; pointer-events: none; } /* 매대 몸통 사이 흰 세로줄 (사용자) */
+
+.sz-row label { font-size: 13px; } .sz-in { width: 64px; } /* 매대 가로·세로 % (사용자) */
+/* 집기 칸이 위(가로)일 때 높이를 고정 → 편집·잠금(최종)·PPT에서 매대 그림 위치가 같아서 메모가 어긋나지 않음 (사용자) */
+.pb.info-h .pside { height: 141px; flex: none; }
+.pb.info-h .pside > .sbox { min-height: 0; overflow: hidden; }
+.pb.info-h .pside > .sbox > .sbox-c { min-height: 0; overflow-y: auto; }
+
+
+
+
+
+
+/* 매대·옮겨 온 매대를 고르면 네 변 가운데 검은 막대 = 끌어서 바로 자르기 (사용자) */
+.cv-blk-c { position: absolute; display: none; pointer-events: auto; background: #111; border: 1.5px solid #fff; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,.3); z-index: 2; }
+.cv-blk.on .cv-blk-c { display: block; }
+.cv-blk-c-n, .cv-blk-c-s { left: calc(50% - 11px); width: 22px; height: 7px; cursor: ns-resize; }
+.cv-blk-c-n { top: -5px; } .cv-blk-c-s { bottom: -5px; }
+.cv-blk-c-e, .cv-blk-c-w { top: calc(50% - 11px); width: 7px; height: 22px; cursor: ew-resize; }
+.cv-blk-c-e { right: -5px; } .cv-blk-c-w { left: -5px; }
+.page-block .pcanvas .cv-bgrp:has(> .cv-blk) .cv-item { cursor: move; }
