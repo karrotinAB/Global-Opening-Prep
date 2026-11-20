@@ -2551,6 +2551,7 @@ const CALC_URL = 'https://karrotinab.github.io/POG-calculator2/';
 const openCalc = pogId => window.open(CALC_URL + (pogId ? '?pog=' + encodeURIComponent(pogId) : ''), 'pogcalc');
 $('#vw-calc').onclick = () => openCalc(state.viewer.pog?.id);
 $('#tile-calc').onclick = () => openCalc(null);
+$('#nav-calc').onclick = e => { e.stopPropagation(); openCalc(null); }; // 메뉴 'POG' 아래 맨 끝 (사용자: POG·집기도면·계산기를 묶어서)
 $('#vw-nobc').onclick = () => exportNoBarcode(state.viewer.pog, state.viewer.fixtures);
 // 관리자용: 이 POG 제품 중 바코드 등록이 안 된 제품코드만 엑셀로 (바코드 업로드 양식과 같은 열: 제품코드 · 바코드 · 제품명)
 async function exportNoBarcode(pog, fixtures) {

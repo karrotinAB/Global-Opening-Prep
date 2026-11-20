@@ -1061,3 +1061,11 @@ body.pfit .pages .page-block { scroll-snap-align: start; scroll-margin-top: 12px
   body.nav-hide #app > .view { margin-left: 0; }
 }
 @media print { #app > .view { margin-left: 0 !important; } }
+
+/* POG 하위 메뉴 묶음 (사용자): POG 3개 | 집기도면 3개 | 초도 계산. 사이에 줄 */
+.sn-sep { display: block; flex: none; align-self: center; width: 1px; height: 16px; margin: 0 6px; background: rgba(255,255,255,.55); }
+.sn-calc { white-space: nowrap; }
+@media (min-width: 701px) {
+  .subnav .sn-sep { width: auto; height: 1px; align-self: stretch; margin: 5px 6px; background: #ffd9a8; }
+  #nav .sn-calc { color: var(--or-d); }
+}
