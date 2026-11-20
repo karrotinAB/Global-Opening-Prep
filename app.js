@@ -1321,28 +1321,63 @@ async function deletePage(pogId, fx) {
 const NOTE_COLORS = ['#e60012', '#f7931e', '#ffd400', '#2e9e5b', '#00a0e9', '#7b4fd6', '#222222', '#ffffff'];
 const uid = () => Math.random().toString(36).slice(2, 9);
 const rgba = (hex, a) => { const n = parseInt((hex || '#000000').slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
+// 새 메모는 마지막으로 고른 서식(색·배경·테두리·크기·굵기)을 그대로 씀 (사용자: 서식 유지). 이 컴퓨터 브라우저에 기억
+const NOTE_STYLE_KEYS = { box: ['color', 'fill', 'alpha', 'bw'], text: ['bg', 'color', 'border', 'fs'], arrow: ['color', 'bw'] };
+const noteStyle = (() => { try { return JSON.parse(localStorage.getItem('noteStyle') || '{}') || {}; } catch { return {}; } })();
+function rememberNoteStyle(n) {
+  const keys = NOTE_STYLE_KEYS[n.t]; if (!keys) return;
+  noteStyle[n.t] = Object.fromEntries(keys.filter(k => k in n).map(k => [k, n[k]]));
+  try { localStorage.setItem('noteStyle', JSON.stringify(noteStyle)); } catch { }
+}
 const NOTE_NEW = {
-  box: () => ({ t: 'box', x: 120, y: 320, w: 240, h: 120, color: '#e60012', fill: false, alpha: 0.3, bw: 3 }),
-  text: () => ({ t: 'text', x: 150, y: 360, w: 170, h: 30, text: '메모', bg: '#ffd400', color: '#222222', border: '', fs: 14 }),
-  arrow: () => ({ t: 'arrow', x1: 220, y1: 330, x2: 360, y2: 420, color: '#2e9e5b', bw: 3 }),
+  box: () => ({ t: 'box', x: 120, y: 320, w: 240, h: 120, color: '#e60012', fill: false, alpha: 0.3, bw: 3, ...noteStyle.box }),
+  text: () => ({ t: 'text', x: 150, y: 360, w: 170, h: 30, text: '메모', bg: '#ffffff', color: '#222222', border: '', fs: 14, ...noteStyle.text }), // 글상자 처음 배경 = 흰색 (사용자)
+  arrow: () => ({ t: 'arrow', x1: 220, y1: 330, x2: 360, y2: 420, color: '#2e9e5b', bw: 3, ...noteStyle.arrow }),
 };
 const SVGNS = 'http://www.w3.org/2000/svg';
 const svgEl = (tag, attrs = {}) => { const el = document.createElementNS(SVGNS, tag); for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v); return el; };
 let noteSaveBlock = null; // Delete 키로 지울 때 쓰는, 지금 선택된 메모가 있는 페이지
 
 function saveNotes(block) { saveFx(block._pog, block._fx, 'notes', structuredClone(block._notes)); }
-function selectNote(block, id) {
+// 메모 여러 개 고르기 (사용자): Shift·Ctrl+클릭으로 더하거나 빼기. block._msel = 고른 메모 id들, block._sel = 마지막으로 고른 것
+const selIds = block => block._msel?.size ? [...block._msel].filter(id => block._notes.some(n => n.id === id)) : (block._sel ? [block._sel] : []);
+function selectNote(block, id, { add = false } = {}) {
+  if (block._cropNote && block._cropNote !== id) block._cropNote = null; // 다른 메모를 누르면 사진 자르기 끝
   if (id) setEdActive(block._fx);
-  if (block._sel === id) return;
-  block._sel = id; noteSaveBlock = id ? block : null;
+  if (add && id) {
+    const s2 = new Set(selIds(block)); s2.has(id) ? s2.delete(id) : s2.add(id);
+    block._msel = s2; block._sel = s2.has(id) ? id : ([...s2].pop() || null); noteSaveBlock = s2.size ? block : null;
+    renderNotes(block); renderNoteBar(block); return;
+  }
+  if (block._sel === id && (block._msel?.size || 0) <= 1) return;
+  block._sel = id; block._msel = new Set(id ? [id] : []); noteSaveBlock = id ? block : null;
   renderNotes(block); renderNoteBar(block);
+}
+// 복사·붙여넣기 (사용자: 메모를 여러 개 골라 다른 페이지에). Ctrl+C / Ctrl+V 또는 메모 막대 버튼. 붙일 때 같은 자리에
+function copyNotes(block) {
+  const ids = new Set(selIds(block)); if (!ids.size) return;
+  const src = block._notes.filter(n => ids.has(n.id));
+  let marked = false; src.forEach(n => { if (n.t === 'img' && n.path && !n.shared) { n.shared = true; marked = true; } }); // 같은 사진 파일을 같이 쓰게 됨 → 지울 때 파일은 남김
+  if (marked) saveNotes(block);
+  state.noteClip = src.map(n => { const c = structuredClone(n); delete c.id; if (c.t === 'img') { delete c.path; c.shared = true; } return c; });
+  state.lastClip = 'notes';
+  toast(`메모 ${src.length}개를 복사했어요. 붙일 페이지를 보고 Ctrl+V (또는 메모 막대 '📋 붙여넣기')`);
+  state.pageEls?.forEach(b => { if (b._bar) renderNoteBar(b); });
+}
+function pasteNotes(block) {
+  const clip = state.noteClip; if (!clip?.length || !block?._editable) return;
+  const ids = clip.map(c => { const n = structuredClone(c); n.id = uid(); block._notes.push(n); return n.id; });
+  saveNotes(block);
+  block._msel = new Set(ids); block._sel = ids.at(-1); noteSaveBlock = block; setEdActive(block._fx);
+  renderNotes(block); renderNoteBar(block);
+  toast(`메모 ${ids.length}개를 붙였어요. 끌어서 자리를 맞추세요 (Ctrl+Z로 되돌릴 수 있어요)`);
 }
 function renderNotes(block) {
   const layer = $('.anno', block); if (!layer) return;
   layer.innerHTML = '';
   const ed = block._editable;
   for (const n of block._notes) {
-    const sel = ed && n.id === block._sel;
+    const msel = selIds(block), sel = ed && msel.includes(n.id), handles = sel && n.id === block._sel && msel.length <= 1;
     if (n.t === 'arrow') {
       const svg = svgEl('svg', { class: 'nt-svg' }), mid = 'm' + uid();
       const mk = svgEl('marker', { id: mid, viewBox: '0 0 10 10', refX: 7, refY: 5, markerWidth: 4, markerHeight: 4, orient: 'auto-start-reverse' });
@@ -1355,30 +1390,51 @@ function renderNotes(block) {
         svg.append(hit);
       }
       layer.append(svg);
-      if (sel) for (const k of ['1', '2']) {
+      if (handles) for (const k of ['1', '2']) {
         const hd = h('div', { class: 'nh nh-pt', style: `left:${n['x' + k]}px;top:${n['y' + k]}px` });
         hd.addEventListener('pointerdown', e => startNoteDrag(e, block, n, 'p' + k));
         layer.append(hd);
       }
       continue;
     }
-    const st = `left:${n.x}px;top:${n.y}px;width:${n.w}px;height:${n.h}px;`;
+    const st = `left:${n.x}px;top:${n.y}px;width:${n.w}px;height:${n.h}px;` + (n.t === 'img' && n.ang ? `transform:rotate(${n.ang}deg);` : ''); // 사진 회전 (사용자: 손잡이로 돌리기)
     let el;
     if (n.t === 'box') el = h('div', { class: 'nt nt-box', style: st + `border:${n.bw || 3}px solid ${n.color};background:${n.fill ? rgba(n.color, n.alpha ?? 0.3) : 'transparent'}` });
     else if (n.t === 'text') el = h('div', { class: 'nt nt-text', style: st + `background:${n.bg || 'transparent'};color:${n.color || '#222'};border:${n.border ? '2px solid ' + n.border : '0'}` },
       h('div', { class: 'nt-tx', style: `font-size:${n.fs || 14}px` }, n.text || '')); // 글은 안쪽 칸에 (모서리 점이 잘리지 않게)
-    else if (n.t === 'img') el = h('div', { class: 'nt nt-img', style: st }, h('img', { src: n.url, alt: '', draggable: 'false' }));
+    else if (n.t === 'img') { // 자른 사진(n.crop = 원래 사진에서 보이는 부분 x·y·w·h, 0~1)은 넘치는 부분을 숨김. 자르는 중엔 원래 사진 전체를 흐리게
+      const c = n.crop, cropping = block._cropNote === n.id;
+      const pos = c ? `position:absolute;max-width:none;width:${100 / c.w}%;height:${100 / c.h}%;left:${-c.x / c.w * 100}%;top:${-c.y / c.h * 100}%` : '';
+      // 회전(n.rot = 0·90·180·270, 사용자): 상자(x·y·w·h)는 보이는 모양 그대로, 안의 사진만 돌림 (90·270이면 가로·세로를 바꿔서)
+      const rot = ((n.rot || 0) % 360 + 360) % 360, sw = rot === 90 || rot === 270;
+      const inner = h('img', { src: n.url, alt: '', draggable: 'false', style: pos });
+      el = h('div', { class: 'nt nt-img' + (cropping ? ' cropping' : ''), style: st },
+        cropping && c ? h('img', { class: 'nt-cghost', src: n.url, alt: '', draggable: 'false', style: pos }) : '',
+        h('div', { class: 'nt-clip' }, rot ? h('div', { class: 'nt-rot', style: `position:absolute;left:50%;top:50%;width:${sw ? n.h : n.w}px;height:${sw ? n.w : n.h}px;transform:translate(-50%,-50%) rotate(${rot}deg);overflow:hidden` }, inner) : inner));
+    }
     else continue;
     el.dataset.id = n.id;
     if (sel) el.classList.add('sel');
     if (ed) {
       el.addEventListener('pointerdown', e => startNoteDrag(e, block, n, 'move'));
-      if (n.t === 'text') el.addEventListener('dblclick', () => block._bar?.querySelector('.nb-text')?.focus());
-      if (sel) for (const c of ['nw', 'ne', 'sw', 'se']) { const hd = h('div', { class: 'nh nh-' + c }); hd.addEventListener('pointerdown', e => startNoteDrag(e, block, n, 'r-' + c)); el.append(hd); }
+      if (n.t === 'text') el.addEventListener('dblclick', e => { e.stopPropagation(); editNoteText(block, n, el); }); // 더블클릭 = 상자 안에서 바로 고치기 (사용자)
+      if (handles && n.t === 'img' && block._cropNote !== n.id) { const hr = h('div', { class: 'nh nh-rot', title: '끌어서 돌리기 (Shift = 15°씩)' }); hr.addEventListener('pointerdown', e => startNoteDrag(e, block, n, 'rot')); el.append(hr); }
+      if (handles) for (const c of ['nw', 'ne', 'sw', 'se', 'n', 's', 'e', 'w']) { const hd = h('div', { class: 'nh nh-' + c }); hd.addEventListener('pointerdown', e => startNoteDrag(e, block, n, 'r-' + c)); el.append(hd); }
     }
     layer.append(el);
     if (n.t === 'text') fitText(el.querySelector('.nt-tx'), n.fs || 14);
   }
+}
+// 글상자 안에서 바로 글 고치기: 다 쓰고 밖을 누르거나 Esc
+function editNoteText(block, n, el) {
+  const tx = el.querySelector('.nt-tx'); if (!tx || tx.isContentEditable) return;
+  tx.contentEditable = 'plaintext-only'; if (tx.contentEditable !== 'plaintext-only') tx.contentEditable = 'true';
+  el.classList.add('editing'); tx.style.fontSize = (n.fs || 14) + 'px';
+  tx.focus(); const r = document.createRange(); r.selectNodeContents(tx); const sl = getSelection(); sl.removeAllRanges(); sl.addRange(r);
+  const stop = e => e.stopPropagation();
+  tx.addEventListener('pointerdown', stop); tx.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Escape') tx.blur(); });
+  tx.addEventListener('input', () => { n.text = tx.innerText.replace(/\n$/, ''); const ta = block._bar?.querySelector('.nb-text'); if (ta) ta.value = n.text; saveNotes(block); });
+  tx.addEventListener('blur', () => { tx.contentEditable = 'false'; el.classList.remove('editing'); renderNotes(block); }, { once: true });
 }
 // 글상자: 상자 크기는 그대로 두고, 글이 넘치면 글자를 줄여서 맞춤 (화면에 보일 때만 잴 수 있음)
 function fitText(el, fs) {
@@ -1387,26 +1443,53 @@ function fitText(el, fs) {
   while (f > 7 && (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1)) { f -= 1; el.style.fontSize = f + 'px'; }
 }
 function startNoteDrag(e, block, n, mode) {
+  if (e.target?.isContentEditable) return; // 글상자 안에서 글 고치는 중
   const z = ZP();
   e.preventDefault(); e.stopPropagation();
   if ($('#ed-side')?.contains(document.activeElement)) document.activeElement.blur(); // 패널에서 글 쓰던 중이면 끝내고 이 페이지로
-  selectNote(block, n.id);
+  if (mode === 'move' && (e.shiftKey || e.ctrlKey || e.metaKey)) { selectNote(block, n.id, { add: true }); return; } // 여러 개 고르기
+  const group = mode === 'move' && selIds(block).length > 1 && selIds(block).includes(n.id); // 고른 메모 여럿을 같이 옮김
+  if (!group) selectNote(block, n.id);
   const sx = e.clientX, sy = e.clientY, o = { ...n };
+  const others = group ? block._notes.filter(x => x !== n && selIds(block).includes(x.id)).map(x => [x, { ...x }]) : [];
   let moved = false;
   block._dragging = true;
+  const ang = n.t === 'img' ? (n.ang || 0) : 0, ra = ang * Math.PI / 180, ca = Math.cos(ra), sa = Math.sin(ra);
+  const ctr = mode === 'rot' ? (() => { const r = e.currentTarget.parentElement.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })() : null;
   const mv = ev => {
-    const dx = (ev.clientX - sx) / z, dy = (ev.clientY - sy) / z;
+    let dx = (ev.clientX - sx) / z, dy = (ev.clientY - sy) / z;
     if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
-    if (mode === 'move' && n.t === 'arrow') { n.x1 = o.x1 + dx; n.y1 = o.y1 + dy; n.x2 = o.x2 + dx; n.y2 = o.y2 + dy; }
-    else if (mode === 'move') { n.x = Math.round(o.x + dx); n.y = Math.round(o.y + dy); }
+    if (mode === 'rot') { // 회전: 사진 가운데 기준, Shift = 15°씩, 0·90·180·270 근처는 딱 맞춤
+      let a = Math.atan2(ev.clientY - ctr.y, ev.clientX - ctr.x) * 180 / Math.PI + 90;
+      a = ((a % 360) + 360) % 360;
+      if (ev.shiftKey) a = Math.round(a / 15) * 15; else { const q = Math.round(a / 90) * 90; if (Math.abs(a - q) < 4) a = q; }
+      n.ang = Math.round(a) % 360; if (!n.ang) delete n.ang;
+      renderNotes(block); return;
+    }
+    if (ang && mode.startsWith('r-')) { const lx = ca * dx + sa * dy, ly = -sa * dx + ca * dy; dx = lx; dy = ly; } // 화면 방향 → 사진 방향
+    const mvOne = (m, oo) => { if (m.t === 'arrow') { m.x1 = oo.x1 + dx; m.y1 = oo.y1 + dy; m.x2 = oo.x2 + dx; m.y2 = oo.y2 + dy; } else { m.x = Math.round(oo.x + dx); m.y = Math.round(oo.y + dy); } };
+    if (mode === 'move') { mvOne(n, o); others.forEach(([m, oo]) => mvOne(m, oo)); }
     else if (mode.startsWith('r-')) { // 네 모서리: 반대쪽 모서리는 그대로
-      const c = mode.slice(2), west = c.includes('w'), north = c.includes('n');
-      let w = Math.max(16, Math.round(west ? o.w - dx : o.w + dx));
-      let hh = Math.max(16, Math.round(north ? o.h - dy : o.h + dy));
-      if (n.t === 'img') hh = Math.max(16, Math.round(w * o.h / o.w)); // 사진은 비율 유지
+      const c = mode.slice(2), west = c.includes('w'), north = c.includes('n'), horiz = /[ew]/.test(c), vert = /[ns]/.test(c);
+      let w = horiz ? Math.max(16, Math.round(west ? o.w - dx : o.w + dx)) : o.w;
+      let hh = vert ? Math.max(16, Math.round(north ? o.h - dy : o.h + dy)) : o.h;
+      const crop = n.t === 'img' && block._cropNote === n.id;
+      if (n.t === 'img' && c.length === 2 && !crop) hh = Math.max(16, Math.round(w * o.h / o.w)); // 사진: 모서리 = 비율 유지, 변 = 가로·세로 따로 늘리기
+      if (crop) { // 자르기: 사진 크기·자리는 그대로, 보이는 네모만 바뀜 (원래 사진 밖으로는 못 넓힘)
+        const c0 = o.crop || { x: 0, y: 0, w: 1, h: 1 }, fw = o.w / c0.w, fh = o.h / c0.h, ox = o.x - c0.x * fw, oy = o.y - c0.y * fh;
+        let x0 = west ? o.x + o.w - w : o.x, y0 = north ? o.y + o.h - hh : o.y, x1 = x0 + w, y1 = y0 + hh;
+        x0 = Math.max(ox, x0); y0 = Math.max(oy, y0); x1 = Math.min(ox + fw, x1); y1 = Math.min(oy + fh, y1);
+        n.x = x0; n.y = y0; n.w = x1 - x0; n.h = y1 - y0;
+        n.crop = { x: (x0 - ox) / fw, y: (y0 - oy) / fh, w: (x1 - x0) / fw, h: (y1 - y0) / fh };
+      } else {
       n.w = w; n.h = hh;
       n.x = west ? o.x + o.w - w : o.x;
       n.y = north ? o.y + o.h - hh : o.y;
+      }
+      if (ang) { // 돌린 사진: 가운데가 바뀐 만큼 돌려서 옮김 → 끄는 반대쪽 모서리가 제자리
+        const c0x = o.x + o.w / 2, c0y = o.y + o.h / 2, ddx = n.x + n.w / 2 - c0x, ddy = n.y + n.h / 2 - c0y;
+        n.x = c0x + ca * ddx - sa * ddy - n.w / 2; n.y = c0y + sa * ddx + ca * ddy - n.h / 2;
+      }
     }
     else { n['x' + mode[1]] = o['x' + mode[1]] + dx; n['y' + mode[1]] = o['y' + mode[1]] + dy; }
     renderNotes(block);
@@ -1424,10 +1507,11 @@ function addNote(block, n) {
   saveNotes(block); selectNote(block, n.id);
 }
 function removeNote(block, id) {
-  const n = block._notes.find(x => x.id === id); if (!n) return;
-  block._notes = block._notes.filter(x => x.id !== id);
-  if (n.path) deleteObject(sRef(st, n.path)).catch(() => { });
-  block._sel = null; noteSaveBlock = null;
+  const ids = new Set(id ? [id] : []);
+  const gone = block._notes.filter(x => ids.has(x.id)); if (!gone.length) return;
+  block._notes = block._notes.filter(x => !ids.has(x.id));
+  gone.forEach(n => { if (n.path && !n.shared) deleteObject(sRef(st, n.path)).catch(() => { }); }); // 복사해서 같이 쓰는 사진 파일은 남김
+  block._sel = null; block._msel = new Set(); noteSaveBlock = null;
   saveNotes(block); renderNotes(block); renderNoteBar(block);
 }
 async function addImageNote(block, file) {
@@ -1465,21 +1549,34 @@ function renderNoteBar(block) {
   const box = block._bar?.querySelector('.nb-props'); if (!box) return;
   if (box.contains(document.activeElement) && document.activeElement.tagName === 'TEXTAREA') return; // 글 쓰는 중
   box.innerHTML = '';
+  const pasteBtn = state.noteClip?.length ? h('button', { class: 'btn small', title: 'Ctrl+V', onclick: () => pasteNotes(block) }, `📋 붙여넣기 (${state.noteClip.length}개)`) : ''; // null이면 'null' 글자가 보였음
+  const ids = selIds(block);
+  if (ids.length > 1) { // 여러 개 고름
+    box.append(h('b', {}, `메모 ${ids.length}개 고름`), h('span', { class: 'mut' }, ' · 하나를 끌면 같이 옮겨져요'), h('span', { class: 'nb-sp' }),
+      h('button', { class: 'btn small', title: 'Ctrl+C', onclick: () => copyNotes(block) }, '📄 복사'), pasteBtn,
+      h('button', { class: 'btn small ghost', onclick: () => selectNote(block, null) }, '고르기 풀기'),
+      h('button', { class: 'btn small ghost danger', onclick: () => { if (confirm(`메모 ${ids.length}개를 지울까요?`)) removeSelNotes(block); } }, '삭제'));
+    return;
+  }
   const n = block._notes.find(x => x.id === block._sel);
-  if (!n) { box.append(h('span', { class: 'mut' }, '메모를 누르면 색·채우기를 바꿀 수 있어요. 끌어서 옮기고, 모서리로 크기를 바꿔요.')); return; }
-  const set = (patch) => { Object.assign(n, patch); saveNotes(block); renderNotes(block); renderNoteBar(block); };
+  if (!n) { box.append(h('span', { class: 'mut' }, '메모를 누르면 색·채우기를 바꿀 수 있어요. Shift(또는 Ctrl)+클릭으로 여러 개 골라 복사(Ctrl+C)·붙여넣기(Ctrl+V)해요.'),
+    block._notes.length > 1 ? h('button', { class: 'btn small ghost', onclick: () => { block._msel = new Set(block._notes.map(x => x.id)); block._sel = block._notes.at(-1).id; noteSaveBlock = block; setEdActive(block._fx); renderNotes(block); renderNoteBar(block); } }, `이 페이지 메모 모두 고르기 (${block._notes.length}개)`) : '',
+    pasteBtn); return; }
+  const set = (patch) => { Object.assign(n, patch); rememberNoteStyle(n); saveNotes(block); renderNotes(block); renderNoteBar(block); };
   const lab = t => h('span', { class: 'nb-l' }, t);
   const sel = (v, opts, on) => { const s = h('select', { class: 'nb-sel' }, ...opts.map(([k, t]) => h('option', { value: k }, t))); s.value = String(v); s.onchange = () => on(s.value); return s; };
   if (n.t === 'box') box.append(
     lab('색'), swatches(n.color, c => set({ color: c || n.color })),
     h('label', { class: 'nb-chk' }, h('input', { type: 'checkbox', checked: !!n.fill, onchange: e => set({ fill: e.target.checked }) }), ' 채우기'),
-    n.fill ? sel(n.alpha ?? 0.3, [['0.25', '연하게'], ['0.5', '중간'], ['1', '진하게']], v => set({ alpha: Number(v) })) : null,
+    n.fill ? sel(n.alpha ?? 0.3, [['0.25', '연하게'], ['0.5', '중간'], ['1', '진하게']], v => set({ alpha: Number(v) })) : '',
     lab('굵기'), sel(n.bw || 3, [['1', '1'], ['2', '2'], ['3', '3'], ['5', '5']], v => set({ bw: Number(v) })));
   if (n.t === 'text') {
     const ta = h('textarea', { class: 'nb-text', rows: 2 });
     ta.value = n.text || '';
     ta.addEventListener('input', () => {
-      n.text = ta.value; renderNotes(block); // 상자 크기는 그대로 (넘치면 글자가 작아짐)
+      n.text = ta.value; // 상자 크기는 그대로 (넘치면 글자가 작아짐)
+      const tx = block.querySelector(`.anno .nt[data-id="${n.id}"] .nt-tx`); // 메모 전체를 다시 그리면 버벅여서 그 글만 바꿈 (사용자)
+      if (tx) { tx.textContent = n.text; tx.style.fontSize = (n.fs || 14) + 'px'; fitText(tx, n.fs || 14); } else renderNotes(block);
       saveNotes(block);
     });
     box.append(ta,
@@ -1490,16 +1587,42 @@ function renderNoteBar(block) {
   }
   if (n.t === 'arrow') box.append(lab('색'), swatches(n.color, c => set({ color: c || n.color })),
     lab('굵기'), sel(n.bw || 3, [['2', '2'], ['3', '3'], ['5', '5'], ['8', '8']], v => set({ bw: Number(v) })));
-  if (n.t === 'img') box.append(h('span', { class: 'mut' }, '모서리를 끌면 비율을 유지하며 크기가 바뀌어요.'));
+  if (n.t === 'img') {
+    const on = block._cropNote === n.id;
+    const rotNote = d => { // 가운데를 그대로 두고 90° 돌림 → 상자 가로·세로가 바뀜
+      const cx = n.x + n.w / 2, cy = n.y + n.h / 2, w = n.h, hh = n.w;
+      n.rot = (((n.rot || 0) + d) % 360 + 360) % 360; n.w = w; n.h = hh; n.x = Math.round(cx - w / 2); n.y = Math.round(cy - hh / 2);
+      rememberNoteStyle(n); saveNotes(block); renderNotes(block); renderNoteBar(block);
+    };
+    const endCropN = () => { block._cropNote = null; if (n.crop && n.crop.x <= 0.001 && n.crop.y <= 0.001 && n.crop.w >= 0.999 && n.crop.h >= 0.999) delete n.crop; saveNotes(block); renderNotes(block); renderNoteBar(block); };
+    box.append(on ? h('span', { class: 'mut' }, '✂ 자르는 중: 모서리·변의 점을 안쪽으로 끌면 그만큼 잘려요 (흐린 부분 = 잘려 나가는 곳)') : h('span', { class: 'mut' }, '모서리 점 = 비율 그대로 크기 바꾸기 · 변 가운데 점 = 가로만·세로만 늘리고 줄이기'),
+      on ? '' : h('span', { class: 'mut' }, `· 위쪽 동그라미를 끌면 돌아가요 (Shift = 15°씩)${n.ang ? ` · 지금 ${n.ang}°` : ''}`),
+      !on && (n.ang || n.rot) ? h('button', { class: 'btn small ghost', onclick: () => { if (n.rot) rotNote(-n.rot); delete n.ang; saveNotes(block); renderNotes(block); renderNoteBar(block); } }, '회전 없애기') : '',
+      on ? h('button', { class: 'btn small primary', onclick: endCropN }, '✓ 자르기 끝') : h('button', { class: 'btn small', onclick: () => { if (((n.rot || 0) % 360 + 360) % 360) { toast('사진을 자를 때는 회전을 처음 방향(0°)으로 돌려 주세요'); return; } block._cropNote = n.id; if (!n.crop) n.crop = { x: 0, y: 0, w: 1, h: 1 }; renderNotes(block); renderNoteBar(block); } }, '✂ 사진 자르기'),
+      n.crop && !on ? h('button', { class: 'btn small ghost', onclick: () => {
+        const c = n.crop, r = ((n.rot || 0) % 360 + 360) % 360;
+        if (!r) { const fw = n.w / c.w, fh = n.h / c.h; n.x -= c.x * fw; n.y -= c.y * fh; n.w = fw; n.h = fh; }
+        else { const sw = r === 90 || r === 270, uw = (sw ? n.h : n.w) / c.w, uh = (sw ? n.w : n.h) / c.h, cx = n.x + n.w / 2, cy = n.y + n.h / 2; n.w = sw ? uh : uw; n.h = sw ? uw : uh; n.x = cx - n.w / 2; n.y = cy - n.h / 2; }
+        delete n.crop; saveNotes(block); renderNotes(block); renderNoteBar(block); } }, '자르기 없애기') : '');
+  }
   if (n.t === 'text') box.append(h('span', { class: 'mut nb-tip' }, '네 모서리 점을 끌어 상자 크기를 바꿔요. 글이 넘치면 글자가 자동으로 작아져요.'));
   box.append(h('span', { class: 'nb-sp' }),
-    n.t !== 'img' ? h('button', { class: 'btn small ghost', onclick: () => { const c = structuredClone(n); delete c.id; if (c.t === 'arrow') { c.x1 += 20; c.y1 += 20; c.x2 += 20; c.y2 += 20; } else { c.x += 20; c.y += 20; } addNote(block, c); } }, '복제') : null,
+    n.t !== 'img' ? h('button', { class: 'btn small ghost', onclick: () => { const c = structuredClone(n); delete c.id; if (c.t === 'arrow') { c.x1 += 20; c.y1 += 20; c.x2 += 20; c.y2 += 20; } else { c.x += 20; c.y += 20; } addNote(block, c); } }, '복제') : '', // null이면 'null' 글자가 보였음
+    h('button', { class: 'btn small', title: 'Ctrl+C', onclick: () => copyNotes(block) }, '📄 복사'), ...(pasteBtn ? [pasteBtn] : []), // 붙여넣을 게 없으면 'null' 글자가 보였음
     h('button', { class: 'btn small ghost danger', onclick: () => removeNote(block, n.id) }, '삭제'));
+}
+function removeSelNotes(block) {
+  const ids = new Set(selIds(block)); if (!ids.size) return;
+  const gone = block._notes.filter(x => ids.has(x.id));
+  block._notes = block._notes.filter(x => !ids.has(x.id));
+  gone.forEach(n => { if (n.path && !n.shared) deleteObject(sRef(st, n.path)).catch(() => { }); });
+  block._sel = null; block._msel = new Set(); noteSaveBlock = null;
+  saveNotes(block); renderNotes(block); renderNoteBar(block);
 }
 document.addEventListener('keydown', e => {
   const b = noteSaveBlock; if (!b || !b._sel || !b.isConnected) return;
-  if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName)) return;
-  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeNote(b, b._sel); }
+  if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return;
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); selIds(b).length > 1 ? removeSelNotes(b) : removeNote(b, b._sel); }
   if (e.key === 'Escape') selectNote(b, null);
 });
 
@@ -1927,6 +2050,7 @@ function dragBlock(e, block, bid) {
 function paintBlockSel(block) { block.querySelectorAll('.cv-blk').forEach(el => el.classList.toggle('on', el.dataset.b === block._selBlock)); }
 // 잘라내기 → 다른 페이지에서 붙여넣기 (붙여넣을 때 실제로 옮김)
 function cutBlock(pogId, fx, b) {
+  state.lastClip = 'block'; // Ctrl+V = 매대 묶음 붙여넣기 (메모 복사보다 나중이면)
   state.clip = { pogId, from: fx.id, bid: b.id, n: (b.items || []).length };
   toast(`묶음(제품 ${state.clip.n}개)을 잘라냈어요. 옮길 페이지를 보고 Ctrl+V (또는 오른쪽 '여기에 붙여넣기')`);
   renderSidePanel();
@@ -1970,13 +2094,15 @@ function pasteBlock(pogId, to) {
 }
 document.addEventListener('keydown', e => {
   if (state.view !== 'pog-make' || !state.edEditable || !(e.ctrlKey || e.metaKey) || e.altKey) return;
-  const k = e.key.toLowerCase(); if (k !== 'x' && k !== 'v') return;
+  const k = e.key.toLowerCase(); if (k !== 'x' && k !== 'v' && k !== 'c') return;
   const a = document.activeElement;
   if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return;
   if ($('#modal-root')?.children.length) return;
   const pog = state.currentPog, fx = state.fixtures.get(state.edActive), block = state.pageEls.get(state.edActive);
   if (!pog || !fx) return;
-  if (k === 'x') { const b = block?._selBlock && (fx.blocks || []).find(x => x.id === block._selBlock); if (!b) return; e.preventDefault(); cutBlock(pog.id, fx, b); }
+  if (k === 'c') { const nb = noteSaveBlock && noteSaveBlock.isConnected && selIds(noteSaveBlock).length ? noteSaveBlock : null; if (!nb) return; e.preventDefault(); copyNotes(nb); return; } // 메모 복사
+  if (k === 'x') { const b = block?._selBlock && (fx.blocks || []).find(x => x.id === block._selBlock); if (!b) return; e.preventDefault(); state.lastClip = 'block'; cutBlock(pog.id, fx, b); }
+  else if (state.lastClip === 'notes' && state.noteClip?.length && block) { e.preventDefault(); pasteNotes(block); } // 메모 붙여넣기 (지금 보고 있는 페이지에)
   else if (state.clip) { e.preventDefault(); pasteBlock(pog.id, fx); }
 });
 
@@ -2214,7 +2340,7 @@ async function deleteDocs(refs) {
 // POG 통째로: 페이지(사진·메모 사진 파일 포함)·번역·POG 문서
 async function deletePogAll(pogId) {
   const [fxs, trs] = await Promise.all([getDocs(collection(db, 'pogs', pogId, 'fixtures')), getDocs(collection(db, 'pogs', pogId, 'translations'))]);
-  for (const d of fxs.docs) for (const ph of [...(d.data().photos || []), ...(d.data().notes || []).filter(n => n.path)]) { if (ph.path) try { await deleteObject(sRef(st, ph.path)); } catch { } }
+  for (const d of fxs.docs) for (const ph of [...(d.data().photos || []), ...(d.data().notes || []).filter(n => n.path && !n.shared)]) { if (ph.path) try { await deleteObject(sRef(st, ph.path)); } catch { } }
   await deleteDocs([...fxs.docs.map(d => d.ref), ...trs.docs.map(d => d.ref)]);
   await dropLogs(['pogs', pogId]);
   await deleteDoc(doc(db, 'pogs', pogId));
@@ -2792,7 +2918,7 @@ async function applyRegrab(pog, plan) {
     await put(() => b.set(doc(db, 'pogs', pog.id, 'fixtures', freeId(id)), { order: ++end, ...rest, ...blank }));
   }
   for (const o of plan.deletes) {
-    for (const ph of [...(o.photos || []), ...(o.notes || []).filter(x => x.path)]) { try { await deleteObject(sRef(st, ph.path)); } catch { } }
+    for (const ph of [...(o.photos || []), ...(o.notes || []).filter(x => x.path && !x.shared)]) { try { await deleteObject(sRef(st, ph.path)); } catch { } }
     await put(() => b.delete(doc(db, 'pogs', pog.id, 'fixtures', o.id)));
   }
   await flush();
@@ -2801,6 +2927,64 @@ async function applyRegrab(pog, plan) {
   toast(`페이지 ${total}장을 최신으로 바꿨어요` + (plan.deletes.length ? ` · ${plan.deletes.length}장 삭제` : ''));
 }
 $('#ed-regrab').onclick = () => openRegrab(null);
+/* 다른 POG에서 메모 가져오기 (사용자, Korea-Store-Prep와 같음: 신규 매장 POG에 예전 매장 POG의 메모·첨부 사진을 매대명으로 짝지어 복사).
+   짝 = 같은 제품코드가 겹치는 정도(70%) + 매대명 비슷한 정도(30%). 메모는 같은 자리에, 지금 메모에 더해서. 사진 파일은 두 POG가 같이 씀(shared). Ctrl+Z로 되돌림 */
+const pogTitleOf = p => `${p.branchName || p.storeName || '(이름 없음)'}${p.storeCode ? ' · ' + p.storeCode : ''}`;
+$('#ed-copynotes').onclick = () => { if (state.currentPog) openCopyNotes(state.currentPog); };
+function openCopyNotes(pog) {
+  if (!state.edEditable) { toast(pog.status === 'final' ? '최종 POG예요. 잠금 해제한 뒤 가져올 수 있어요' : '편집 권한이 없어요'); return; }
+  const others = state.pogs.filter(p => p.id !== pog.id).sort((a, b) => pogTitleOf(a).localeCompare(pogTitleOf(b), 'ko'));
+  if (!others.length) { alert('가져올 다른 POG가 없어요.'); return; }
+  const sel = h('select', { class: 'se-input' }, h('option', { value: '' }, '원본 POG 고르기'), ...others.map(p => h('option', { value: p.id }, `${pogTitleOf(p)}${p.status === 'final' ? ' (최종)' : ''}`)));
+  const body = h('div', { class: 'pdl-list' }), info = h('p', { class: 'mut' }), go = h('button', { class: 'btn primary', disabled: true }, '가져오기');
+  let rows = [], src = [];
+  const codes = f => new Set((f.items || []).map(it => code8(String(it.code || '').trim())).filter(Boolean));
+  const names = f => nameWords([f.headerName, f.mdName].filter(Boolean).join(' '));
+  sel.onchange = async () => {
+    body.replaceChildren(); go.disabled = true; if (!sel.value) return;
+    info.textContent = '원본 POG 읽는 중…';
+    try { src = (await getDocs(collection(db, 'pogs', sel.value, 'fixtures'))).docs.map(d => ({ id: d.id, ...d.data() })).filter(f => (f.notes || []).length); }
+    catch (e) { info.textContent = '읽지 못했어요: ' + (e.code || e.message); return; }
+    if (!src.length) { info.textContent = '이 POG에는 메모가 있는 페이지가 없어요.'; return; }
+    const tgt = [...state.edComposed.values()].filter(f => f.kind !== 'free');
+    // 점수: 제품코드 겹침 + 매대명
+    const score = (a, b) => { const A = codes(a), B = codes(b); let n = 0; A.forEach(c => { if (B.has(c)) n++; }); const ov = A.size && B.size ? n / Math.min(A.size, B.size) : 0; return ov * 0.7 + wordSim(names(a), names(b)) * 0.3; };
+    const all = tgt.flatMap(t => src.map(sf => ({ t, sf, s: score(t, sf) }))).sort((a, b) => b.s - a.s), usedT = new Set(), usedS = new Set(), pick = new Map();
+    for (const c of all) { if (c.s < 0.3 || usedT.has(c.t.id) || usedS.has(c.sf.id)) continue; usedT.add(c.t.id); usedS.add(c.sf.id); pick.set(c.t.id, c); }
+    rows = tgt.map(t => {
+      const best = pick.get(t.id), cb = h('input', { type: 'checkbox', checked: !!best });
+      const ss = h('select', { class: 'nb-sel' }, h('option', { value: '' }, '— 가져오지 않음 —'), ...src.map(sf => h('option', { value: sf.id }, `${displayName(sf)} · 메모 ${sf.notes.length}개`)));
+      ss.value = best ? best.sf.id : ''; ss.onchange = () => { cb.checked = !!ss.value; };
+      return { t, cb, ss, el: h('label', { class: 'pdl-row pdl-guess' + (best ? '' : ' none') }, cb, h('span', { class: 'pdl-name' }, displayName(t)), h('span', { class: 'pdl-ref' }, '← '), ss, h('span', { class: 'pdl-score' }, best ? `${Math.round(Math.min(1, best.s) * 100)}%` : '')) };
+    });
+    body.replaceChildren(...rows.map(r => r.el));
+    info.textContent = `이 POG 페이지 ${tgt.length}장 중 ${pick.size}장에 원본 메모 페이지를 짝지었어요 (같은 제품이 겹치는 정도 + 매대명). 틀린 짝은 오른쪽에서 바꾸거나 체크를 빼세요.`;
+    go.disabled = false;
+  };
+  go.onclick = async () => {
+    const todo = rows.filter(r => r.cb.checked && r.ss.value).map(r => ({ t: r.t, sf: src.find(x => x.id === r.ss.value) })).filter(x => x.sf);
+    if (!todo.length) { toast('가져올 페이지를 골라 주세요'); return; }
+    go.disabled = true;
+    try {
+      const ug = undoGroup(), shareSrc = new Map(); let n = 0;
+      for (const { t, sf } of todo) {
+        const fx = state.fixtures.get(t.id); if (!fx) continue;
+        const add = sf.notes.map(nn => ({ ...structuredClone(nn), id: uid(), ...(nn.t === 'img' ? { shared: true } : {}) }));
+        const notes = [...(fx.notes || []), ...add];
+        saveFx(pog.id, fx.id, 'notes', notes, ug); fx.notes = notes; n += add.length;
+        if (sf.notes.some(nn => nn.t === 'img' && !nn.shared)) shareSrc.set(sf.id, sf.notes.map(nn => nn.t === 'img' ? { ...nn, shared: true } : nn));
+        const blk = state.pageEls.get(fx.id); if (blk) { blk._notes = structuredClone(notes); renderNotes(blk); }
+      }
+      // 원본 POG의 사진 메모도 '같이 씀' 표시 (원본에서 지워도 이쪽 사진 파일이 남게)
+      for (const [id, notes] of shareSrc) updateDoc(doc(db, 'pogs', sel.value, 'fixtures', id), { notes }).catch(() => { });
+      close(); toast(`메모 ${n}개를 ${todo.length}장에 가져왔어요 · Ctrl+Z로 되돌릴 수 있어요`);
+    } catch (e) { alert('가져오지 못했어요: ' + (e.code || e.message)); go.disabled = false; }
+  };
+  const close = modal(h('div', { class: 'pdl' }, h('h3', {}, '📋 다른 POG에서 메모 가져오기'),
+    h('p', { class: 'se-help' }, '다른 매장 POG의 메모 상자·글상자·화살표·첨부 사진을, 같은 매대로 보이는 이 POG 페이지의 같은 자리에 복사해요. 지금 있는 메모는 그대로 두고 더해요.'),
+    sel, info, body, h('div', { class: 'modal-act' }, h('span', { class: 'grow' }), go)), { wide: true });
+}
+
 
 /* ---------- 2.2 POG 번역 ----------
    AI 번역 없음: 용어 사전에서 찾아 자동으로 채우고(통째 → 낱말 단위), 못 찾은 것만 사람이 입력.
@@ -4288,6 +4472,14 @@ async function readSeq(storeId, vId) {
 // 이름 비슷한 정도 0~1: 낱말('/'·쉼표·괄호·띄어쓰기로 나눔)이 겹치는 정도 + 글자 두 개씩 겹치는 정도. POG 원래 이름 끝의 '_2_2600_1000'·'(1/4)'는 뺌
 const nameWords = s => String(s || '').replace(/\(\d+\/\d+\)/g, '').replace(/_[\d_A-Za-z]*$/, '').split(/[\/,·()\[\]\s&+]+/).map(w => w.replace(/[^가-힣A-Za-z0-9]/g, '')).filter(w => w.length > 0);
 const bigrams = s => { const t = s.replace(/[^가-힣A-Za-z0-9]/g, ''), out = new Set(); for (let i = 0; i < t.length - 1; i++) out.add(t.slice(i, i + 2)); return out; };
+function wordSim(pw, gw) {
+  if (!pw.length || !gw.length) return 0;
+  const inter = gw.filter(w => pw.some(p => p === w || (p.length > 1 && w.length > 1 && (p.includes(w) || w.includes(p))))).length;
+  const word = inter / Math.max(gw.length, pw.length);
+  const A = bigrams(pw.join('')), B = bigrams(gw.join('')), both = [...A].filter(x => B.has(x)).length;
+  const dice = A.size + B.size ? 2 * both / (A.size + B.size) : 0;
+  return word * 0.65 + dice * 0.35 + (pw.join('') === gw.join('') ? 0.3 : 0);
+}
 function nameScore(fx, ko) {
   const gw = nameWords(ko); if (!gw.length) return 0;
   let best = 0;
